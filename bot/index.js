@@ -22,7 +22,7 @@ app.use(cors({
 }));
 app.use(express.json());
 
-app.get(`/${MINIAPP_URL}/flashcards`, (req, res) => {
+app.get("/api/flashcards", (req, res) => {
   const userId = req.query.userId;
   const cards = getFlashcards(userId);
   res.json({ cards });
