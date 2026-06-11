@@ -20,14 +20,14 @@ export default function App() {
   const [stats, setStats] = useState({ remembered: 0, forgot: 0 });
   const [apiError, setApiError] = useState(null);
 
+  const userId =
+    new URLSearchParams(window.location.search).get("userId") ||
+    window.Telegram?.WebApp?.initDataUnsafe?.user?.id;
 
   useEffect(() => {
     if (window.Telegram?.WebApp) {
       window.Telegram.WebApp.ready();
       window.Telegram.WebApp.expand();
-      const userId =
-        new URLSearchParams(window.location.search).get("userId") ||
-        window.Telegram?.WebApp?.initDataUnsafe?.user?.id;
     }
 
     // If no API URL configured, skip fetch and use demo cards
