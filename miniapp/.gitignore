@@ -1,4 +1,15 @@
+# dependencies
+node_modules
+
+# builds
+dist
+
+# vercel
 .vercel
-.node_modules
-.dist
+
+# env files
 .env
+.env.*
+
+# logs
+*.log
