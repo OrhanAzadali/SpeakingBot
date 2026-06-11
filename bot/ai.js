@@ -68,12 +68,18 @@ export async function chat(userId, userMessage, history, language, level) {
 
   // Parse the structured response
   const correctionMatch = raw.match(/\[CORRECTION\]([\s\S]*?)\[FLASHCARD\]/);
-  const flashcardMatch = raw.match(/\[FLASHCARD\]([\s\S]*?)\[RESPONSE\]/);
+  const flashcardMatch = raw.match(/\[FLASHCARD\]([\s\S]*?)(?:\[RESPONSE\]|$)/);
   const responseMatch = raw.match(/\[RESPONSE\]([\s\S]*?)$/);
 
   const correction = correctionMatch ? correctionMatch[1].trim() : "✅ Perfect!";
-  const flashcardRaw = flashcardMatch ? flashcardMatch[1].trim() : "NONE";
+  const flashcardRaw = flashcardMatch
+    ? flashcardMatch[1].trim().split("\n")[0]
+    : "NONE";
   const reply = responseMatch ? responseMatch[1].trim() : raw;
+
+  // TEMPORARILY ADDED - TO BE REMOVED:
+  console.log("RAW AI OUTPUT:", raw);
+  console.log("FLASHCARD RAW:", flashcardRaw);
 
   // Save flashcard if present
   if (flashcardRaw !== "NONE" && flashcardRaw.includes(":::")) {
