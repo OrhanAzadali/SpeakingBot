@@ -4,7 +4,7 @@ import Summary from "./components/Summary.jsx";
 
 // Fallback: if env var is missing, try to infer from current origin or use empty string
 // You MUST set VITE_API_URL in Vercel dashboard under Project → Settings → Environment Variables
-const API = import.meta.env.VITE_API_URL || "";
+const API = import.meta.env.VITE_API_URL || "https://speakingbot.onrender.com";
 console.log(API);
 
 const DEMO_CARDS = [
