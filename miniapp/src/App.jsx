@@ -8,14 +8,12 @@ export default function App() {
   const [done, setDone] = useState(false);
   const [stats, setStats] = useState({ remembered: 0, forgot: 0 });
 
-  // Get userId from URL params or Telegram WebApp
-  // try {
+  const API = import.meta.env.VITE_API_URL;
 
+  // Get userId from URL params or Telegram WebApp
   const userId = new URLSearchParams(window.location.search).get("userId")
     ||
     window.Telegram?.WebApp?.initDataUnsafe?.user?.id;
-  // }
-  // catch (error) { console.log(error.message) };
 
   useEffect(() => {
     if (window.Telegram?.WebApp) {
@@ -24,8 +22,9 @@ export default function App() {
       window.Telegram.WebApp.expand();
     }
     console.log(userId);
+
     // Load flashcards from bot API
-    fetch(`/api/flashcards?userId=${userId}`)
+    fetch(`${API}/api/flashcards?userId=${userId}`)
       .then((r) => r.json())
       .then((data) => {
         setCards(data.cards || []);
@@ -51,7 +50,7 @@ export default function App() {
     }));
 
     // Report to backend
-    fetch(`/api/flashcards/${cardId}/review`, {
+    fetch(`${API}/api/flashcards/${cardId}/review`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ remembered }),
