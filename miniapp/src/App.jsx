@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
 import FlashcardDeck from "./components/FlashcardDeck.jsx";
 import Summary from "./components/Summary.jsx";
-console.log("API URL:", import.meta.env.VITE_API_URL);
+
 export default function App() {
   const [cards, setCards] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -10,8 +10,11 @@ export default function App() {
 
   const API = import.meta.env.VITE_API_URL;
 
+  console.log("API URL:", import.meta.env.VITE_API_URL);
   // Get userId from URL params or Telegram WebApp
-  const userId = "8291613988";
+  const userId = new URLSearchParams(window.location.search).get("userId")
+    ||
+    window.Telegram?.WebApp?.initDataUnsafe?.user?.id;
 
   useEffect(() => {
     if (window.Telegram?.WebApp) {
