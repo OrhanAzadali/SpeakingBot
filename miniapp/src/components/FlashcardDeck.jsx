@@ -10,6 +10,7 @@ export default function FlashcardDeck({ cards, onResult }) {
     if (!flipped) setFlipped(true);
   }
 
+
   function handleResult(remembered) {
     if (!flipped) return;
     setAnimating(remembered ? "right" : "left");

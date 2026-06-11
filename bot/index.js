@@ -11,14 +11,18 @@ import express from "express";
 import cors from "cors";
 
 const bot = new Bot(process.env.BOT_TOKEN);
-// const MINIAPP_URL = process.env.MINIAPP_URL;
+const MINIAPP_URL = process.env.MINIAPP_URL;
 
 const app = express();
 
-app.use(cors());
+import cors from "cors";
+
+app.use(cors({
+  origin: "*"
+}));
 app.use(express.json());
 
-app.get("/api/flashcards", (req, res) => {
+app.get(`/${MINIAPP_URL}/flashcards`, (req, res) => {
   const userId = req.query.userId;
   const cards = getFlashcards(userId);
   res.json({ cards });

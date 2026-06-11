@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
 import FlashcardDeck from "./components/FlashcardDeck.jsx";
 import Summary from "./components/Summary.jsx";
-
+console.log("API URL:", import.meta.env.VITE_API_URL);
 export default function App() {
   const [cards, setCards] = useState([]);
   const [loading, setLoading] = useState(true);
