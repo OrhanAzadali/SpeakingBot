@@ -11,9 +11,7 @@ export default function App() {
   const API = import.meta.env.VITE_API_URL;
 
   // Get userId from URL params or Telegram WebApp
-  const userId = new URLSearchParams(window.location.search).get("userId")
-    ||
-    window.Telegram?.WebApp?.initDataUnsafe?.user?.id;
+  const userId = "8291613988";
 
   useEffect(() => {
     if (window.Telegram?.WebApp) {
