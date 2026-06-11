@@ -7,8 +7,32 @@ import {
 } from "./db.js";
 import { chat, transcribeAudio, LANGUAGES } from "./ai.js";
 
+import express from "express";
+import cors from "cors";
+
 const bot = new Bot(process.env.BOT_TOKEN);
-const MINIAPP_URL = process.env.MINIAPP_URL;
+// const MINIAPP_URL = process.env.MINIAPP_URL;
+
+const app = express();
+
+app.use(cors());
+app.use(express.json());
+
+app.get("/api/flashcards", (req, res) => {
+  const userId = req.query.userId;
+  const cards = getFlashcards(userId);
+  res.json({ cards });
+});
+
+app.post("/api/flashcards/:id/review", (req, res) => {
+  res.json({ ok: true });
+});
+
+const PORT = process.env.PORT || 3000;
+
+app.listen(PORT, () => {
+  console.log(`API running on port ${PORT}`);
+});
 
 // ── /start ────────────────────────────────────────────────────────────────────
 
@@ -228,7 +252,7 @@ async function sendDailyReminders() {
           `⏰ *Time to review your flashcards!*\n\nYou have *${due.length}* words due for practice. Tap below to review them now!`,
           { parse_mode: "Markdown", reply_markup: kb }
         );
-      } catch (_) {}
+      } catch (_) { }
     }
   }
 }

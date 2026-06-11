@@ -7,7 +7,9 @@
     "dev": "node --watch index.js"
   },
   "dependencies": {
+    "cors": "^2.8.6",
     "dotenv": "^16.4.5",
+    "express": "^5.2.1",
     "form-data": "^4.0.0",
     "grammy": "^1.21.1",
     "groq-sdk": "^0.3.3",
