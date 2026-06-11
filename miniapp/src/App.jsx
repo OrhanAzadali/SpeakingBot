@@ -10,7 +10,7 @@ export default function App() {
 
   const API = import.meta.env.VITE_API_URL;
 
-  console.log("API URL:", import.meta.env.VITE_API_URL);
+  console.log("API URL:", API);
   // Get userId from URL params or Telegram WebApp
   const userId = new URLSearchParams(window.location.search).get("userId")
     ||
