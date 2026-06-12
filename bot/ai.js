@@ -1,7 +1,7 @@
 // ai.js
 import Groq from "groq-sdk";
 import { addFlashcard, addHistory } from "./db.js";
-import edgeTTS from "edge-tts";
+import { MsEdgeTTS, OUTPUT_FORMAT } from "msedge-tts";
 import { writeFile, unlink } from "fs/promises";
 import { tmpdir } from "os";
 import { join } from "path";
@@ -110,8 +110,8 @@ export async function textToSpeech(text, languageKey) {
   const outputPath = join(tmpdir(), `tts_${Date.now()}.mp3`);
 
   try {
-    const tts = new edgeTTS.MsEdgeTTS();
-    await tts.setMetadata(voice, edgeTTS.OUTPUT_FORMAT.AUDIO_24KHZ_48KBITRATE_MONO_MP3);
+    const tts = new MsEdgeTTS();
+    await tts.setMetadata(voice, OUTPUT_FORMAT.AUDIO_24KHZ_48KBITRATE_MONO_MP3);
     const readable = tts.toStream(text);
 
     const chunks = [];
