@@ -278,6 +278,15 @@ setInterval(sendDailyReminders, 60 * 60 * 1000);
 
 initDB().then(() => {
   app.listen(PORT, () => console.log(`API running on port ${PORT}`));
-  bot.start();
-  console.log("✅ Language Coach Bot is running!");
+  bot.start({
+    onStart: () => console.log("✅ Language Coach Bot is running!"),
+  });
+}).catch((err) => {
+  console.error("Startup error:", err);
+  process.exit(1);
+});
+
+bot.catch((err) => {
+  const ctx = err.ctx;
+  console.error("Bot error:", err.error);
 });
