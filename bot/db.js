@@ -1,96 +1,139 @@
-import { Low } from "lowdb";
-import { JSONFile } from "lowdb/node";
-import { join } from "path";
+// db.js — PostgreSQL version (replaces lowdb)
+import pg from "pg";
 
-const adapter = new JSONFile(join(process.cwd(), "db.json"));
-const db = new Low(adapter, {
-  users: [],
-  flashcards: [],
-  history: [],
-  _nextId: 1,
+const { Pool } = pg;
+
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  ssl: { rejectUnauthorized: false }, // required for Supabase
 });
 
-await db.read();
+// ── Initialize tables ─────────────────────────────────────────────────────────
 
-function nextId() {
-  const id = db.data._nextId++;
-  db.write();
-  return id;
+export async function initDB() {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS users (
+      user_id BIGINT PRIMARY KEY,
+      language TEXT,
+      level TEXT,
+      state TEXT DEFAULT 'idle'
+    );
+
+    CREATE TABLE IF NOT EXISTS history (
+      id SERIAL PRIMARY KEY,
+      user_id BIGINT,
+      role TEXT,
+      content TEXT,
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    );
+
+    CREATE TABLE IF NOT EXISTS flashcards (
+      id SERIAL PRIMARY KEY,
+      user_id BIGINT,
+      word TEXT,
+      correction TEXT,
+      context TEXT,
+      next_review TIMESTAMPTZ DEFAULT NOW(),
+      ease_factor REAL DEFAULT 2.5,
+      interval INTEGER DEFAULT 1
+    );
+  `);
+  console.log("✅ Database tables ready");
 }
 
 // ── Users ─────────────────────────────────────────────────────────────────────
 
-export function getUser(userId) {
-  return db.data.users.find((u) => u.user_id === userId) ?? null;
+export async function getUser(userId) {
+  const { rows } = await pool.query(
+    "SELECT * FROM users WHERE user_id = $1",
+    [userId]
+  );
+  return rows[0] ?? null;
 }
 
-export function upsertUser(userId, fields = {}) {
-  const idx = db.data.users.findIndex((u) => u.user_id === userId);
-  if (idx === -1) {
-    db.data.users.push({ user_id: userId, language: null, level: null, state: "idle", ...fields });
-  } else {
-    Object.assign(db.data.users[idx], fields);
-  }
-  db.write();
+export async function upsertUser(userId, fields = {}) {
+  const { language, level, state } = fields;
+  await pool.query(`
+    INSERT INTO users (user_id, language, level, state)
+    VALUES ($1, $2, $3, $4)
+    ON CONFLICT (user_id) DO UPDATE SET
+      language = COALESCE($2, users.language),
+      level = COALESCE($3, users.level),
+      state = COALESCE($4, users.state)
+  `, [userId, language ?? null, level ?? null, state ?? null]);
 }
 
 // ── History ───────────────────────────────────────────────────────────────────
 
-export function addHistory(userId, role, content) {
-  db.data.history.push({ id: nextId(), user_id: userId, role, content, created_at: new Date().toISOString() });
-  db.write();
+export async function addHistory(userId, role, content) {
+  await pool.query(
+    "INSERT INTO history (user_id, role, content) VALUES ($1, $2, $3)",
+    [userId, role, content]
+  );
 }
 
-export function getHistory(userId, limit = 10) {
-  return db.data.history
-    .filter((h) => h.user_id === userId)
-    .slice(-limit);
+export async function getHistory(userId, limit = 10) {
+  const { rows } = await pool.query(
+    "SELECT role, content FROM history WHERE user_id = $1 ORDER BY created_at DESC LIMIT $2",
+    [userId, limit]
+  );
+  return rows.reverse();
 }
 
-export function clearHistory(userId) {
-  db.data.history = db.data.history.filter((h) => h.user_id !== userId);
-  db.write();
+export async function clearHistory(userId) {
+  await pool.query("DELETE FROM history WHERE user_id = $1", [userId]);
 }
 
 // ── Flashcards ────────────────────────────────────────────────────────────────
 
-export function addFlashcard(userId, word, correction, context) {
-  const exists = db.data.flashcards.find((c) => c.user_id === userId && c.word === word);
-  if (!exists) {
-    db.data.flashcards.push({
-      id: nextId(), user_id: userId, word, correction, context,
-      next_review: new Date().toISOString(),
-      ease_factor: 2.5, interval: 1,
-    });
-    db.write();
-  }
+export async function addFlashcard(userId, word, correction, context) {
+  await pool.query(`
+    INSERT INTO flashcards (user_id, word, correction, context)
+    VALUES ($1, $2, $3, $4)
+    ON CONFLICT DO NOTHING
+  `, [userId, word, correction, context]);
 }
 
-export function getFlashcards(userId) {
-  return db.data.flashcards.filter((c) => c.user_id === userId);
+export async function getFlashcards(userId) {
+  const { rows } = await pool.query(
+    "SELECT * FROM flashcards WHERE user_id = $1",
+    [userId]
+  );
+  return rows;
 }
 
-export function getDueFlashcards(userId) {
-  const now = new Date();
-  return db.data.flashcards
-    .filter((c) => c.user_id === userId && new Date(c.next_review) <= now)
-    .slice(0, 20);
+export async function getDueFlashcards(userId) {
+  const { rows } = await pool.query(
+    "SELECT * FROM flashcards WHERE user_id = $1 AND next_review <= NOW() LIMIT 20",
+    [userId]
+  );
+  return rows;
 }
 
-export function updateFlashcard(id, remembered) {
-  const card = db.data.flashcards.find((c) => c.id === id);
+export async function updateFlashcard(id, remembered) {
+  const { rows } = await pool.query(
+    "SELECT * FROM flashcards WHERE id = $1",
+    [id]
+  );
+  const card = rows[0];
   if (!card) return;
+
+  let { ease_factor, interval } = card;
   if (remembered) {
-    card.interval = Math.round(card.interval * card.ease_factor);
-    card.ease_factor = Math.min(card.ease_factor + 0.1, 3.0);
+    interval = Math.round(interval * ease_factor);
+    ease_factor = Math.min(ease_factor + 0.1, 3.0);
   } else {
-    card.interval = 1;
-    card.ease_factor = Math.max(card.ease_factor - 0.2, 1.3);
+    interval = 1;
+    ease_factor = Math.max(ease_factor - 0.2, 1.3);
   }
-  const next = new Date();
-  next.setDate(next.getDate() + card.interval);
-  card.next_review = next.toISOString();
-  db.write();
+
+  const nextReview = new Date();
+  nextReview.setDate(nextReview.getDate() + interval);
+
+  await pool.query(
+    "UPDATE flashcards SET ease_factor = $1, interval = $2, next_review = $3 WHERE id = $4",
+    [ease_factor, interval, nextReview.toISOString(), id]
+  );
 }
 
-export default db;
+export default pool;

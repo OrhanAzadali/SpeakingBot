@@ -1,9 +1,10 @@
+// ai.js
 import Groq from "groq-sdk";
 import { addFlashcard, addHistory } from "./db.js";
 
 const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
 
-const LANGUAGES = {
+export const LANGUAGES = {
   spanish: "Spanish",
   english: "English",
   french: "French",
@@ -15,10 +16,6 @@ const LANGUAGES = {
   arabic: "Arabic",
   chinese: "Chinese (Mandarin)",
 };
-
-export { LANGUAGES };
-
-// ── System prompt ─────────────────────────────────────────────────────────────
 
 function buildSystemPrompt(language, level) {
   return `You are a friendly, encouraging ${language} language coach. 
@@ -46,8 +43,6 @@ Keep it warm, friendly and encouraging.
 IMPORTANT: Always include all three tags in every response, in this exact order.`;
 }
 
-// ── Chat ──────────────────────────────────────────────────────────────────────
-
 export async function chat(userId, userMessage, history, language, level) {
   const messages = [
     ...history.map((h) => ({ role: h.role, content: h.content })),
@@ -66,46 +61,35 @@ export async function chat(userId, userMessage, history, language, level) {
 
   const raw = response.choices[0].message.content;
 
-  // Parse the structured response
   const correctionMatch = raw.match(/\[CORRECTION\]([\s\S]*?)\[FLASHCARD\]/);
   const flashcardMatch = raw.match(/\[FLASHCARD\]([\s\S]*?)(?:\[RESPONSE\]|$)/);
   const responseMatch = raw.match(/\[RESPONSE\]([\s\S]*?)$/);
 
   const correction = correctionMatch ? correctionMatch[1].trim() : "✅ Perfect!";
-  const flashcardRaw = flashcardMatch
-    ? flashcardMatch[1].trim().split("\n")[0]
-    : "NONE";
+  const flashcardRaw = flashcardMatch ? flashcardMatch[1].trim().split("\n")[0] : "NONE";
   const reply = responseMatch ? responseMatch[1].trim() : raw;
 
-  // TEMPORARILY ADDED - TO BE REMOVED:
-  console.log("RAW AI OUTPUT:", raw);
   console.log("FLASHCARD RAW:", flashcardRaw);
 
-  // Save flashcard if present
   if (flashcardRaw !== "NONE" && flashcardRaw.includes(":::")) {
     const [word, corr, context] = flashcardRaw.split(":::");
     if (word && corr) {
-      addFlashcard(userId, word.trim(), corr.trim(), context?.trim() ?? "");
+      await addFlashcard(userId, word.trim(), corr.trim(), context?.trim() ?? "");
     }
   }
 
-  // Save to history
-  addHistory(userId, "user", userMessage);
-  addHistory(userId, "assistant", reply);
+  await addHistory(userId, "user", userMessage);
+  await addHistory(userId, "assistant", reply);
 
   return { correction, reply };
 }
 
-// ── Speech to Text ────────────────────────────────────────────────────────────
-
 export async function transcribeAudio(audioBuffer, filename = "audio.ogg") {
   const file = new File([audioBuffer], filename, { type: "audio/ogg" });
-
   const transcription = await groq.audio.transcriptions.create({
     file,
     model: "whisper-large-v3",
     response_format: "text",
   });
-
   return transcription;
 }
