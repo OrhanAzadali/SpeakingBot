@@ -3,8 +3,9 @@ import Groq from "groq-sdk";
 import { addFlashcard, addHistory } from "./db.js";
 import { MsEdgeTTS, OUTPUT_FORMAT } from "msedge-tts";
 import { unlink } from "fs/promises";
+
 import { tmpdir } from "os";
-import { join } from "path";
+
 
 const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
 
@@ -107,13 +108,13 @@ export async function chat(userId, userMessage, history, language, level) {
 
 export async function textToSpeech(text, languageKey) {
   const voice = TTS_VOICES[languageKey] || "en-US-GuyNeural";
-  const outputPath = join(tmpdir(), `tts_${Date.now()}.mp3`);
+  const folder = tmpdir();
 
   try {
     const tts = new MsEdgeTTS();
     await tts.setMetadata(voice, OUTPUT_FORMAT.AUDIO_24KHZ_48KBITRATE_MONO_MP3);
-    await tts.toFile(outputPath, text);
-    return outputPath;
+    const { audioFilePath } = await tts.toFile(folder, text);
+    return audioFilePath;
   } catch (err) {
     console.error("TTS error:", err);
     return null;
