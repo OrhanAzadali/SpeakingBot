@@ -1,6 +1,10 @@
 // ai.js
 import Groq from "groq-sdk";
 import { addFlashcard, addHistory } from "./db.js";
+import edgeTTS from "edge-tts";
+import { writeFile, unlink } from "fs/promises";
+import { tmpdir } from "os";
+import { join } from "path";
 
 const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
 
@@ -17,32 +21,47 @@ export const LANGUAGES = {
   chinese: "Chinese (Mandarin)",
 };
 
+// Best Edge TTS voice for each language
+const TTS_VOICES = {
+  spanish: "es-ES-AlvaroNeural",
+  english: "en-US-GuyNeural",
+  french: "fr-FR-HenriNeural",
+  german: "de-DE-ConradNeural",
+  japanese: "ja-JP-KeitaNeural",
+  italian: "it-IT-DiegoNeural",
+  portuguese: "pt-BR-AntonioNeural",
+  russian: "ru-RU-DmitryNeural",
+  arabic: "ar-SA-HamedNeural",
+  chinese: "zh-CN-YunxiNeural",
+};
+
 function buildSystemPrompt(language, level) {
-  return `You are a friendly, encouraging ${language} language coach. 
+  return `You are a friendly, encouraging ${language} language coach.
 The student's level is ${level}.
 
 RULES:
-1. Always conduct the conversation IN ${language} (except corrections which are in the user's language).
-2. Analyze every message for grammar, vocabulary, and spelling errors.
-3. Never save any word unknown to you as a part of the language vocabulary in flashcards - save only those words you've managed to understand after doing some research.
-4. SAVE AS FLASHCARDS ONLY THOSE WORDS WHICH YOU DEFINITELY KNOW ARE A PART OF THE LANGUAGE'S VOCABULARY.
-5. Structure your reply EXACTLY like this (use these exact tags):
+1. Always conduct the conversation IN ${language} (except corrections and flashcard content, which are bilingual).
+2. Carefully analyze every message for grammar, vocabulary, and spelling errors.
+3. Only save a word or phrase as a flashcard if you are completely certain it is a legitimate, recognized part of ${language} vocabulary. If you are unsure whether a word exists or is correct in ${language}, do NOT save it.
+4. Never save slang, typos, invented words, or anything you cannot confidently identify as real ${language} vocabulary.
+5. Structure your reply EXACTLY like this (use these exact tags, in this exact order):
 
 [CORRECTION]
-If there are errors, write: "📝 Correction: <corrected sentence>" then explain the rule briefly in English in one sentence. And save that word
-If there are NO errors, write: "✅ Perfect!"
+If there are errors: write "📝 Correction: <corrected sentence>" and briefly explain the grammar or vocabulary rule in English in one sentence.
+If there are NO errors: write "✅ Perfect!"
 
 [FLASHCARD]
-If you corrected a specific word or phrase and you managed to understand that word or phrase as aknowledged part of the language and vocabulary, write it in both languages - the taught and the native for the user - as: INITIALLY INCORRECT FORM OF THE WORD:::CORRECTED FORM OF THE WORD:::CONTEXT FOR CORRECTED WORD AS A SAMPLE OF CORRECT USAGE
-Example: tengo hambre:::I am hungry (not "I have hungry"):::Used to express hunger in Spanish
-If no new word to save, write: NONE
+If you made a correction AND the corrected word/phrase is a confirmed part of ${language} vocabulary, save it as:
+INCORRECT_FORM:::CORRECTED_FORM:::EXAMPLE_OF_CORRECT_USAGE
+Example: tengo hambre:::I am hungry (not "I have hungry"):::Used to express hunger in Spanish — "Tengo hambre después de correr."
+If there is nothing to save, or you are unsure about the word, write: NONE
 
 [RESPONSE]
-Continue the conversation naturally in ${language} at ${level} level. 
-Ask one simple follow-up question to keep the dialogue going.
-Keep it warm, friendly and encouraging.
+Continue the conversation naturally in ${language} at ${level} level.
+Ask one simple, engaging follow-up question to keep the dialogue going.
+Be warm, patient, and encouraging — like a good tutor would be.
 
-IMPORTANT: Always include all three tags in every response, in this exact order.`;
+IMPORTANT: Always include all three tags in every response, in this exact order. Never skip a tag.`;
 }
 
 export async function chat(userId, userMessage, history, language, level) {
@@ -84,6 +103,37 @@ export async function chat(userId, userMessage, history, language, level) {
   await addHistory(userId, "assistant", reply);
 
   return { correction, reply };
+}
+
+export async function textToSpeech(text, languageKey) {
+  const voice = TTS_VOICES[languageKey] || "en-US-GuyNeural";
+  const outputPath = join(tmpdir(), `tts_${Date.now()}.mp3`);
+
+  try {
+    const tts = new edgeTTS.MsEdgeTTS();
+    await tts.setMetadata(voice, edgeTTS.OUTPUT_FORMAT.AUDIO_24KHZ_48KBITRATE_MONO_MP3);
+    const readable = tts.toStream(text);
+
+    const chunks = [];
+    await new Promise((resolve, reject) => {
+      readable.on("data", (chunk) => chunks.push(chunk));
+      readable.on("end", resolve);
+      readable.on("error", reject);
+    });
+
+    const buffer = Buffer.concat(chunks);
+    await writeFile(outputPath, buffer);
+    return outputPath;
+  } catch (err) {
+    console.error("TTS error:", err);
+    return null;
+  }
+}
+
+export async function cleanupFile(filePath) {
+  try {
+    await unlink(filePath);
+  } catch (_) { }
 }
 
 export async function transcribeAudio(audioBuffer, filename = "audio.ogg") {

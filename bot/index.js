@@ -1,12 +1,12 @@
 // index.js
 import "dotenv/config";
-import { Bot, InlineKeyboard } from "grammy";
+import { Bot, InlineKeyboard, InputFile } from "grammy";
 import fetch from "node-fetch";
 import {
   initDB, getUser, upsertUser, getHistory, clearHistory,
   getDueFlashcards, getFlashcards, updateFlashcard
 } from "./db.js";
-import { chat, transcribeAudio, LANGUAGES } from "./ai.js";
+import { chat, transcribeAudio, textToSpeech, cleanupFile, LANGUAGES } from "./ai.js";
 
 import express from "express";
 import cors from "cors";
@@ -92,7 +92,8 @@ bot.callbackQuery(/^level_(.+)$/, async (ctx) => {
     `Perfect! Let's start your *${LANGUAGES[user.language]}* immersion at *${level}* level! 🚀\n\n` +
     `I'll chat with you entirely in ${LANGUAGES[user.language]}. ` +
     `I'll gently correct any mistakes and save tricky words as flashcards.\n\n` +
-    `💬 Say anything to begin — or just say hello!`,
+    `💬 Say anything to begin — or just say hello!\n` +
+    `🎙 Send a voice message and I'll reply with voice too!`,
     { parse_mode: "Markdown" }
   );
 });
@@ -141,7 +142,9 @@ bot.command("help", async (ctx) => {
     "  /start — choose language & level\n" +
     "  /flashcards — open your saved words\n" +
     "  /reset — start over with a new language\n\n" +
-    "💬 Just type or send a voice message to practice!\n" +
+    "💬 Type or send a voice message to practice!\n" +
+    "🎙 Send voice → get voice reply\n" +
+    "⌨️ Send text → get text reply\n" +
     "I'll correct you gently and save tricky words automatically.",
     { parse_mode: "Markdown" }
   );
@@ -161,11 +164,11 @@ bot.on("message:voice", async (ctx) => {
   const thinking = await ctx.reply("🎙 Transcribing your voice...");
 
   try {
+    // Download and transcribe voice
     const file = await ctx.getFile();
     const url = `https://api.telegram.org/file/bot${process.env.BOT_TOKEN}/${file.file_path}`;
     const res = await fetch(url);
     const buffer = Buffer.from(await res.arrayBuffer());
-
     const transcribed = await transcribeAudio(buffer, "voice.ogg");
 
     await ctx.api.editMessageText(
@@ -174,17 +177,29 @@ bot.on("message:voice", async (ctx) => {
       { parse_mode: "Markdown" }
     );
 
+    // Get AI response
     const history = await getHistory(userId);
     const { correction, reply } = await chat(
       userId, transcribed, history,
       LANGUAGES[user.language], user.level
     );
 
+    // Send text correction first
     await ctx.api.editMessageText(
       ctx.chat.id, thinking.message_id,
-      `🎙 *You said:* "${transcribed}"\n\n${correction}\n\n${reply}`,
+      `🎙 *You said:* "${transcribed}"\n\n${correction}`,
       { parse_mode: "Markdown" }
     );
+
+    // Generate and send voice reply
+    const audioPath = await textToSpeech(reply, user.language);
+    if (audioPath) {
+      await ctx.replyWithVoice(new InputFile(audioPath));
+      await cleanupFile(audioPath);
+    } else {
+      // Fallback to text if TTS fails
+      await ctx.reply(reply);
+    }
 
   } catch (err) {
     console.error("Voice error:", err);
@@ -234,6 +249,7 @@ bot.on("message:text", async (ctx) => {
 
 async function sendDailyReminders() {
   try {
+    const pool = (await import("./db.js")).default;
     const result = await pool.query("SELECT user_id FROM users WHERE state = 'chatting'");
     for (const { user_id } of result.rows) {
       const due = await getDueFlashcards(user_id);
