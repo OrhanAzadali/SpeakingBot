@@ -4,7 +4,7 @@ export default function Summary({ stats, total }) {
 
   return (
     <div className="min-h-screen flex flex-col items-center justify-center px-6 text-center">
-      <div className="text-6xl mb-6">{pct >= 70 ? "🎉" : pct >= 40 ? "💪" : "📖"}</div>
+      <div className="text-6xl mb-6">{pct >= 25 ? "🎉" : pct >= 15 ? "💪" : "📖"}</div>
       <h1 className="text-2xl font-bold text-white mb-2">Session Complete!</h1>
       <p className="text-slate-400 mb-8">Here's how you did:</p>
       <div className="w-full max-w-xs bg-slate-800 rounded-2xl p-6 mb-6" style={{ boxShadow: "0 20px 60px rgba(0,0,0,0.4)" }}>
