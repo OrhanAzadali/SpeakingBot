@@ -2,7 +2,7 @@
 import Groq from "groq-sdk";
 import { addFlashcard, addHistory } from "./db.js";
 import { MsEdgeTTS, OUTPUT_FORMAT } from "msedge-tts";
-import { writeFile, unlink } from "fs/promises";
+import { unlink } from "fs/promises";
 import { tmpdir } from "os";
 import { join } from "path";
 
@@ -112,17 +112,7 @@ export async function textToSpeech(text, languageKey) {
   try {
     const tts = new MsEdgeTTS();
     await tts.setMetadata(voice, OUTPUT_FORMAT.AUDIO_24KHZ_48KBITRATE_MONO_MP3);
-    const readable = tts.toStream(text);
-
-    const chunks = [];
-    await new Promise((resolve, reject) => {
-      readable.on("data", (chunk) => chunks.push(chunk));
-      readable.on("end", resolve);
-      readable.on("error", reject);
-    });
-
-    const buffer = Buffer.concat(chunks);
-    await writeFile(outputPath, buffer);
+    await tts.toFile(outputPath, text);
     return outputPath;
   } catch (err) {
     console.error("TTS error:", err);
