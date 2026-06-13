@@ -282,6 +282,7 @@ initDB().then(() => {
     drop_pending_updates: true,
     onStart: () => console.log("✅ Language Coach Bot is running!"),
   });
+
 }).catch((err) => {
   console.error("Startup error:", err);
   process.exit(1);
