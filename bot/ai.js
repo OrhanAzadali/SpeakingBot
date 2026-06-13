@@ -176,6 +176,7 @@ export async function textToSpeech(text, languageKey) {
   try {
     const tts = new MsEdgeTTS();
     await tts.setMetadata(voice, OUTPUT_FORMAT.OGG_24KHZ_16BITRATE_MONO_OPUS);
+
     const { audioFilePath } = await tts.toFile(folder, text);
     return audioFilePath;
   } catch (err) {
