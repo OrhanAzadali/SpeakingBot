@@ -14,8 +14,22 @@ import cors from "cors";
 const bot = new Bot(process.env.BOT_TOKEN);
 const MINIAPP_URL = process.env.MINIAPP_URL;
 
+// Allow the deployed Mini App origin, plus any extra origins from ALLOWED_ORIGINS
+// (comma-separated), e.g. for local dev: ALLOWED_ORIGINS=http://localhost:5173
+const allowedOrigins = [
+  MINIAPP_URL,
+  ...(process.env.ALLOWED_ORIGINS?.split(",").map((o) => o.trim()) ?? []),
+].filter(Boolean);
+
 const app = express();
-app.use(cors({ origin: "*" }));
+app.use(cors({
+  origin: (origin, callback) => {
+    // Allow non-browser requests (no Origin header, e.g. curl/server-to-server)
+    if (!origin) return callback(null, true);
+    if (allowedOrigins.includes(origin)) return callback(null, true);
+    return callback(new Error(`Origin ${origin} not allowed by CORS`));
+  },
+}));
 app.use(express.json());
 
 app.get("/", (req, res) => res.send("Bot API is running 🚀"));
@@ -166,9 +180,18 @@ bot.on("message:voice", async (ctx) => {
   try {
     // Download and transcribe voice
     const file = await ctx.getFile();
-    const url = `https://api.telegram.org/file/bot${process.env.BOT_TOKEN}/${file.file_path}`;
-    const res = await fetch(url);
-    const buffer = Buffer.from(await res.arrayBuffer());
+    const fileUrl = `https://api.telegram.org/file/bot${process.env.BOT_TOKEN}/${file.file_path}`;
+
+    let buffer;
+    try {
+      const res = await fetch(fileUrl);
+      if (!res.ok) throw new Error(`status ${res.status}`);
+      buffer = Buffer.from(await res.arrayBuffer());
+    } catch (downloadErr) {
+      // Never let the token-bearing URL reach a log or thrown message
+      throw new Error(`Failed to download voice file (${file.file_path}): ${downloadErr.message}`);
+    }
+
     const transcribed = await transcribeAudio(buffer, "voice.ogg");
 
     await ctx.api.editMessageText(
@@ -202,7 +225,8 @@ bot.on("message:voice", async (ctx) => {
     }
 
   } catch (err) {
-    console.error("Voice error:", err);
+    const safeMessage = String(err?.message || err).replaceAll(process.env.BOT_TOKEN, "[REDACTED]");
+    console.error("Voice error:", safeMessage);
     await ctx.api.editMessageText(
       ctx.chat.id, thinking.message_id,
       "❌ Couldn't process voice. Please try again or type instead."
@@ -252,9 +276,9 @@ async function sendDailyReminders() {
     const pool = (await import("./db.js")).default;
     const result = await pool.query("SELECT user_id FROM users WHERE state = 'chatting'");
     for (const { user_id } of result.rows) {
-      const due = await getDueFlashcards(user_id);
-      if (due.length >= 3) {
-        try {
+      try {
+        const due = await getDueFlashcards(user_id);
+        if (due.length >= 3) {
           const kb = new InlineKeyboard().webApp(
             `📚 Review ${due.length} cards`,
             `${MINIAPP_URL}?userId=${user_id}`
@@ -264,7 +288,10 @@ async function sendDailyReminders() {
             `⏰ *Time to review your flashcards!*\n\nYou have *${due.length}* words due for practice.`,
             { parse_mode: "Markdown", reply_markup: kb }
           );
-        } catch (_) { }
+        }
+      } catch (userErr) {
+        console.error(`Reminder failed for user ${user_id}:`, userErr.message);
+        // Continue to the next user instead of aborting the whole batch
       }
     }
   } catch (err) {
