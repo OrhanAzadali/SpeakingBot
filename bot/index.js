@@ -4,7 +4,8 @@ import { Bot, InlineKeyboard, InputFile, webhookCallback } from "grammy";
 import fetch from "node-fetch";
 import {
   initDB, getUser, upsertUser, getHistory, clearHistory,
-  getDueFlashcards, getFlashcards, updateFlashcard
+  getDueFlashcards, getFlashcards, updateFlashcard,
+  checkAndIncrementUsage, grantPremium
 } from "./db.js";
 import { chat, transcribeAudio, textToSpeech, cleanupFile, LANGUAGES } from "./ai.js";
 
@@ -13,6 +14,12 @@ import cors from "cors";
 
 const bot = new Bot(process.env.BOT_TOKEN);
 const MINIAPP_URL = process.env.MINIAPP_URL;
+
+// Free-tier daily message cap and Premium pricing. All configurable via env
+// vars so you can tune them without a code change.
+const FREE_DAILY_LIMIT = parseInt(process.env.FREE_DAILY_LIMIT || "15", 10);
+const PREMIUM_PRICE_STARS = parseInt(process.env.PREMIUM_PRICE_STARS || "150", 10);
+const PREMIUM_DURATION_DAYS = parseInt(process.env.PREMIUM_DURATION_DAYS || "30", 10);
 
 // Webhook mode config. Render sets RENDER_EXTERNAL_URL automatically; you can also
 // set PUBLIC_URL manually for other hosts. If neither is set, we fall back to polling.
@@ -183,7 +190,8 @@ bot.command("help", async (ctx) => {
     "Commands:\n" +
     "  /start — choose language & level\n" +
     "  /flashcards — open your saved words\n" +
-    "  /reset — start over with a new language\n\n" +
+    "  /reset — start over with a new language\n" +
+    "  /upgrade — unlimited daily messages with Premium\n\n" +
     "💬 Type or send a voice message to practice!\n" +
     "🎙 Send voice → get voice reply\n" +
     "⌨️ Send text → get text reply\n" +
@@ -191,6 +199,47 @@ bot.command("help", async (ctx) => {
     { parse_mode: "Markdown" }
   );
 });
+
+// ── /upgrade — Telegram Stars payment ──────────────────────────────────────────
+// Telegram Stars ("XTR") needs no external payment processor account (no Stripe
+// keys, no provider_token) — Telegram itself collects the payment.
+
+bot.command("upgrade", async (ctx) => {
+  await ctx.replyWithInvoice(
+    "Language Coach Premium",
+    `Unlimited daily messages for ${PREMIUM_DURATION_DAYS} days (currently capped at ${FREE_DAILY_LIMIT}/day on the free plan).`,
+    "premium_upgrade", // internal payload, not shown to the user
+    "XTR",
+    [{ label: `Premium (${PREMIUM_DURATION_DAYS} days)`, amount: PREMIUM_PRICE_STARS }]
+  );
+});
+
+// Telegram requires an answer within 10 seconds of a pre-checkout query.
+bot.on("pre_checkout_query", async (ctx) => {
+  await ctx.answerPreCheckoutQuery(true);
+});
+
+// Fires once Telegram confirms the Stars payment went through.
+bot.on("message:successful_payment", async (ctx) => {
+  await grantPremium(ctx.from.id, PREMIUM_DURATION_DAYS);
+  await ctx.reply(
+    `✅ Premium activated! Unlimited messages for the next ${PREMIUM_DURATION_DAYS} days. Thank you for supporting the bot! 🎉`
+  );
+});
+
+// Returns true if the user may proceed; otherwise sends an upgrade prompt and
+// returns false. Called before any Groq/TTS work so a blocked user doesn't
+// burn API calls or eat into the webhook's ack window for nothing.
+async function enforceUsageLimit(ctx, userId) {
+  const usage = await checkAndIncrementUsage(userId, FREE_DAILY_LIMIT);
+  if (usage.allowed) return true;
+
+  await ctx.reply(
+    `⏳ You've used all ${usage.limit} free messages today.\n\n` +
+    `Send /upgrade for unlimited daily practice with Premium.`
+  );
+  return false;
+}
 
 // ── Voice messages ────────────────────────────────────────────────────────────
 
@@ -202,6 +251,8 @@ bot.on("message:voice", async (ctx) => {
     await ctx.reply("Please /start first to choose your language.");
     return;
   }
+
+  if (!(await enforceUsageLimit(ctx, userId))) return;
 
   const thinking = await ctx.reply("🎙 Transcribing your voice...");
 
@@ -272,6 +323,8 @@ bot.on("message:text", async (ctx) => {
     await ctx.reply("👋 Send /start to begin your language practice!");
     return;
   }
+
+  if (!(await enforceUsageLimit(ctx, userId))) return;
 
   const thinking = await ctx.reply("⏳ Thinking...");
 

@@ -19,6 +19,12 @@ export async function initDB() {
       state TEXT DEFAULT 'idle'
     );
 
+    -- Subscription / usage-tracking fields (safe to re-run: no-ops if already present)
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'free';
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS daily_message_count INTEGER DEFAULT 0;
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS daily_reset_date DATE DEFAULT CURRENT_DATE;
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS premium_until TIMESTAMPTZ;
+
     CREATE TABLE IF NOT EXISTS history (
       id SERIAL PRIMARY KEY,
       user_id BIGINT,
@@ -61,6 +67,69 @@ export async function upsertUser(userId, fields = {}) {
       level = COALESCE($3, users.level),
       state = COALESCE($4, users.state)
   `, [userId, language ?? null, level ?? null, state ?? null]);
+}
+
+// ── Subscriptions / usage limits ───────────────────────────────────────────────
+
+export async function isPremiumActive(userId) {
+  const { rows } = await pool.query(
+    "SELECT premium_until FROM users WHERE user_id = $1",
+    [userId]
+  );
+  const until = rows[0]?.premium_until;
+  return !!until && new Date(until) > new Date();
+}
+
+// Extends (or starts) a user's premium window by `days` from whichever is
+// later: now, or their current expiry (so early renewals stack instead of
+// wasting remaining time).
+export async function grantPremium(userId, days) {
+  await pool.query(
+    `UPDATE users
+     SET premium_until = GREATEST(COALESCE(premium_until, NOW()), NOW()) + ($2 || ' days')::INTERVAL,
+         status = 'premium'
+     WHERE user_id = $1`,
+    [userId, days]
+  );
+}
+
+// Checks a free-tier user's daily message quota, resetting the counter if the
+// day has rolled over, then increments it. Premium users always pass. Returns
+// { allowed, premium, count?, limit? } — count/limit are omitted for premium
+// users since they don't apply.
+export async function checkAndIncrementUsage(userId, freeLimit) {
+  if (await isPremiumActive(userId)) {
+    return { allowed: true, premium: true };
+  }
+
+  const { rows } = await pool.query(
+    "SELECT daily_message_count, daily_reset_date FROM users WHERE user_id = $1",
+    [userId]
+  );
+  const row = rows[0];
+  const today = new Date().toISOString().slice(0, 10);
+  const resetDate = row?.daily_reset_date
+    ? new Date(row.daily_reset_date).toISOString().slice(0, 10)
+    : null;
+
+  let count = resetDate === today ? (row?.daily_message_count ?? 0) : 0;
+
+  if (count >= freeLimit) {
+    // Persist the (possibly just-reset) count/date even when blocking, so a
+    // stale reset date from a previous day doesn't linger indefinitely.
+    await pool.query(
+      "UPDATE users SET daily_message_count = $2, daily_reset_date = $3 WHERE user_id = $1",
+      [userId, count, today]
+    );
+    return { allowed: false, premium: false, count, limit: freeLimit };
+  }
+
+  count += 1;
+  await pool.query(
+    "UPDATE users SET daily_message_count = $2, daily_reset_date = $3 WHERE user_id = $1",
+    [userId, count, today]
+  );
+  return { allowed: true, premium: false, count, limit: freeLimit };
 }
 
 // ── History ───────────────────────────────────────────────────────────────────

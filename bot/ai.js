@@ -9,6 +9,32 @@ import { tmpdir } from "os";
 
 const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
 
+// Current production models per Groq's own deprecation docs (console.groq.com/docs/deprecations)
+// as of Aug 2026. Rate limits are per-model, so cycling through distinct models
+// on a 429 accesses separate quota buckets rather than retrying the same one.
+const CHAT_MODELS = ["openai/gpt-oss-120b", "openai/gpt-oss-20b", "qwen/qwen3.6-27b"];
+const STT_MODELS = ["whisper-large-v3", "whisper-large-v3-turbo"];
+
+// Tries each model in order, only falling back on an actual rate-limit (429)
+// response — any other error (bad request, auth, etc.) is not a reason to
+// silently retry on a different model, so it's re-thrown immediately.
+async function withModelFallback(models, callFn) {
+  let lastErr;
+  for (const model of models) {
+    try {
+      return await callFn(model);
+    } catch (err) {
+      lastErr = err;
+      if (err?.status === 429) {
+        console.warn(`Rate limit hit on "${model}", falling back to next model...`);
+        continue;
+      }
+      throw err;
+    }
+  }
+  throw lastErr;
+}
+
 export const LANGUAGES = {
   spanish: "Spanish",
   english: "English",
@@ -175,15 +201,17 @@ export async function chat(userId, userMessage, history, language, level) {
     { role: "user", content: userMessage },
   ];
 
-  const response = await groq.chat.completions.create({
-    model: "openai/gpt-oss-120b",
-    messages: [
-      { role: "system", content: buildSystemPrompt(language, level) },
-      ...messages,
-    ],
-    temperature: 0.7,
-    max_tokens: 500,
-  });
+  const response = await withModelFallback(CHAT_MODELS, (model) =>
+    groq.chat.completions.create({
+      model,
+      messages: [
+        { role: "system", content: buildSystemPrompt(language, level) },
+        ...messages,
+      ],
+      temperature: 0.7,
+      max_tokens: 500,
+    })
+  );
 
   const raw = response.choices[0].message.content;
 
@@ -264,13 +292,13 @@ export async function cleanupFile(filePath) {
 }
 
 export async function transcribeAudio(audioBuffer, filename = "audio.ogg") {
-  const file = new File([audioBuffer], filename, { type: "audio/ogg" });
-  const transcription = await groq.audio.transcriptions.create({
-    file,
-    model: "whisper-large-v3",
-    response_format: "text",
-  });
-  return transcription;
+  return withModelFallback(STT_MODELS, (model) =>
+    groq.audio.transcriptions.create({
+      file: new File([audioBuffer], filename, { type: "audio/ogg" }),
+      model,
+      response_format: "text",
+    })
+  );
 }
 
 // OLD PROMPT RULES:
