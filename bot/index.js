@@ -198,7 +198,7 @@ bot.on("message:voice" || "message:text", async (ctx) => {
   const userId = ctx.from.id;
   const user = await getUser(userId);
 
-  if (!user || user.state !== "chatting") {
+  if (!user) {
     await ctx.reply("Please /start first to choose your language.");
     return;
   }
