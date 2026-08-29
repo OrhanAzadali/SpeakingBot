@@ -1,6 +1,6 @@
 // index.js
 import "dotenv/config";
-import { Bot, InlineKeyboard, InputFile } from "grammy";
+import { Bot, InlineKeyboard, InputFile, webhookCallback } from "grammy";
 import fetch from "node-fetch";
 import {
   initDB, getUser, upsertUser, getHistory, clearHistory,
@@ -13,6 +13,12 @@ import cors from "cors";
 
 const bot = new Bot(process.env.BOT_TOKEN);
 const MINIAPP_URL = process.env.MINIAPP_URL;
+
+// Webhook mode config. Render sets RENDER_EXTERNAL_URL automatically; you can also
+// set PUBLIC_URL manually for other hosts. If neither is set, we fall back to polling.
+const PUBLIC_URL = process.env.RENDER_EXTERNAL_URL || process.env.PUBLIC_URL;
+const WEBHOOK_PATH = "/telegram/webhook";
+const WEBHOOK_SECRET = process.env.WEBHOOK_SECRET; // optional, but recommended
 
 // Allow the deployed Mini App origin, plus any extra origins from ALLOWED_ORIGINS
 // (comma-separated), e.g. for local dev: ALLOWED_ORIGINS=http://localhost:5173
@@ -33,6 +39,14 @@ app.use(cors({
 app.use(express.json());
 
 app.get("/", (req, res) => res.send("Bot API is running 🚀"));
+
+// Telegram delivers updates here when running in webhook mode
+if (PUBLIC_URL) {
+  app.use(
+    WEBHOOK_PATH,
+    webhookCallback(bot, "express", { secretToken: WEBHOOK_SECRET })
+  );
+}
 
 app.get("/api/flashcards", async (req, res) => {
   const userId = req.query.userId;
@@ -303,17 +317,46 @@ setInterval(sendDailyReminders, 60 * 60 * 1000);
 
 // ── Launch ────────────────────────────────────────────────────────────────────
 
-initDB().then(() => {
+initDB().then(async () => {
   app.listen(PORT, () => console.log(`API running on port ${PORT}`));
-  bot.start({
-    drop_pending_updates: true,
-    onStart: () => console.log("✅ Language Coach Bot is running!"),
-  });
 
+  if (PUBLIC_URL) {
+    // Webhook mode: Telegram pushes updates to us, so there's no polling
+    // process that can conflict with another instance (the 409 error this
+    // replaces). Safe across Render redeploys where the old instance
+    // may still be shutting down.
+    try {
+      await bot.api.setWebhook(`${PUBLIC_URL}${WEBHOOK_PATH}`, {
+        secret_token: WEBHOOK_SECRET,
+        drop_pending_updates: true,
+      });
+      console.log(`✅ Language Coach Bot is running (webhook: ${PUBLIC_URL}${WEBHOOK_PATH})`);
+    } catch (err) {
+      console.error("Failed to set webhook, falling back to polling:", err.message);
+      startPolling();
+    }
+  } else {
+    console.warn("No PUBLIC_URL/RENDER_EXTERNAL_URL set — using long polling instead.");
+    startPolling();
+  }
 }).catch((err) => {
   console.error("Startup error:", err);
   process.exit(1);
 });
+
+function startPolling() {
+  // Fire-and-forget on purpose: bot.start() only resolves when polling stops.
+  // A rejection here (e.g. another instance already polling — the original
+  // 409 conflict) must not crash the process, since the Express API above
+  // should keep serving /api/flashcards regardless.
+  bot.start({
+    drop_pending_updates: true,
+    onStart: () => console.log("✅ Language Coach Bot is running (polling)!"),
+  }).catch((err) => {
+    console.error("Polling failed to start:", err.message);
+    console.error("If this is a 409 conflict, another instance of this bot is already running elsewhere.");
+  });
+}
 
 bot.catch((err) => {
   const ctx = err.ctx;
