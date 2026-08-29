@@ -53,7 +53,7 @@ if (PUBLIC_URL) {
   app.use(
     WEBHOOK_PATH,
     webhookCallback(bot, "express", {
-      timeoutMilliseconds: 8_000,
+      timeoutMilliseconds: 20000,
       onTimeout: () => {
         console.log("Webhook ack sent early — update is still processing in the background.");
       },
