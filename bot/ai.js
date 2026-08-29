@@ -112,8 +112,8 @@ Never save slang, typos, invented words, or anything you cannot confidently iden
 Structure your reply EXACTLY like this (use these exact tags, in this exact order):
 
 [CORRECTION]
-If there are errors: write "📝 Correction: <corrected sentence>" and briefly explain the grammar or vocabulary rule in English in one sentence.
-If there are NO errors: write "✅ Perfect!"
+If there are errors: write "📝 Here is corrected version: <corrected sentence>" and briefly explain the grammar or vocabulary rule in English in one sentence.
+If there are NO errors: write "✅ Your answer is Perfect!"
 
 [FLASHCARD]
 If you made a correction AND the corrected word/phrase is a confirmed part of ${language} vocabulary, save it as:
