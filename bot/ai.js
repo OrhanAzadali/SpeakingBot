@@ -112,8 +112,8 @@ Never save slang, typos, invented words, or anything you cannot confidently iden
 Structure your reply EXACTLY like this (use these exact tags, in this exact order):
 
 [CORRECTION]
-If there are errors: write "📝 Here is corrected version: <corrected sentence>" and briefly explain the grammar or vocabulary rule in English in one sentence.
-If there are NO errors: write "✅ Your answer is Perfect!"
+If there are errors: write "📝 Correction: <corrected sentence>" and briefly explain the grammar or vocabulary rule in English in one sentence.
+If there are NO errors: write "✅ Perfect!"
 
 [FLASHCARD]
 If you made a correction AND the corrected word/phrase is a confirmed part of ${language} vocabulary, save it as:
@@ -125,8 +125,9 @@ If there is nothing to save, or you are unsure about the word, write: NONE
 Continue the conversation naturally in ${language} at ${level} level.
 Ask one simple, engaging follow-up question to keep the dialogue going.
 Be warm, patient, and encouraging — like a good tutor would be.
+This section is converted to speech and read aloud, so write it as plain natural sentences only: no Markdown (no asterisks, underscores, backticks, headers, or bullet lists), no emoji.
 
-IMPORTANT: Always include all three tags in every response, in this exact order. Never skip a tag. 
+IMPORTANT: Always include all three tags in every response, in this exact order. Never skip a tag.
 
 NEW ENHANCEMENT: LEARNING ROADMAP SYSTEM (MANDATORY BEHAVIOR)
 You are not only a conversation partner — you are also a structured language tutor responsible for guiding the user through a progressive learning journey in ${language}.
@@ -157,8 +158,7 @@ IMPORTANT:
 
 The roadmap guidance must ALWAYS be embedded naturally inside the [RESPONSE] section (not as a separate tag).
 Never break the fixed tag structure.
-Skip [CORRECTION], [FLASHCARD], or [RESPONSE] only when and where it's considered reasonable.
- Never pronounce any symbols or punctuation characters aloud - those like '"[]!@#$%^&*()?<>,./\] - you can include them only if they are semantically correct and contextually respective.
+Never skip [CORRECTION], [FLASHCARD], or [RESPONSE].
 The teaching system must feel like a continuous personalized curriculum, not random conversation.`;
 }
 
@@ -203,14 +203,46 @@ export async function chat(userId, userMessage, history, language, level) {
   return { correction, reply };
 }
 
+// Strips markdown syntax and emoji so the TTS engine doesn't read symbols
+// (asterisks, underscores, backticks, etc.) aloud. Relying on prompt
+// instructions alone isn't reliable — models slip back into markdown even
+// when told not to, so this is a deterministic safety net.
+function stripForSpeech(text) {
+  return text
+    // Markdown links: [text](url) -> text
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
+    // Bold / italic markers
+    .replace(/\*\*(.*?)\*\*/g, "$1")
+    .replace(/__(.*?)__/g, "$1")
+    .replace(/\*(.*?)\*/g, "$1")
+    .replace(/_(.*?)_/g, "$1")
+    // Code blocks / inline code
+    .replace(/```[\s\S]*?```/g, "")
+    .replace(/`([^`]*)`/g, "$1")
+    // Headers, blockquotes, list markers
+    .replace(/^#{1,6}\s*/gm, "")
+    .replace(/^>\s?/gm, "")
+    .replace(/^[\s]*[-*+]\s+/gm, "")
+    // Any leftover markdown symbols
+    .replace(/[*_~`#]/g, "")
+    // Emoji (covers most common ranges used in the prompt/replies)
+    .replace(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{2190}-\u{21FF}\u{2B00}-\u{2BFF}]/gu, "")
+    // Collapse whitespace left behind by the above
+    .replace(/\n{2,}/g, ". ")
+    .replace(/\n/g, " ")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+}
+
 export async function textToSpeech(text, languageKey) {
   const voice = TTS_VOICES[languageKey] || "en-US-GuyNeural";
   const folder = tmpdir();
+  const spokenText = stripForSpeech(text);
 
   try {
     const tts = new MsEdgeTTS();
     await tts.setMetadata(voice, OUTPUT_FORMAT.AUDIO_24KHZ_48KBITRATE_MONO_MP3);
-    const { audioFilePath } = await tts.toFile(folder, text);
+    const { audioFilePath } = await tts.toFile(folder, spokenText);
     return audioFilePath;
   } catch (err) {
     console.error("TTS error:", err);

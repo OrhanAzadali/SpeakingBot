@@ -40,11 +40,25 @@ app.use(express.json());
 
 app.get("/", (req, res) => res.send("Bot API is running 🚀"));
 
-// Telegram delivers updates here when running in webhook mode
+// Telegram delivers updates here when running in webhook mode.
+// IMPORTANT: grammy's default here is to THROW after 10s if bot.handleUpdate()
+// hasn't finished, which means Express never sends Telegram a 200 response.
+// Telegram then redelivers the same update later — and the bot answers the
+// same message twice. Voice messages in particular (download + transcription +
+// chat completion + TTS + upload) routinely take longer than 10s, especially
+// on a cold Render instance. Instead, we ack quickly and let processing
+// continue in the background; the actual reply still goes out via the Bot API
+// regardless of what this HTTP response contains.
 if (PUBLIC_URL) {
   app.use(
     WEBHOOK_PATH,
-    webhookCallback(bot, "express", { secretToken: WEBHOOK_SECRET })
+    webhookCallback(bot, "express", {
+      timeoutMilliseconds: 8_000,
+      onTimeout: () => {
+        console.log("Webhook ack sent early — update is still processing in the background.");
+      },
+      secretToken: WEBHOOK_SECRET,
+    })
   );
 }
 
