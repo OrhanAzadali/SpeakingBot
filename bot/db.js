@@ -43,6 +43,12 @@ export async function initDB() {
       ease_factor REAL DEFAULT 2.5,
       interval INTEGER DEFAULT 1
     );
+
+    CREATE TABLE IF NOT EXISTS user_progress (
+      user_id BIGINT PRIMARY KEY,
+      roadmap TEXT,
+      updated_at TIMESTAMPTZ DEFAULT NOW()
+    );
   `);
   console.log("✅ Database tables ready");
 }
@@ -151,6 +157,35 @@ export async function getHistory(userId, limit = 10) {
 
 export async function clearHistory(userId) {
   await pool.query("DELETE FROM history WHERE user_id = $1", [userId]);
+}
+
+// Total user (not assistant) messages ever sent — used to trigger the
+// roadmap update every 5th message. Deliberately not tied to the free-tier
+// daily counter, which resets each day; this should keep counting forever.
+export async function countUserMessages(userId) {
+  const { rows } = await pool.query(
+    "SELECT COUNT(*)::int AS count FROM history WHERE user_id = $1 AND role = 'user'",
+    [userId]
+  );
+  return rows[0]?.count ?? 0;
+}
+
+// ── Learning roadmap ─────────────────────────────────────────────────────────
+
+export async function saveRoadmap(userId, roadmapText) {
+  await pool.query(`
+    INSERT INTO user_progress (user_id, roadmap, updated_at)
+    VALUES ($1, $2, NOW())
+    ON CONFLICT (user_id) DO UPDATE SET roadmap = $2, updated_at = NOW()
+  `, [userId, roadmapText]);
+}
+
+export async function getRoadmap(userId) {
+  const { rows } = await pool.query(
+    "SELECT roadmap, updated_at FROM user_progress WHERE user_id = $1",
+    [userId]
+  );
+  return rows[0] ?? null;
 }
 
 // ── Flashcards ────────────────────────────────────────────────────────────────
