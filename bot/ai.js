@@ -168,7 +168,7 @@ export async function chat(userId, userMessage, history, language, level) {
   ];
 
   const response = await groq.chat.completions.create({
-    model: "llama-3.3-70b-versatile",
+    model: "openai/gpt-oss-120b",
     messages: [
       { role: "system", content: buildSystemPrompt(language, level) },
       ...messages,
