@@ -194,7 +194,7 @@ bot.command("help", async (ctx) => {
 
 // ── Voice messages ────────────────────────────────────────────────────────────
 
-bot.on("message:voice", async (ctx) => {
+bot.on("message:voice" || "message:text", async (ctx) => {
   const userId = ctx.from.id;
   const user = await getUser(userId);
 
