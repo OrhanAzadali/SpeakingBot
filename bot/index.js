@@ -1,5 +1,4 @@
 // index.js
-// index.js
 import "dotenv/config";
 import { Bot, InlineKeyboard, InputFile, webhookCallback } from "grammy";
 import fetch from "node-fetch";
@@ -12,15 +11,29 @@ import { chat, transcribeAudio, textToSpeech, cleanupFile, LANGUAGES, maybeGener
 
 import express from "express";
 import cors from "cors";
+import Stripe from "stripe";
 
 const bot = new Bot(process.env.BOT_TOKEN);
 const MINIAPP_URL = process.env.MINIAPP_URL;
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
 
 // Free-tier daily message cap and Premium pricing. All configurable via env
 // vars so you can tune them without a code change.
 const FREE_DAILY_LIMIT = parseInt(process.env.FREE_DAILY_LIMIT || "15", 10);
-const PREMIUM_PRICE_STARS = parseInt(process.env.PREMIUM_PRICE_STARS || "150", 10);
+const PREMIUM_PRICE_CENTS = parseInt(process.env.PREMIUM_PRICE_CENTS || "300", 10); // $3.00 default
+const PREMIUM_PRICE_CURRENCY = process.env.PREMIUM_PRICE_CURRENCY || "usd";
 const PREMIUM_DURATION_DAYS = parseInt(process.env.PREMIUM_DURATION_DAYS || "30", 10);
+
+// Cached lazily on first /upgrade call — used to build the Stripe Checkout
+// success/cancel URLs so paying redirects the user straight back to the bot.
+let botUsernameCache = null;
+async function getBotUsername() {
+  if (!botUsernameCache) {
+    const me = await bot.api.getMe();
+    botUsernameCache = me.username;
+  }
+  return botUsernameCache;
+}
 
 // Webhook mode config. Render sets RENDER_EXTERNAL_URL automatically; you can also
 // set PUBLIC_URL manually for other hosts. If neither is set, we fall back to polling.
@@ -44,6 +57,42 @@ app.use(cors({
     return callback(new Error(`Origin ${origin} not allowed by CORS`));
   },
 }));
+
+// IMPORTANT: this must be registered BEFORE app.use(express.json()) below.
+// Stripe's signature verification needs the exact raw request bytes — once
+// express.json() parses the body, that raw form is gone and verification
+// will always fail.
+app.post("/stripe/webhook", express.raw({ type: "application/json" }), async (req, res) => {
+  let event;
+  try {
+    const signature = req.headers["stripe-signature"];
+    event = stripe.webhooks.constructEvent(req.body, signature, process.env.STRIPE_WEBHOOK_SECRET);
+  } catch (err) {
+    console.error("Stripe webhook signature verification failed:", err.message);
+    return res.status(400).send(`Webhook Error: ${err.message}`);
+  }
+
+  if (event.type === "checkout.session.completed") {
+    const session = event.data.object;
+    const userId = session.client_reference_id;
+    if (userId) {
+      try {
+        await grantPremium(Number(userId), PREMIUM_DURATION_DAYS);
+        await bot.api.sendMessage(
+          Number(userId),
+          `✅ Premium activated! Unlimited messages for the next ${PREMIUM_DURATION_DAYS} days. Thank you for supporting the bot! 🎉`
+        );
+      } catch (err) {
+        console.error("Failed to grant premium after Stripe payment:", err.message);
+      }
+    } else {
+      console.error("Stripe checkout.session.completed had no client_reference_id — cannot identify the user.");
+    }
+  }
+
+  res.json({ received: true });
+});
+
 app.use(express.json());
 
 app.get("/", (req, res) => res.send("Bot API is running 🚀"));
@@ -215,31 +264,40 @@ bot.command("roadmap", async (ctx) => {
   await ctx.reply(progress.roadmap);
 });
 
-// ── /upgrade — Telegram Stars payment ──────────────────────────────────────────
-// Telegram Stars ("XTR") needs no external payment processor account (no Stripe
-// keys, no provider_token) — Telegram itself collects the payment.
+// ── /upgrade — Stripe Checkout (card payment) ──────────────────────────────────
+// Requires your own Stripe account: STRIPE_SECRET_KEY and STRIPE_WEBHOOK_SECRET
+// env vars. No Telegram-native payment method is offered.
 
 bot.command("upgrade", async (ctx) => {
-  await ctx.replyWithInvoice(
-    "Language Coach Premium",
-    `Unlimited daily messages for ${PREMIUM_DURATION_DAYS} days (currently capped at ${FREE_DAILY_LIMIT}/day on the free plan).`,
-    "premium_upgrade", // internal payload, not shown to the user
-    "XTR",
-    [{ label: `Premium (${PREMIUM_DURATION_DAYS} days)`, amount: PREMIUM_PRICE_STARS }]
-  );
-});
+  try {
+    const username = await getBotUsername();
+    const session = await stripe.checkout.sessions.create({
+      mode: "payment",
+      payment_method_types: ["card"],
+      client_reference_id: String(ctx.from.id),
+      line_items: [{
+        price_data: {
+          currency: PREMIUM_PRICE_CURRENCY,
+          product_data: { name: `Language Coach Premium — ${PREMIUM_DURATION_DAYS} days` },
+          unit_amount: PREMIUM_PRICE_CENTS,
+        },
+        quantity: 1,
+      }],
+      success_url: `https://t.me/${username}?start=premium_success`,
+      cancel_url: `https://t.me/${username}?start=premium_cancelled`,
+    });
 
-// Telegram requires an answer within 10 seconds of a pre-checkout query.
-bot.on("pre_checkout_query", async (ctx) => {
-  await ctx.answerPreCheckoutQuery(true);
-});
-
-// Fires once Telegram confirms the Stars payment went through.
-bot.on("message:successful_payment", async (ctx) => {
-  await grantPremium(ctx.from.id, PREMIUM_DURATION_DAYS);
-  await ctx.reply(
-    `✅ Premium activated! Unlimited messages for the next ${PREMIUM_DURATION_DAYS} days. Thank you for supporting the bot! 🎉`
-  );
+    const kb = new InlineKeyboard().url("💳 Card", session.url);
+    await ctx.reply(
+      `Unlock unlimited daily messages for ${PREMIUM_DURATION_DAYS} days ` +
+      `(${(PREMIUM_PRICE_CENTS / 100).toFixed(2)} ${PREMIUM_PRICE_CURRENCY.toUpperCase()}).\n\n` +
+      `Tap below to pay securely via Stripe:`,
+      { reply_markup: kb }
+    );
+  } catch (err) {
+    console.error("Stripe checkout error:", err.message);
+    await ctx.reply("❌ Couldn't start checkout right now. Please try again shortly.");
+  }
 });
 
 // Returns true if the user may proceed; otherwise sends an upgrade prompt and
