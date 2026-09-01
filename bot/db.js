@@ -214,13 +214,16 @@ export async function getDueFlashcards(userId) {
   return rows;
 }
 
-export async function updateFlashcard(id, remembered) {
+// Requires userId so a caller can't update a flashcard belonging to someone
+// else just by guessing/incrementing IDs. Returns true on success, false if
+// the card doesn't exist or doesn't belong to that user.
+export async function updateFlashcard(id, remembered, userId) {
   const { rows } = await pool.query(
-    "SELECT * FROM flashcards WHERE id = $1",
-    [id]
+    "SELECT * FROM flashcards WHERE id = $1 AND user_id = $2",
+    [id, userId]
   );
   const card = rows[0];
-  if (!card) return;
+  if (!card) return false;
 
   let { ease_factor, interval } = card;
   if (remembered) {
@@ -238,6 +241,7 @@ export async function updateFlashcard(id, remembered) {
     "UPDATE flashcards SET ease_factor = $1, interval = $2, next_review = $3 WHERE id = $4",
     [ease_factor, interval, nextReview.toISOString(), id]
   );
+  return true;
 }
 
 export default pool;

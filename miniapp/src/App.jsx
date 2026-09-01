@@ -23,9 +23,14 @@ export default function App() {
   const [stats, setStats] = useState({ remembered: 0, forgot: 0 });
   const [apiError, setApiError] = useState(null);
 
-  const userId =
-    new URLSearchParams(window.location.search).get("userId") ||
-    window.Telegram?.WebApp?.initDataUnsafe?.user?.id;
+  // The server derives the trusted user identity from this signed string —
+  // it verifies initData's HMAC using the bot token, so a userId can no
+  // longer be spoofed via the URL the way it could before. Outside of an
+  // actual Telegram session (e.g. plain browser testing), this is empty and
+  // the API calls below will 401, which the existing catch-block already
+  // handles by falling back to demo cards.
+  const initData = window.Telegram?.WebApp?.initData || "";
+  const authHeaders = initData ? { Authorization: `tma ${initData}` } : {};
 
   useEffect(() => {
     if (window.Telegram?.WebApp) {
@@ -41,10 +46,10 @@ export default function App() {
       return;
     }
 
-    const url = `${API}/api/flashcards${userId ? `?userId=${userId}` : ""}`;
+    const url = `${API}/api/flashcards`;
     console.log("Fetching:", url);
 
-    fetch(url)
+    fetch(url, { headers: authHeaders })
       .then((r) => {
         if (!r.ok) {
           // This is what catches 404, 500, etc. — fetch doesn't throw on HTTP errors!
@@ -62,7 +67,7 @@ export default function App() {
         setCards(DEMO_CARDS);
         setLoading(false);
       });
-  }, [userId]);
+  }, [initData]);
 
   function handleResult(cardId, remembered) {
     setStats((prev) => ({
@@ -73,7 +78,7 @@ export default function App() {
     if (API) {
       fetch(`${API}/api/flashcards/${cardId}/review`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...authHeaders },
         body: JSON.stringify({ remembered }),
       }).catch((error) => console.error("Review error:", error.message));
     }

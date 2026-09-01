@@ -11,6 +11,7 @@ import { chat, transcribeAudio, textToSpeech, cleanupFile, LANGUAGES, maybeGener
 
 import express from "express";
 import cors from "cors";
+import crypto from "crypto";
 
 const bot = new Bot(process.env.BOT_TOKEN);
 const MINIAPP_URL = process.env.MINIAPP_URL;
@@ -69,16 +70,77 @@ if (PUBLIC_URL) {
   );
 }
 
-app.get("/api/flashcards", async (req, res) => {
-  const userId = req.query.userId;
-  const cards = await getFlashcards(userId);
+// ── Telegram Mini App authentication ────────────────────────────────────────────
+// Verifies the initData string every Telegram Mini App receives from
+// window.Telegram.WebApp.initData, per Telegram's official algorithm:
+// https://core.telegram.org/bots/webapps#validating-data-received-via-the-mini-app
+// This is what actually proves a request came from a real, currently-logged-in
+// Telegram session for a given user — a plain ?userId= query param, as this
+// API used before, proves nothing and can be set to anyone's ID.
+function verifyTelegramInitData(initData, botToken) {
+  const params = new URLSearchParams(initData);
+  const hash = params.get("hash");
+  if (!hash) return null;
+  params.delete("hash");
+
+  const dataCheckString = [...params.entries()]
+    .map(([key, value]) => `${key}=${value}`)
+    .sort()
+    .join("\n");
+
+  const secretKey = crypto.createHmac("sha256", "WebAppData").update(botToken).digest();
+  const computedHash = crypto.createHmac("sha256", secretKey).update(dataCheckString).digest("hex");
+
+  // Constant-time comparison to avoid leaking timing information about the hash
+  const hashBuf = Buffer.from(hash, "hex");
+  const computedBuf = Buffer.from(computedHash, "hex");
+  if (hashBuf.length !== computedBuf.length || !crypto.timingSafeEqual(hashBuf, computedBuf)) {
+    return null;
+  }
+
+  // Reject stale sessions (older than 24h) to limit how long a captured
+  // initData string would remain usable if it ever leaked.
+  const authDate = Number(params.get("auth_date"));
+  if (!authDate || Date.now() / 1000 - authDate > 86400) return null;
+
+  const userJson = params.get("user");
+  if (!userJson) return null;
+  try {
+    return JSON.parse(userJson); // { id, first_name, username, ... }
+  } catch {
+    return null;
+  }
+}
+
+function requireTelegramAuth(req, res, next) {
+  const authHeader = req.headers["authorization"] || "";
+  const initData = authHeader.startsWith("tma ") ? authHeader.slice(4) : null;
+
+  if (!initData) {
+    return res.status(401).json({ error: "Missing Telegram authentication" });
+  }
+
+  const user = verifyTelegramInitData(initData, process.env.BOT_TOKEN);
+  if (!user?.id) {
+    return res.status(401).json({ error: "Invalid or expired Telegram authentication" });
+  }
+
+  req.telegramUser = user;
+  next();
+}
+
+app.get("/api/flashcards", requireTelegramAuth, async (req, res) => {
+  const cards = await getFlashcards(req.telegramUser.id);
   res.json({ cards });
 });
 
-app.post("/api/flashcards/:id/review", async (req, res) => {
+app.post("/api/flashcards/:id/review", requireTelegramAuth, async (req, res) => {
   const { id } = req.params;
   const { remembered } = req.body;
-  await updateFlashcard(Number(id), remembered);
+  const updated = await updateFlashcard(Number(id), remembered, req.telegramUser.id);
+  if (!updated) {
+    return res.status(404).json({ error: "Flashcard not found" });
+  }
   res.json({ ok: true });
 });
 
