@@ -1,5 +1,5 @@
 // ai.js
-import Groq from "groq-sdk";
+import Groq, { toFile } from "groq-sdk";
 import { addFlashcard, addHistory, getHistory, countUserMessages, saveRoadmap } from "./db.js";
 import { MsEdgeTTS, OUTPUT_FORMAT } from "msedge-tts";
 import { unlink } from "fs/promises";
@@ -170,8 +170,14 @@ If there are NO errors: write "✅ Perfect!"
 
 [FLASHCARD]
 If you made a correction AND the corrected word/phrase is a confirmed part of ${language} vocabulary, save it as:
-INCORRECT_FORM:::CORRECTED_FORM:::EXAMPLE_OF_CORRECT_USAGE
-Example: tengo hambre:::I am hungry (not "I have hungry"):::Used to express hunger in Spanish — "Tengo hambre después de correr."
+${language.toUpperCase()}_WORD_OR_PHRASE:::ENGLISH_MEANING:::EXAMPLE_OF_CORRECT_USAGE
+
+Strict rules for the second field, ENGLISH_MEANING:
+- It MUST be written in English, and MUST be the meaning/translation of the ${language} word or phrase — never a respelled, re-conjugated, or "corrected" version of the same ${language} text.
+- It MUST NOT be the same word/phrase as the first field, even with different spelling, accents, or capitalization. If the only thing you can produce is a corrected version of the same ${language} text (no English meaning), write NONE instead — do not save a flashcard with two near-identical fields.
+Example: tengo hambre:::I am hungry:::Used to express hunger in Spanish — "Tengo hambre después de correr."
+Example: corrí ayer:::I ran yesterday (past tense of "correr"):::"Corrí ayer por el parque."
+
 If there is nothing to save, or you are unsure about the word, write: NONE
 
 IMPORTANT: Always include both tags, in this exact order. Never skip a tag. Do not add anything else.`;
@@ -210,7 +216,49 @@ Format as a short message (under 130 words total) using this structure:
 Write it in English (this is meta-feedback about learning progress, not part of the ${language} immersion conversation itself). This must feel like part of a continuous personalized curriculum, not a one-off note.`;
 }
 
-export async function chat(userId, userMessage, history, language, level) {
+// Belt-and-suspenders check on top of the prompt instructions above: even a
+// well-instructed model occasionally "corrects" a phrase back to (almost)
+// itself instead of giving its English meaning. Saving that as a flashcard
+// is worse than not saving one at all — it's the exact bug where the quiz's
+// stored "correct answer" ends up being a near-copy of the prompt word, so
+// no genuinely different typed answer can ever be marked correct.
+function normalizeForComparison(str) {
+  return String(str || "")
+    .toLowerCase()
+    .replace(/\([^)]*\)/g, "")
+    .replace(/[^\p{L}\p{N}\s]/gu, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function isMeaningfullyDifferent(word, correction) {
+  const a = normalizeForComparison(word);
+  const b = normalizeForComparison(correction);
+  if (!a || !b) return false;
+  if (a === b) return false;
+  // Catches near-duplicates too (accents stripped, one word added/removed,
+  // a typo "fixed") without needing a second dependency — reuses the same
+  // Levenshtein distance used to grade quiz answers in index.js.
+  const maxLen = Math.max(a.length, b.length);
+  const distance = levenshteinDistance(a, b);
+  return distance / maxLen > 0.3; // allow real translations to differ freely, reject near-copies
+}
+
+function levenshteinDistance(a, b) {
+  const dp = Array.from({ length: a.length + 1 }, () => new Array(b.length + 1).fill(0));
+  for (let i = 0; i <= a.length; i++) dp[i][0] = i;
+  for (let j = 0; j <= b.length; j++) dp[0][j] = j;
+  for (let i = 1; i <= a.length; i++) {
+    for (let j = 1; j <= b.length; j++) {
+      dp[i][j] = a[i - 1] === b[j - 1]
+        ? dp[i - 1][j - 1]
+        : 1 + Math.min(dp[i - 1][j], dp[i][j - 1], dp[i - 1][j - 1]);
+    }
+  }
+  return dp[a.length][b.length];
+}
+
+export async function chat(userId, userMessage, history, language, level, languageKey) {
   const conversationMessages = [
     ...history.map((h) => ({ role: h.role, content: h.content })),
     { role: "user", content: userMessage },
@@ -257,8 +305,8 @@ export async function chat(userId, userMessage, history, language, level) {
 
   if (flashcardRaw !== "NONE" && flashcardRaw.includes(":::")) {
     const [word, corr, context] = flashcardRaw.split(":::");
-    if (word && corr) {
-      await addFlashcard(userId, word.trim(), corr.trim(), context?.trim() ?? "");
+    if (word && corr && isMeaningfullyDifferent(word, corr)) {
+      await addFlashcard(userId, word.trim(), corr.trim(), context?.trim() ?? "", languageKey ?? null);
     }
   }
 
@@ -350,9 +398,15 @@ export async function cleanupFile(filePath) {
 }
 
 export async function transcribeAudio(audioBuffer, filename = "audio.ogg") {
+  // toFile (from groq-sdk, same lineage as the OpenAI SDK) doesn't depend on
+  // the global Web File API — `new File(...)` requires Node 18.13+ AND a
+  // host that hasn't stripped/polyfilled it differently, which varies across
+  // hosting providers. toFile works from a plain Buffer everywhere, so this
+  // removes one whole category of "works locally, fails on Render" bugs.
+  const file = await toFile(audioBuffer, filename, { type: "audio/ogg" });
   return withModelFallback(STT_MODELS, (model) =>
     groq.audio.transcriptions.create({
-      file: new File([audioBuffer], filename, { type: "audio/ogg" }),
+      file,
       model,
       response_format: "text",
     })

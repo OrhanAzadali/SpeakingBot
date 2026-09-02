@@ -452,8 +452,13 @@ bot.on("message:voice", async (ctx) => {
     }
 
   } catch (err) {
-    const safeMessage = String(err?.message || err).replaceAll(process.env.BOT_TOKEN, "[REDACTED]");
-    console.error("Voice error:", safeMessage);
+    const redact = (s) => String(s ?? "").replaceAll(process.env.BOT_TOKEN, "[REDACTED]");
+    console.error("Voice error:", {
+      name: err?.name,
+      status: err?.status ?? err?.response?.status,
+      message: redact(err?.message || err),
+      stack: redact(err?.stack),
+    });
     await ctx.api.editMessageText(
       ctx.chat.id, thinking.message_id,
       "❌ Couldn't process voice. Please try again or type instead."
