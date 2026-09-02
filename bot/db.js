@@ -201,12 +201,15 @@ export async function addFlashcard(userId, word, correction, context, language) 
   `, [userId, word, correction, context, language]);
 }
 
-// Existing cards saved before the language column existed have language =
-// NULL — treated as belonging to whatever language the user is currently
-// learning, so they don't just disappear from the Mini App after this update.
+// Strict match only. Cards with language = NULL (saved before the addFlashcard
+// language-argument bug was fixed) are deliberately excluded here rather than
+// shown under every language — that fallback is what caused Spanish, French,
+// etc. cards to all mix together in one deck. Run the one-time backfill in
+// cleanup_bad_flashcards.sql to tag those old rows with the right language
+// instead of relying on this query to paper over it.
 export async function getFlashcardsByLanguage(userId, language) {
   const { rows } = await pool.query(
-    "SELECT * FROM flashcards WHERE user_id = $1 AND (language = $2 OR language IS NULL) ORDER BY id",
+    "SELECT * FROM flashcards WHERE user_id = $1 AND language = $2 ORDER BY id",
     [userId, language]
   );
   return rows;
