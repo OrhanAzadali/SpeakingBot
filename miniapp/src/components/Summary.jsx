@@ -1,5 +1,5 @@
 import React from "react";
-export default function Summary({ stats, total }) {
+export default function Summary({ stats, total, onExit }) {
   const pct = total > 0 ? Math.round((stats.remembered / total) * 100) : 0;
 
   return (
@@ -27,6 +27,14 @@ export default function Summary({ stats, total }) {
       <p className="text-slate-400 text-sm">
         {pct >= 70 ? "Amazing work! Keep practicing!" : pct >= 40 ? "Good effort! Review forgotten words tomorrow." : "Keep going — practice makes perfect!"}
       </p>
+      {onExit && (
+        <button
+          onClick={onExit}
+          className="mt-8 px-6 py-3 rounded-xl bg-indigo-600 text-white font-semibold hover:bg-indigo-500 active:scale-95 transition-all"
+        >
+          Back to games
+        </button>
+      )}
     </div>
   );
 }

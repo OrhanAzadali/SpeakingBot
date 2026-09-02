@@ -4,7 +4,7 @@ import { Bot, InlineKeyboard, InputFile, webhookCallback } from "grammy";
 import fetch from "node-fetch";
 import {
   initDB, getUser, upsertUser, getHistory, clearHistory,
-  getDueFlashcards, getFlashcards, updateFlashcard,
+  getDueFlashcards, getFlashcardsByLanguage, getFlashcardById, updateFlashcard, recordQuizResult,
   checkAndIncrementUsage, grantPremium, getRoadmap
 } from "./db.js";
 import { chat, transcribeAudio, textToSpeech, cleanupFile, LANGUAGES, maybeGenerateRoadmap } from "./ai.js";
@@ -130,8 +130,12 @@ function requireTelegramAuth(req, res, next) {
 }
 
 app.get("/api/flashcards", requireTelegramAuth, async (req, res) => {
-  const cards = await getFlashcards(req.telegramUser.id);
-  res.json({ cards });
+  const user = await getUser(req.telegramUser.id);
+  if (!user?.language) {
+    return res.json({ cards: [], language: null });
+  }
+  const cards = await getFlashcardsByLanguage(req.telegramUser.id, user.language);
+  res.json({ cards, language: user.language });
 });
 
 app.post("/api/flashcards/:id/review", requireTelegramAuth, async (req, res) => {
@@ -142,6 +146,64 @@ app.post("/api/flashcards/:id/review", requireTelegramAuth, async (req, res) => 
     return res.status(404).json({ error: "Flashcard not found" });
   }
   res.json({ ok: true });
+});
+
+// Strips punctuation/parenthetical notes and collapses whitespace so minor
+// formatting differences don't count against the user.
+function normalizeAnswer(str) {
+  return String(str || "")
+    .toLowerCase()
+    .replace(/\([^)]*\)/g, "") // drop "(not ...)"-style notes
+    .replace(/[^\p{L}\p{N}\s]/gu, "") // strip punctuation, unicode-aware
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function levenshtein(a, b) {
+  const dp = Array.from({ length: a.length + 1 }, () => new Array(b.length + 1).fill(0));
+  for (let i = 0; i <= a.length; i++) dp[i][0] = i;
+  for (let j = 0; j <= b.length; j++) dp[0][j] = j;
+  for (let i = 1; i <= a.length; i++) {
+    for (let j = 1; j <= b.length; j++) {
+      dp[i][j] = a[i - 1] === b[j - 1]
+        ? dp[i - 1][j - 1]
+        : 1 + Math.min(dp[i - 1][j], dp[i][j - 1], dp[i - 1][j - 1]);
+    }
+  }
+  return dp[a.length][b.length];
+}
+
+// Used for both typed answers (needs typo tolerance) and multiple-choice
+// (the submitted text is one of the shown options verbatim, so this reduces
+// to an exact match after normalization).
+function isCorrectAnswer(submitted, correctAnswer) {
+  const a = normalizeAnswer(submitted);
+  const b = normalizeAnswer(correctAnswer);
+  if (!a || !b) return false;
+  if (a === b) return true;
+  const tolerance = Math.min(3, Math.max(1, Math.floor(b.length / 6)));
+  return levenshtein(a, b) <= tolerance;
+}
+
+// Quiz mode: the server — not the client — decides whether the submitted
+// answer was correct, by comparing it against the stored correction. This
+// stops a client from just claiming { correct: true } to instantly master
+// (and delete) any card. 3 correct answers in a row masters the word.
+app.post("/api/flashcards/:id/quiz", requireTelegramAuth, async (req, res) => {
+  const { id } = req.params;
+  const { answer } = req.body;
+  if (typeof answer !== "string") {
+    return res.status(400).json({ error: "Missing answer" });
+  }
+
+  const card = await getFlashcardById(Number(id), req.telegramUser.id);
+  if (!card) {
+    return res.status(404).json({ error: "Flashcard not found" });
+  }
+
+  const correct = isCorrectAnswer(answer, card.correction);
+  const result = await recordQuizResult(Number(id), req.telegramUser.id, correct);
+  res.json({ correct, correctAnswer: card.correction, ...result });
 });
 
 const PORT = process.env.PORT || 3000;
@@ -213,7 +275,8 @@ bot.callbackQuery(/^level_(.+)$/, async (ctx) => {
 
 bot.command("flashcards", async (ctx) => {
   const userId = ctx.from.id;
-  const cards = await getFlashcards(userId);
+  const user = await getUser(userId);
+  const cards = await getFlashcardsByLanguage(userId, user?.language);
 
   if (!cards.length) {
     await ctx.reply("📭 No flashcards yet! Keep chatting and I'll save words you struggle with.");
@@ -360,7 +423,7 @@ bot.on("message:voice", async (ctx) => {
     const history = await getHistory(userId);
     const { correction, reply } = await chat(
       userId, transcribed, history,
-      LANGUAGES[user.language], user.level
+      LANGUAGES[user.language], user.level, user.language
     );
 
     // Send text correction first
@@ -417,7 +480,7 @@ bot.on("message:text", async (ctx) => {
     const history = await getHistory(userId);
     const { correction, reply } = await chat(
       userId, ctx.message.text, history,
-      LANGUAGES[user.language], user.level
+      LANGUAGES[user.language], user.level, user.language
     );
 
     await ctx.api.editMessageText(

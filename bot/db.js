@@ -44,6 +44,9 @@ export async function initDB() {
       interval INTEGER DEFAULT 1
     );
 
+    ALTER TABLE flashcards ADD COLUMN IF NOT EXISTS language TEXT;
+    ALTER TABLE flashcards ADD COLUMN IF NOT EXISTS correct_streak INTEGER DEFAULT 0;
+
     CREATE TABLE IF NOT EXISTS user_progress (
       user_id BIGINT PRIMARY KEY,
       roadmap TEXT,
@@ -190,12 +193,23 @@ export async function getRoadmap(userId) {
 
 // ── Flashcards ────────────────────────────────────────────────────────────────
 
-export async function addFlashcard(userId, word, correction, context) {
+export async function addFlashcard(userId, word, correction, context, language) {
   await pool.query(`
-    INSERT INTO flashcards (user_id, word, correction, context)
-    VALUES ($1, $2, $3, $4)
+    INSERT INTO flashcards (user_id, word, correction, context, language)
+    VALUES ($1, $2, $3, $4, $5)
     ON CONFLICT DO NOTHING
-  `, [userId, word, correction, context]);
+  `, [userId, word, correction, context, language]);
+}
+
+// Existing cards saved before the language column existed have language =
+// NULL — treated as belonging to whatever language the user is currently
+// learning, so they don't just disappear from the Mini App after this update.
+export async function getFlashcardsByLanguage(userId, language) {
+  const { rows } = await pool.query(
+    "SELECT * FROM flashcards WHERE user_id = $1 AND (language = $2 OR language IS NULL) ORDER BY id",
+    [userId, language]
+  );
+  return rows;
 }
 
 export async function getFlashcards(userId) {
@@ -204,6 +218,14 @@ export async function getFlashcards(userId) {
     [userId]
   );
   return rows;
+}
+
+export async function getFlashcardById(id, userId) {
+  const { rows } = await pool.query(
+    "SELECT * FROM flashcards WHERE id = $1 AND user_id = $2",
+    [id, userId]
+  );
+  return rows[0] ?? null;
 }
 
 export async function getDueFlashcards(userId) {
@@ -245,3 +267,31 @@ export async function updateFlashcard(id, remembered, userId) {
 }
 
 export default pool;
+
+// ── Quiz mode ─────────────────────────────────────────────────────────────────
+// Tracks a separate correct-in-a-row streak per card, independent of the
+// spaced-repetition fields the Flashcards mode uses. Three correct answers in
+// a row means the word is considered mastered: the card is deleted entirely,
+// so it stops appearing in both Quiz and Flashcards mode going forward.
+export async function recordQuizResult(id, userId, correct) {
+  const { rows } = await pool.query(
+    "SELECT * FROM flashcards WHERE id = $1 AND user_id = $2",
+    [id, userId]
+  );
+  const card = rows[0];
+  if (!card) return null;
+
+  if (!correct) {
+    await pool.query("UPDATE flashcards SET correct_streak = 0 WHERE id = $1", [id]);
+    return { mastered: false, streak: 0 };
+  }
+
+  const streak = (card.correct_streak ?? 0) + 1;
+  if (streak >= 3) {
+    await pool.query("DELETE FROM flashcards WHERE id = $1", [id]);
+    return { mastered: true, streak };
+  }
+
+  await pool.query("UPDATE flashcards SET correct_streak = $2 WHERE id = $1", [id, streak]);
+  return { mastered: false, streak };
+}
