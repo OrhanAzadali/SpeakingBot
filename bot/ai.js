@@ -181,7 +181,7 @@ Carefully analyze the student's most recent message for actual ${language} gramm
 
 Return your response strictly as a single JSON object:
 {
-  "correctionText": "✅ Perfect!" OR "📝 Correction: <corrected sentence> (<1-sentence explanation>)" OR "ℹ️ Понятно, разбираем по-${mediatorLanguage}!",
+  "correctionText": "✅ Perfect!" OR "📝 Correction: <corrected sentence> (<1-sentence explanation>)" OR "ℹ️ Let's discuss it in ${mediatorLanguage}!",
   "mistakes": [
     {
       "initial_form": "Pure dictionary lemma/infinitive headword in ${language} native script (e.g. 'вопрос', 'Buch', 'qırmızı')",
