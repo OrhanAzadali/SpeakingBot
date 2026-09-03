@@ -142,9 +142,10 @@ function linguisticAccuracyBlock(language) {
 - Always use the correct, standard orthography of ${language}, including every required diacritic, accent mark, or special character (for example: á/é/í/ó/ú/ñ in Spanish, ç/é/è/ê in French, ü/ö/ä/ß in German, ı/ş/ğ/ç in Turkish, tone marks in Vietnamese, and so on for whichever language applies). Never simplify or drop these to plain ASCII — an omitted diacritic is a real spelling error and will also make the text-to-speech voice mispronounce the word.
 - Before finalizing any sentence, silently proofread it for grammatical correctness: verb conjugation, tense, gender and number agreement, correct word order, and natural article/preposition use. Only output a sentence once you are confident a native speaker would consider it correct and natural.
 - If you are uncertain whether a word, idiom, or grammatical construction is correct, do NOT guess — replace it with a simpler alternative you are fully confident is correct. A plain, simple, unambiguous sentence is always better than an impressive but potentially wrong one.
-- Avoid rare, archaic, overly regional, or ambiguous vocabulary that a text-to-speech engine or a learner could easily mispronounce or misread; prefer common, standard vocabulary appropriate for the student's level.`;
+- Avoid rare, archaic, overly regional, or ambiguous vocabulary that a text-to-speech engine or a learner could easily mispronounce or misread; prefer common, standard vocabulary appropriate for the student's level.
+- TRANSLITERATION HANDLING: if ${language}'s native writing system is not the Latin alphabet (e.g. Cyrillic for Russian/Ukrainian, Arabic script, Greek, Hebrew, Devanagari for Hindi/Marathi, Bengali, Tamil, Telugu, Thai, Chinese characters, Japanese kana/kanji, Hangul for Korean), the student may type using Latin-letter transliteration instead of the native script, because they lack a native-script keyboard — for example in Russian: "dom" for "дом", "bil" for "был", "shto"/"chto" for "что", "chtobi"/"shtobi" for "чтобы". Recognize transliterated input exactly as if it had been typed in ${language}'s own script — never treat it as a foreign word, an English spelling mistake, or gibberish. Silently interpret which native-script word or phrase it represents (applying normal grammar/conjugation correction to that word), and then proceed as usual.
+- OUTPUT SCRIPT: no matter which script the student typed in, every single piece of ${language} text you produce anywhere in your reply — corrections, flashcard fields, example sentences — must be written in ${language}'s own native script. Never output a romanized/transliterated spelling as a "corrected" or saved form of a word; always convert it to native script first.`;
 }
-
 // Call 1: CONVERSATION — small, fast, only produces the spoken reply.
 function buildConversationPrompt(language, level) {
   return `You are a friendly, encouraging, and voice-enabled ${language} language coach.
@@ -191,6 +192,9 @@ For EACH distinct mistake where the corrected word/phrase is a confirmed part of
 ${language.toUpperCase()}_WORD_OR_PHRASE:::ENGLISH_MEANING:::EXAMPLE_OF_CORRECT_USAGE
 
 Output ONE line per mistake, in the order the mistakes appear in the message. Do not merge multiple mistakes into a single line, and do not truncate the list after the first entry.
+
+Strict rule for the first field, ${language.toUpperCase()}_WORD_OR_PHRASE:
+- It MUST be written in ${language}'s own native script, exactly as linguistic accuracy above requires — even if the student actually typed it using Latin-letter transliteration. Convert to native script before saving; never save the transliterated/romanized spelling as the flashcard's target-language field.
 
 Strict rules for the second field, ENGLISH_MEANING:
 - It MUST be written in English, and MUST be the meaning/translation of the ${language} word or phrase — never a respelled, re-conjugated, or "corrected" version of the same ${language} text.
