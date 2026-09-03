@@ -7,10 +7,10 @@ import { tmpdir } from "os";
 
 const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
 
-// Current production models on Groq. Rate limits are per-model, so cycling
-// through distinct models on a 429 accesses separate quota buckets rather
-// than retrying the same one. We include high-throughput Llama models alongside
-// gpt-oss/qwen to ensure seamless fallback without model-not-found errors.
+// Current production models per Groq's deprecation roadmap. Rate limits are per-model,
+// so cycling through distinct models on a 429 accesses separate quota buckets rather
+// than retrying the exhausted one. High-throughput Llama models are included alongside
+// gpt-oss and qwen to guarantee zero model-deprecation crashes.
 const CHAT_MODELS = [
   "llama-3.3-70b-versatile",
   "llama-3.1-8b-instant",
@@ -22,10 +22,9 @@ const STT_MODELS = ["whisper-large-v3", "whisper-large-v3-turbo"];
 
 // gpt-oss models spend completion tokens on hidden chain-of-thought before
 // writing any visible content. With a low max_tokens, a request that needs
-// real reasoning can exhaust the whole budget on hidden reasoning, leaving
-// message.content empty. reasoning_effort:"low" keeps the model from
-// over-spending on reasoning for what's usually a simple turn; other models
-// ignore or omit this parameter.
+// real reasoning can exhaust the budget on hidden reasoning, returning an empty
+// message.content. reasoning_effort:"low" keeps the model from over-spending
+// on reasoning for simple turns; other models ignore or omit this parameter.
 function reasoningParams(model) {
   return model.startsWith("openai/gpt-oss") ? { reasoning_effort: "low" } : {};
 }
@@ -59,7 +58,7 @@ export const LANGUAGES = {
   marathi: "Marathi", swahili: "Swahili", afrikaans: "Afrikaans", azerbaijani: "Azerbaijani"
 };
 
-// Best Edge TTS neural voice for each supported language
+// Best Edge TTS voice for each supported language
 const TTS_VOICES = {
   spanish: "es-ES-AlvaroNeural", english: "en-US-GuyNeural", french: "fr-FR-HenriNeural",
   german: "de-DE-ConradNeural", japanese: "ja-JP-KeitaNeural", italian: "it-IT-DiegoNeural",
@@ -88,7 +87,7 @@ function extractJsonObject(raw) {
 function linguisticAccuracyBlock(language) {
   return `LINGUISTIC ACCURACY & STRICT BASE LEMMA MANDATE:
 - Target language: ${language}.
-- ALWAYS use standard orthography of ${language}, including every diacritic and accent mark.
+- ALWAYS use the standard orthography of ${language}, including every diacritic and accent mark.
 - STRICT BASE LEMMA / INFINITIVE RULE (MANDATORY):
   When extracting vocabulary for flashcards, "initial_form" MUST ALWAYS be the uninflected dictionary headword:
   * Nouns: MUST be singular nominative (e.g. Russian: "вопрос", "дружба", "книга"; German: "Buch", "Freundschaft"; Azerbaijani: "ev", "kitab").
@@ -110,7 +109,7 @@ function buildConversationPrompt(language, level, mediatorLanguage = "english") 
   2. Switch to ${mediatorLanguage} to bridge the gap and help them:
      - Warmly acknowledge in ${mediatorLanguage} (e.g. "Без проблем, давай разберем по-русски!").
      - Explain what your previous ${language} sentence meant in ${mediatorLanguage}.
-     - Give them the simple ${language} phrase with its exact translation (e.g. "«Wie heißt du?» означает «Как тебя зовут?»").
+     - Give them the simple ${language} phrase with an exact translation (e.g. "«Wie heißt du?» означает «Как тебя зовут?»").
      - Show them an easy template to answer in ${language} (e.g. "Ответь так: «Ich heiße ... [твое имя]». Попробуй!").
 - When introducing new questions or phrases to Beginners, always accompany them with a short helpful translation or clue in ${mediatorLanguage}.`
     : `INTERMEDIATE & ADVANCED IMMERSION RULE:
@@ -260,61 +259,38 @@ Return ONLY JSON:
   }
 }
 
-// ── Call 4: Intelligent 4-Scenario Answer Evaluator (Handles "Don't know") ────
-export async function evaluateSkillAnswer(skill, targetLanguage, mediatorLanguage, level, question, userAnswer, isVoice = false) {
-  // Pre-check for "don't know", "idk", "ne znayu", "не знаю", "не могу" in multiple variants
-  const rawInput = String(userAnswer || "").toLowerCase().trim();
-  const isExplicitDontKnow = /^(i\s*don'?t\s*know|don'?t\s*know|idk|no\s*idea|dunno|skip|не\s*знаю|я\s*не\s*знаю|хз|без\s*понятия|не\s*помню|не\s*могу|не\s*понял|не\s*понимаю|пропуск|ne\s*znayu|ya\s*ne\s*znayu|ne\s*znaju|ne\s*mogu|ne\s*ponimayu)$/i.test(rawInput);
+// ── Call 4: Universal AI-First Answer & Intent Classifier ─────────────────────
+export async function analyzeStudentResponse(targetLanguage, mediatorLanguage, promptQuestion, userAnswer) {
+  const prompt = `You are a universal psycholinguistic analyst and CEFR examiner.
+A student was assigned a task in ${targetLanguage}.
+Instructions/Mediator language: ${mediatorLanguage}.
 
-  const prompt = `You are a certified CEFR language examiner grading a student's answer.
-Target Language: ${targetLanguage}.
-Mediator Language: ${mediatorLanguage}.
+Question/Task: "${promptQuestion}"
+Student's Actual Input: "${userAnswer}"
 
-Question Asked: "${question.prompt}"
-${question.audio_script ? `Audio Passage was: "${question.audio_script}"` : ""}
-${question.reading_passage ? `Reading Passage was: "${question.reading_passage}"` : ""}
-Expected / Target Answer: "${question.correct_answer || "Accurate comprehension in " + targetLanguage}"
-Student's Actual Answer: "${userAnswer}"
-${isExplicitDontKnow ? `FLAG: The student explicitly stated they DO NOT KNOW or CANNOT answer ("${userAnswer}").` : ""}
+Analyze the student's input across ALL world languages (Arabic, Urdu, Mandarin, Spanish, Russian, English, Armenian, Hindi, etc.):
 
-CLASSIFY AND GRADE STRICTLY ACCORDING TO THESE 4 CASES:
-
-CASE 1: STUDENT DOES NOT KNOW / DID NOT UNDERSTAND ("${userAnswer}")
-- Criteria: The student wrote "don't know", "не знаю", "ne znayu", "не могу", "idk", or similar admission.
-- Score: 0/100.
-- Feedback: In ${mediatorLanguage}, state that it is completely fine not to know. Then clearly explain what the correct answer in ${targetLanguage} was, and translate it to ${mediatorLanguage}.
-- STRICT MANDATE: NEVER say "Вы поняли вопрос, но ответили на..."! They explicitly stated they did NOT know!
-
-CASE 2: CORRECT ANSWER IN TARGET LANGUAGE (${targetLanguage})
-- Criteria: Student gave the correct fact in ${targetLanguage}. Concise 1-2 word answers that directly answer the question MUST BE GRADED 100/100! Never penalize direct factual answers as "too brief".
-- Score: 100/100.
-- Feedback: In ${mediatorLanguage}, confirm the answer is correct.
-
-CASE 3: UNDERSTOOD THE CONCEPT, BUT WROTE IN MEDIATOR LANGUAGE (${mediatorLanguage}) INSTEAD OF TARGET LANGUAGE (${targetLanguage})
-- Criteria: The answer is the ACTUAL correct translation/meaning in ${mediatorLanguage} (e.g. question asks for color, target is German "rot", and student typed Russian "красный").
-- Score: 20/100.
-- Feedback: In ${mediatorLanguage}, explain: "Вы правильно поняли суть вопроса, но ответили на ${mediatorLanguage} («${userAnswer}»). На ${targetLanguage} правильный ответ: [write exact word in ${targetLanguage}]."
-
-CASE 4: WRONG / INCORRECT ANSWER
-- Criteria: Factual mistake or wrong guess.
-- Score: 0/100.
-- Feedback: In ${mediatorLanguage}, state that the answer is incorrect, and provide the correct answer in ${targetLanguage}. NEVER claim they understood the question!
+1. "detected_language": Identify the language the student typed in.
+2. "is_target_language": true ONLY if the student used ${targetLanguage}. If they typed in ${mediatorLanguage} or any other language, false.
+3. "intent": Classify the student's core intent:
+   - "ADMIT_NO_KNOWLEDGE": The student is expressing that they do not know, cannot speak, do not understand, want to give up, or know nothing about ${targetLanguage} (e.g. "I don't know", "لا أعرف", "مجھے معلوم نہیں", "我不会", "չգիտեմ", "не знаю", "no sé", etc.).
+   - "ANSWER_IN_WRONG_LANGUAGE": The student understood the factual question and provided the factual answer, but wrote it in ${mediatorLanguage} or another language instead of ${targetLanguage} (e.g. wrote "red" or "красный" instead of ${targetLanguage}).
+   - "GENUINE_ATTEMPT": The student attempted to answer or produce ${targetLanguage}.
+   - "UNRELATED_OR_EMPTY": Gibberish, greeting, empty response, or off-topic statement.
+4. "target_language_proficiency_demonstrated": true ONLY if the student demonstrated actual vocabulary, grammar, or syntax in ${targetLanguage}. If they only wrote in ${mediatorLanguage} or another language, this MUST be false!
+5. "correct_answer_in_target_language": Give the exact, natural correct answer in ${targetLanguage}.
+6. "explanation_in_mediator": Concise feedback written in ${mediatorLanguage} explaining the correct answer without robotic templates.
 
 Return ONLY a JSON object:
 {
-  "score": 0 | 20 | 100,
-  "feedback": "Clear explanation in ${mediatorLanguage} with NO placeholders",
-  "mistakes": [
-    {
-      "initial_form": "lemma in ${targetLanguage}",
-      "used_form": "...",
-      "part_of_speech": "...",
-      "meaning": "meaning in ${mediatorLanguage}",
-      "synonyms": "...",
-      "explanation": "...",
-      "sentence": "..."
-    }
-  ]
+  "detected_language": "...",
+  "is_target_language": false,
+  "intent": "ADMIT_NO_KNOWLEDGE | ANSWER_IN_WRONG_LANGUAGE | GENUINE_ATTEMPT | UNRELATED_OR_EMPTY",
+  "target_language_proficiency_demonstrated": false,
+  "score_recommendation": 0,
+  "correct_answer_in_target_language": "...",
+  "explanation_in_mediator": "...",
+  "extracted_mistakes": []
 }`;
 
   try {
@@ -332,23 +308,59 @@ Return ONLY a JSON object:
     const raw = response.choices[0]?.message?.content?.trim();
     return JSON.parse(extractJsonObject(raw));
   } catch (err) {
-    console.error("Evaluation error:", err.message);
-    if (isExplicitDontKnow) {
-      return {
-        score: 0,
-        feedback: `Ничего страшного! Правильный ответ был: ${question.correct_answer || "не указан"}.`,
-        mistakes: []
-      };
-    }
+    console.error("Universal analysis error:", err.message);
     return {
-      score: 50,
-      feedback: "Ответ записан.",
-      mistakes: []
+      detected_language: "unknown",
+      is_target_language: false,
+      intent: "ADMIT_NO_KNOWLEDGE",
+      target_language_proficiency_demonstrated: false,
+      score_recommendation: 0,
+      correct_answer_in_target_language: "",
+      explanation_in_mediator: "Ответ записан.",
+      extracted_mistakes: []
     };
   }
 }
 
-// ── Call 5: CEFR Diagnostic Placement Test Generator ──────────────────────────
+// ── Call 5: Universal Skill Drill Evaluator ──────────────────────────────────
+export async function evaluateSkillAnswer(skill, targetLanguage, mediatorLanguage, level, question, userAnswer, isVoice = false) {
+  // Step 1: AI detects language, semantic intent, and target language proficiency
+  const analysis = await analyzeStudentResponse(targetLanguage, mediatorLanguage, question.prompt, userAnswer);
+
+  let score = 0;
+  let feedback = analysis.explanation_in_mediator;
+
+  // Step 2: Code decides the score based on AI semantic parameters
+  switch (analysis.intent) {
+    case "ADMIT_NO_KNOWLEDGE":
+      score = 0;
+      feedback = `Ничего страшного! Вы указали, что не знаете ответ. В ${targetLanguage} правильный ответ: ${analysis.correct_answer_in_target_language || question.correct_answer || ""}.`;
+      break;
+
+    case "ANSWER_IN_WRONG_LANGUAGE":
+      score = 20;
+      feedback = `Вы поняли суть вопроса, но ответили на языке ${analysis.detected_language} («${userAnswer}»). Ответ должен быть на ${targetLanguage}: ${analysis.correct_answer_in_target_language}.`;
+      break;
+
+    case "GENUINE_ATTEMPT":
+      score = Math.max(70, analysis.score_recommendation || 80);
+      break;
+
+    case "UNRELATED_OR_EMPTY":
+    default:
+      score = 0;
+      feedback = `Ответ не относится к вопросу. Правильный ответ на ${targetLanguage}: ${analysis.correct_answer_in_target_language || question.correct_answer || ""}.`;
+      break;
+  }
+
+  return {
+    score,
+    feedback,
+    mistakes: analysis.extracted_mistakes || []
+  };
+}
+
+// ── Call 6: CEFR Placement Test Generator ─────────────────────────────────────
 export async function generateLevelTest(targetLanguage, mediatorLanguage = "english") {
   const prompt = `You are a certified psychometric CEFR language testing specialist.
 Create a diagnostic placement test to assess proficiency in ${targetLanguage}.
@@ -477,45 +489,94 @@ Return ONLY JSON:
   }
 }
 
-// ── Call 6: Placement Test Evaluator ──────────────────────────────────────────
+// ── Call 7: Universal CEFR Placement Test Evaluator ───────────────────────────
 export async function evaluateLevelTest(targetLanguage, mediatorLanguage, questions, userAnswers) {
-  const prompt = `You are a certified CEFR examiner evaluating a student's placement test in ${targetLanguage}.
-Student's answers:
-${questions.map((q, i) => `Q${i + 1} (${q.skill}): ${q.prompt}\nAnswer: "${userAnswers[i] || "No answer"}"`).join("\n\n")}
+  const prompt = `You are a certified psychometric CEFR language testing specialist evaluating a full placement test.
+Target Language: ${targetLanguage}.
+Mediator Language for report: ${mediatorLanguage}.
 
-Evaluate: Vocabulary, Grammar, Syntax, Production in ${targetLanguage}.
-Map to: "Beginner" (A1-A2), "Intermediate" (B1-B2), or "Advanced" (C1-C2).
+Questions and Student Answers:
+${questions.map((q, i) => `Q${i + 1} (${q.skill}):\nPrompt: ${q.prompt}\nStudent Answer: "${userAnswers[i] || "No answer"}"`).join("\n\n")}
+
+UNIVERSAL EVALUATION MANDATE (APPLIES TO ANY WORLD LANGUAGE):
+1. SEMANTIC INTENT CHECK:
+   - If the student states in ANY language (e.g. Arabic, Urdu, Russian, English, Chinese, Hindi, etc.) that they do not know, do not understand, or cannot answer, they MUST NOT receive vocabulary or syntax points in ${targetLanguage}!
+2. TARGET LANGUAGE PROFICIENCY ONLY:
+   - Grade ONLY actual words, grammar, and structures produced in ${targetLanguage}.
+   - If a student answers using well-formed sentences in ${mediatorLanguage} (e.g. Russian, English, etc.) saying they don't know ${targetLanguage}, their score in ${targetLanguage} is strictly 0! DO NOT award points for sentences in another language.
+3. SCORING BREAKDOWN (0 to 25 each):
+   - vocabulary: Points for ${targetLanguage} words demonstrated.
+   - grammar: Points for ${targetLanguage} morphology/verb forms.
+   - syntax: Points for ${targetLanguage} sentence structure.
+   - production: Points for open ${targetLanguage} output.
+   - If no valid ${targetLanguage} was demonstrated across the answers, overall score MUST BE 0, and level MUST BE Beginner (A1).
 
 Return ONLY JSON:
 {
+  "admits_zero_knowledge": true | false,
+  "target_language_demonstrated": true | false,
   "detected_level": "Beginner | Intermediate | Advanced",
   "cefr_grade": "A1 | A2 | B1 | B2 | C1 | C2",
-  "score": 85,
+  "score": 0,
   "breakdown": {
     "vocabulary": "Score out of 25",
     "grammar": "Score out of 25",
     "syntax": "Score out of 25",
     "production": "Score out of 25"
   },
-  "recommendations": "2-3 sentences in ${mediatorLanguage}."
+  "recommendations": "Advice in ${mediatorLanguage}."
 }`;
 
-  const response = await withModelFallback(CHAT_MODELS, (model) =>
-    groq.chat.completions.create({
-      model,
-      messages: [{ role: "user", content: prompt }],
-      temperature: 0.1,
-      max_tokens: 600,
-      response_format: { type: "json_object" },
-      ...reasoningParams(model),
-    })
-  );
+  try {
+    const response = await withModelFallback(CHAT_MODELS, (model) =>
+      groq.chat.completions.create({
+        model,
+        messages: [{ role: "user", content: prompt }],
+        temperature: 0.1,
+        max_tokens: 700,
+        response_format: { type: "json_object" },
+        ...reasoningParams(model),
+      })
+    );
 
-  const raw = response.choices[0]?.message?.content?.trim();
-  return JSON.parse(extractJsonObject(raw));
+    const raw = response.choices[0]?.message?.content?.trim();
+    const parsed = JSON.parse(extractJsonObject(raw));
+
+    // Code Gate: If AI detected zero knowledge or no target language was demonstrated, code enforces 0/100
+    if (parsed.admits_zero_knowledge || !parsed.target_language_demonstrated) {
+      return {
+        detected_level: "Beginner",
+        cefr_grade: "A1",
+        score: 0,
+        breakdown: {
+          vocabulary: "0 / 25",
+          grammar: "0 / 25",
+          syntax: "0 / 25",
+          production: "0 / 25"
+        },
+        recommendations: parsed.recommendations || `Начнем изучение ${targetLanguage} с самого начала: алфавит, простые слова и базовые фразы.`
+      };
+    }
+
+    return parsed;
+  } catch (err) {
+    console.error("Evaluation error:", err.message);
+    return {
+      detected_level: "Beginner",
+      cefr_grade: "A1",
+      score: 0,
+      breakdown: {
+        vocabulary: "0 / 25",
+        grammar: "0 / 25",
+        syntax: "0 / 25",
+        production: "0 / 25"
+      },
+      recommendations: `Начнем изучение ${targetLanguage} с нуля.`
+    };
+  }
 }
 
-// ── Call 7: Semantic Quiz Judge ───────────────────────────────────────────────
+// ── Call 8: Semantic Quiz Judge ───────────────────────────────────────────────
 export async function checkSemanticAnswer(wordOrPhrase, submittedAnswer, correctAnswer, synonyms = "") {
   const submitted = String(submittedAnswer || "").trim();
   if (!submitted) return { correct: false, isSynonym: false, explanation: "No answer provided." };
@@ -644,7 +705,7 @@ export async function chat(userId, userMessage, history, language, level, langua
   return { correction, reply };
 }
 
-// ── Call 8: Progress Roadmap Builder ──────────────────────────────────────────
+// ── Call 9: Progress Roadmap Builder ──────────────────────────────────────────
 function buildRoadmapPrompt(language, level, mediatorLanguage = "english") {
   return `You are a structured ${language} coach producing a progress update for a ${level}-level student.
 Write the progress report entirely in the student's mediator language: ${mediatorLanguage.toUpperCase()} (so beginners and intermediate students can easily read and understand their goals!).

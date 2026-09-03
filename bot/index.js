@@ -26,6 +26,7 @@ import {
 const bot = new Bot(process.env.BOT_TOKEN);
 const MINIAPP_URL = process.env.MINIAPP_URL;
 
+// Free-tier daily message cap and Premium pricing. All configurable via env vars.
 const FREE_DAILY_LIMIT = parseInt(process.env.FREE_DAILY_LIMIT || "100", 10);
 const PREMIUM_PRICE_STARS = parseInt(process.env.PREMIUM_PRICE_STARS || "150", 10);
 const PREMIUM_DURATION_DAYS = parseInt(process.env.PREMIUM_DURATION_DAYS || "30", 10);
@@ -56,13 +57,13 @@ if (PUBLIC_URL) {
     WEBHOOK_PATH,
     webhookCallback(bot, "express", {
       timeoutMilliseconds: 8_000,
-      onTimeout: () => console.log("Webhook ack sent early."),
+      onTimeout: () => console.log("Webhook ack sent early — update processing in background."),
       secretToken: WEBHOOK_SECRET,
     })
   );
 }
 
-// ── Telegram Auth ─────────────────────────────────────────────────────────────
+// ── Telegram Mini App Authentication ──────────────────────────────────────────
 function verifyTelegramInitData(initData, botToken) {
   const params = new URLSearchParams(initData);
   const hash = params.get("hash");
@@ -209,7 +210,7 @@ async function generateVocabularyPdf(userId, language, outputPath) {
   });
 }
 
-// ── Helper: Clean Option Prefixes (e.g. "B) дом" -> "дом") ────────────────────
+// ── Helpers: Clean Option Prefixes & Letters ──────────────────────────────────
 function cleanOptionPrefix(str) {
   return String(str || "")
     .replace(/^[A-Da-d0-9][\)\.]\s*/, "")
@@ -405,11 +406,26 @@ async function finishAndEvaluateTest(ctx, userId, test) {
   const statusMsg = await ctx.reply("🧠 Evaluating your answers against CEFR benchmarks with AI...");
 
   try {
+    // Deterministic pre-verification of choice questions to stop AI guesswork
+    const normalizedAnswers = test.questions.map((q, i) => {
+      const userAns = test.answers[i] || "";
+      if (q.type === "choice") {
+        const cleanUser = cleanOptionPrefix(userAns);
+        const cleanExpected = cleanOptionPrefix(q.correct_option || q.correct_answer || "");
+        const letterUser = extractOptionLetter(userAns);
+        const letterExpected = extractOptionLetter(q.correct_option || q.correct_answer || "");
+
+        const isMatch = cleanUser === cleanExpected || (letterUser && letterExpected && letterUser === letterExpected);
+        return isMatch ? `${userAns} [VERIFIED CORRECT]` : `${userAns} [INCORRECT]`;
+      }
+      return userAns;
+    });
+
     const evaluation = await evaluateLevelTest(
       LANGUAGES[test.language] || test.language,
       test.mediator_language,
       test.questions,
-      test.answers
+      normalizedAnswers
     );
 
     await saveTestResult(userId, test.language, evaluation);
@@ -433,8 +449,8 @@ async function finishAndEvaluateTest(ctx, userId, test) {
     await ctx.reply(breakdownMsg);
   } catch (err) {
     console.error("Evaluation error:", err);
-    await ctx.reply("❌ Error finalizing test. Level set to Intermediate. Type /skills to start targeted drills.");
-    await upsertUser(userId, { level: "Intermediate", state: "chatting" });
+    await ctx.reply("❌ Error finalizing test. Level set to Beginner (A1). Type /skills to start learning.");
+    await upsertUser(userId, { level: "Beginner", state: "chatting" });
     await clearActiveTest(userId);
   }
 }
@@ -528,7 +544,7 @@ bot.callbackQuery(/^drillsize_(listening|speaking|reading|writing)_(short|huge)$
 async function presentNextDrillQuestion(ctx, userId, question, index, total, skill, languageKey) {
   const header = `🎯 ${skill.toUpperCase()} DRILL [${index + 1}/${total}]\n\n`;
 
-  // 🎧 LISTENING: Deliver actual audio speech via Edge-TTS voice note
+  // 🎧 LISTENING: Deliver voice audio note via TTS!
   if (skill === "listening" && question.audio_script) {
     const audioPath = await textToSpeech(question.audio_script, languageKey);
     if (audioPath) {
@@ -576,14 +592,14 @@ bot.callbackQuery(/^drillopt_(\d+)_(\d+)$/, async (ctx) => {
   await handleDrillAnswerSubmission(ctx, userId, drill, currentQ, chosenAnswer, false);
 });
 
-// ── Robust Multiple-Choice & Language-Gated Answer Evaluator ──────────────────
+// ── Deterministic Choice & AI Open Evaluator ──────────────────────────────────
 async function handleDrillAnswerSubmission(ctx, userId, drill, question, answerText, isVoice = false) {
   const user = await getUser(userId);
   let score = 0;
   let feedback = "";
   let mistakes = [];
 
-  // Deterministic evaluation for Multiple-Choice buttons
+  // Deterministic check for multiple choice questions
   if (question.type === "choice") {
     const expected = question.correct_answer || question.correct_option || "";
     const cleanChosen = cleanOptionPrefix(answerText);
@@ -598,14 +614,14 @@ async function handleDrillAnswerSubmission(ctx, userId, drill, question, answerT
 
     if (isMatch) {
       score = 100;
-      feedback = "✅ Correct! Exact match.";
+      feedback = "✅ Правильно!";
     } else {
       score = 0;
-      feedback = `❌ Incorrect. The correct option was: ${expected}`;
+      feedback = `❌ Неправильно. Правильный ответ: ${expected}`;
     }
   } else {
-    // Open / Spoken questions evaluated by AI with strict target-language enforcement
-    const thinking = await bot.api.sendMessage(userId, "🔍 Analyzing your answer...");
+    // Open/spoken answers evaluated by universal AI intent classifier
+    const thinking = await bot.api.sendMessage(userId, "🔍 Анализирую ответ...");
 
     const evaluation = await evaluateSkillAnswer(
       drill.skill,
@@ -626,7 +642,7 @@ async function handleDrillAnswerSubmission(ctx, userId, drill, question, answerT
     } catch (_) { }
   }
 
-  // Save extracted vocabulary to the shared flashcards database strictly under the active language
+  // Save extracted vocabulary strictly into the base-form flashcards table
   if (Array.isArray(mistakes)) {
     for (const m of mistakes) {
       if (m.initial_form && m.meaning) {
@@ -646,10 +662,7 @@ async function handleDrillAnswerSubmission(ctx, userId, drill, question, answerT
     }
   }
 
-  await bot.api.sendMessage(
-    userId,
-    `Score: ${score}/100\n💡 ${feedback}`
-  );
+  await bot.api.sendMessage(userId, `Балл: ${score}/100\n💡 ${feedback}`);
 
   const updatedDrill = await recordDrillAnswer(userId, answerText, score);
   if (updatedDrill.current_index < updatedDrill.questions.length) {
