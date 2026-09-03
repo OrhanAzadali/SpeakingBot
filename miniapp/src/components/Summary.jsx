@@ -38,3 +38,4 @@ export default function Summary({ stats, total, onExit }) {
     </div>
   );
 }
+
