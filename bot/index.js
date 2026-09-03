@@ -18,7 +18,7 @@ const MINIAPP_URL = process.env.MINIAPP_URL;
 
 // Free-tier daily message cap and Premium pricing. All configurable via env
 // vars so you can tune them without a code change.
-const FREE_DAILY_LIMIT = parseInt(process.env.FREE_DAILY_LIMIT || "30", 10);
+const FREE_DAILY_LIMIT = parseInt(process.env.FREE_DAILY_LIMIT || "100", 10);
 const PREMIUM_PRICE_STARS = parseInt(process.env.PREMIUM_PRICE_STARS || "150", 10);
 const PREMIUM_DURATION_DAYS = parseInt(process.env.PREMIUM_DURATION_DAYS || "30", 10);
 
