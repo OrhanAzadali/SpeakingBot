@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import FlashcardDeck from "./components/FlashcardDeck.jsx";
 import Summary from "./components/Summary.jsx";
 import Quiz from "./components/Quiz.jsx";
@@ -10,6 +10,10 @@ const API = import.meta.env.VITE_API_URL;
 if (!API) {
   console.warn("VITE_API_URL is not set — set it in Vercel → Project Settings → Environment Variables.");
 }
+
+// How often to check for newly-added flashcards while the user is actively
+// reviewing (e.g. the bot just caught a fresh mistake in the Telegram chat).
+const NEW_CARD_POLL_MS = 7000;
 
 const DEMO_CARDS = [
   { id: 1, word: "tengo hambre", correction: "I am hungry", context: "Used to express hunger in Spanish" },
@@ -24,6 +28,13 @@ export default function App() {
   const [done, setDone] = useState(false);
   const [stats, setStats] = useState({ remembered: 0, forgot: 0 });
   const [apiError, setApiError] = useState(null);
+
+  // Every card id we've already shown this session (across loads, merges,
+  // and reviews). Used by the polling effect below to tell a genuinely new
+  // server-side card apart from one already in the deck or already reviewed
+  // away — a plain "not in current cards state" check would be wrong here,
+  // since a mastered/removed card is also "not in current cards state".
+  const knownCardIdsRef = useRef(new Set());
 
   // The server derives the trusted user identity — and, from it, which
   // language's cards to return — from this signed string. It verifies
@@ -42,6 +53,7 @@ export default function App() {
 
     if (!API) {
       console.warn("VITE_API_URL is not set — using demo cards");
+      knownCardIdsRef.current = new Set(DEMO_CARDS.map((c) => c.id));
       setCards(DEMO_CARDS);
       setLoading(false);
       return;
@@ -56,12 +68,15 @@ export default function App() {
         return r.json();
       })
       .then((data) => {
-        setCards(data.cards || []);
+        const fresh = data.cards || [];
+        knownCardIdsRef.current = new Set(fresh.map((c) => c.id));
+        setCards(fresh);
         setLoading(false);
       })
       .catch((error) => {
         console.error("API error:", error.message);
         setApiError(error.message);
+        knownCardIdsRef.current = new Set(DEMO_CARDS.map((c) => c.id));
         setCards(DEMO_CARDS);
         setLoading(false);
       });
@@ -74,6 +89,34 @@ export default function App() {
     }
     loadCards();
   }, [initData]);
+
+  // While actively reviewing flashcards, periodically check whether any new
+  // words showed up server-side (the bot saves a flashcard the instant it
+  // catches a mistake in the Telegram chat, independent of this session).
+  // If so, prepend them to the front of the deck — the API already returns
+  // newest-first, so `fresh` is already in the right order — so the newest
+  // mistake is reviewed next instead of silently waiting off-screen until
+  // the user backs out to the mode-select screen and back in.
+  useEffect(() => {
+    if (mode !== "flashcards" || done || !API) return;
+
+    const interval = setInterval(async () => {
+      try {
+        const res = await fetch(`${API}/api/flashcards`, { headers: authHeaders });
+        if (!res.ok) return;
+        const data = await res.json();
+        const fresh = (data.cards || []).filter((c) => !knownCardIdsRef.current.has(c.id));
+        if (fresh.length === 0) return;
+
+        fresh.forEach((c) => knownCardIdsRef.current.add(c.id));
+        setCards((prev) => [...fresh, ...prev]);
+      } catch (error) {
+        console.error("Poll for new flashcards failed:", error.message);
+      }
+    }, NEW_CARD_POLL_MS);
+
+    return () => clearInterval(interval);
+  }, [mode, done, initData]);
 
   function handleResult(cardId, remembered) {
     setStats((prev) => ({
@@ -204,7 +247,12 @@ export default function App() {
         </div>
       </div>
 
-      <FlashcardDeck cards={cards} onResult={handleResult} />
+      {/* Keying on the top card's id forces FlashcardDeck to remount (and
+          reset its local `flipped` state) whenever the front-of-deck card
+          changes — including when the poller above prepends a brand-new
+          card mid-review, so the answer side never leaks through for a card
+          the user hasn't actually flipped yet. */}
+      <FlashcardDeck key={cards[0]?.id ?? "empty"} cards={cards} onResult={handleResult} />
 
       <p className="mt-6 text-slate-500 text-xs text-center">
         Tap the card to reveal • ✅ remembered • ❌ forgot
