@@ -27,7 +27,7 @@ const bot = new Bot(process.env.BOT_TOKEN);
 const MINIAPP_URL = process.env.MINIAPP_URL;
 
 // Free-tier daily message cap and Premium pricing. All configurable via env vars.
-const FREE_DAILY_LIMIT = parseInt(process.env.FREE_DAILY_LIMIT || "150", 10);
+const FREE_DAILY_LIMIT = parseInt(process.env.FREE_DAILY_LIMIT || "100", 10);
 const PREMIUM_PRICE_STARS = parseInt(process.env.PREMIUM_PRICE_STARS || "150", 10);
 const PREMIUM_DURATION_DAYS = parseInt(process.env.PREMIUM_DURATION_DAYS || "30", 10);
 
@@ -157,7 +157,48 @@ app.post("/api/flashcards/:id/quiz", requireTelegramAuth, async (req, res) => {
   });
 });
 
-// ── PDF Export Utility ────────────────────────────────────────────────────────
+// Mini App Direct PDF Download Endpoint
+app.get("/api/vocabulary/pdf", requireTelegramAuth, async (req, res) => {
+  const user = await getUser(req.telegramUser.id);
+  if (!user?.language) return res.status(400).json({ error: "No language selected" });
+
+  const tempPath = path.join(tmpdir(), `vocab_web_${req.telegramUser.id}_${Date.now()}.pdf`);
+  try {
+    const filePath = await generateVocabularyPdf(req.telegramUser.id, user.language, tempPath);
+    if (!filePath) return res.status(404).json({ error: "No vocabulary found to export" });
+
+    res.download(filePath, `My_${user.language}_Vocabulary.pdf`, async () => {
+      await cleanupFile(filePath);
+    });
+  } catch (err) {
+    console.error("Web PDF error:", err);
+    res.status(500).json({ error: "Failed to generate PDF" });
+  }
+});
+
+// ── Crash-Proof PDF Engine ───────────────────────────────────────────────────
+// Detects available Unicode fonts on the hosting system (e.g. Linux / Render / Mac / Windows)
+// so that Russian (Cyrillic), Arabic, Greek, or German umlauts NEVER crash PDFKit.
+function findSystemUnicodeFont() {
+  const potentialFonts = [
+    // Debian / Ubuntu / Render standard paths
+    "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+    "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+    "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
+    "/usr/share/fonts/truetype/freefont/FreeSans.ttf",
+    // Windows paths
+    "C:\\Windows\\Fonts\\arial.ttf",
+    // Local fallback in project root
+    path.join(process.cwd(), "fonts", "Roboto-Regular.ttf")
+  ];
+
+  for (const fontPath of potentialFonts) {
+    if (fs.existsSync(fontPath)) return fontPath;
+  }
+  return null;
+}
+
+// Compiles all active cards and mastered words into a styled PDF document
 async function generateVocabularyPdf(userId, language, outputPath) {
   const data = await getAllUserVocabulary(userId, language);
   if (data.total === 0) return null;
@@ -167,31 +208,53 @@ async function generateVocabularyPdf(userId, language, outputPath) {
     const writeStream = fs.createWriteStream(outputPath);
     doc.pipe(writeStream);
 
-    doc.fontSize(22).font("Helvetica-Bold").text("Personal Vocabulary Notebook", { align: "center" });
-    doc.fontSize(11).font("Helvetica").text(
-      `Language: ${language ? LANGUAGES[language] || language : "All"} | Generated: ${new Date().toLocaleDateString()}`,
+    const unicodeFontPath = findSystemUnicodeFont();
+    if (unicodeFontPath) {
+      doc.registerFont("CustomFont", unicodeFontPath);
+      doc.font("CustomFont");
+    } else {
+      // Fallback font
+      doc.font("Helvetica");
+    }
+
+    // Title
+    doc.fontSize(22).text("Personal Vocabulary Notebook", { align: "center" });
+    doc.moveDown(0.3);
+
+    const langName = language ? (LANGUAGES[language] || language) : "All";
+    doc.fontSize(11).text(
+      `Language: ${langName} | Total Words: ${data.total} | Generated: ${new Date().toLocaleDateString()}`,
       { align: "center" }
     );
     doc.moveDown(1.5);
 
     const renderWordItem = (item, index) => {
-      if (doc.y > 700) doc.addPage();
-      doc.fontSize(13).font("Helvetica-Bold").fillColor("#1e293b").text(`${index + 1}. ${item.display_word || item.initial_form || item.word} `, { continued: true });
-      if (item.part_of_speech) {
-        doc.fontSize(10).font("Helvetica-Oblique").fillColor("#64748b").text(`[${item.part_of_speech}]`, { continued: true });
+      if (doc.y > 720) doc.addPage();
+
+      const wordTitle = `${index + 1}. ${item.display_word || item.initial_form || item.word}`;
+      const posTag = item.part_of_speech ? ` [${item.part_of_speech}]` : "";
+
+      doc.fontSize(13).fillColor("#1e293b").text(`${wordTitle}${posTag}`, { continued: true });
+      doc.fontSize(12).fillColor("#15803d").text(` — ${item.correction}`);
+
+      if (item.synonyms) {
+        doc.fontSize(10).fillColor("#475569").text(`   • Synonyms: ${item.synonyms}`);
       }
-      doc.fontSize(12).font("Helvetica").fillColor("#15803d").text(` — ${item.correction}`);
-      if (item.synonyms) doc.fontSize(10).font("Helvetica").fillColor("#475569").text(`   • Synonyms: ${item.synonyms}`);
-      if (item.explanation) doc.fontSize(10).font("Helvetica").fillColor("#475569").text(`   • Note: ${item.explanation}`);
+
+      if (item.explanation) {
+        doc.fontSize(10).fillColor("#475569").text(`   • Note: ${item.explanation}`);
+      }
+
       if (item.sentence) {
         const cleanSentence = item.sentence.replace(/<\/?u>/g, "");
-        doc.fontSize(10).font("Helvetica-Oblique").fillColor("#334155").text(`   • Example: "${cleanSentence}"`);
+        doc.fontSize(10).fillColor("#334155").text(`   • Example: "${cleanSentence}"`);
       }
+
       doc.moveDown(0.6);
     };
 
     if (data.active.length > 0) {
-      doc.fontSize(15).font("Helvetica-Bold").fillColor("#4338ca").text(`📚 Active Flashcards (${data.active.length})`);
+      doc.fontSize(16).fillColor("#4338ca").text(`📚 Active Flashcards (${data.active.length})`);
       doc.moveDown(0.5);
       data.active.forEach((w, i) => renderWordItem(w, i));
       doc.moveDown(1);
@@ -199,7 +262,7 @@ async function generateVocabularyPdf(userId, language, outputPath) {
 
     if (data.mastered.length > 0) {
       if (doc.y > 650) doc.addPage();
-      doc.fontSize(15).font("Helvetica-Bold").fillColor("#047857").text(`🏆 Mastered Words (${data.mastered.length})`);
+      doc.fontSize(16).fillColor("#047857").text(`🏆 Mastered Words (${data.mastered.length})`);
       doc.moveDown(0.5);
       data.mastered.forEach((w, i) => renderWordItem(w, i));
     }
@@ -476,7 +539,9 @@ bot.command(["skills", "train"], async (ctx) => {
     .text("🗣 Speaking", "train_speaking")
     .row()
     .text("📖 Reading", "train_reading")
-    .text("✍️ Writing", "train_writing");
+    .text("✍️ Writing", "train_writing")
+    .row()
+    .text("📥 Download PDF Notebook", "download_pdf_direct");
 
   const msg =
     `🎯 *Skill Mastery Dashboard (${LANGUAGES[user.language]}):*\n\n` +
@@ -485,7 +550,7 @@ bot.command(["skills", "train"], async (ctx) => {
     `📖 *Reading:* ${overview.reading.score}% (${overview.reading.drills_completed} drills)\n` +
     `✍️ *Writing:* ${overview.writing.score}% (${overview.writing.drills_completed} drills)\n\n` +
     `💡 *AI Recommendation:* Focus on *${weakestSkill.toUpperCase()}* next to balance your skills!\n\n` +
-    `Select a skill below to start training:`;
+    `Select a skill to train or download your vocabulary notebook:`;
 
   await ctx.reply(msg, { parse_mode: "Markdown", reply_markup: kb });
 });
@@ -698,7 +763,9 @@ async function finishSkillDrillSession(ctx, userId, drill) {
   const kb = new InlineKeyboard()
     .text(`Train ${nextRecommended.toUpperCase()} 🚀`, `train_${nextRecommended}`)
     .row()
-    .text("📊 View Skill Dashboard", "view_skills_dashboard");
+    .text("📊 View Skill Dashboard", "view_skills_dashboard")
+    .row()
+    .text("📥 Download PDF Notebook", "download_pdf_direct");
 
   const summary =
     `🎉 *${drill.skill.toUpperCase()} DRILL COMPLETE!*\n\n` +
@@ -722,7 +789,9 @@ bot.callbackQuery("view_skills_dashboard", async (ctx) => {
     .text("🗣 Speaking", "train_speaking")
     .row()
     .text("📖 Reading", "train_reading")
-    .text("✍️ Writing", "train_writing");
+    .text("✍️ Writing", "train_writing")
+    .row()
+    .text("📥 Download PDF Notebook", "download_pdf_direct");
 
   await ctx.reply(
     `🎯 *Skill Dashboard (${LANGUAGES[user.language]}):*\n\n` +
@@ -730,10 +799,51 @@ bot.callbackQuery("view_skills_dashboard", async (ctx) => {
     `🗣 *Speaking:* ${overview.speaking.score}%\n` +
     `📖 *Reading:* ${overview.reading.score}%\n` +
     `✍️ *Writing:* ${overview.writing.score}%\n\n` +
-    `Choose a skill to train:`,
+    `Choose a skill to train or download your vocabulary notebook:`,
     { parse_mode: "Markdown", reply_markup: kb }
   );
 });
+
+// ── Direct PDF Download Button Handler ────────────────────────────────────────
+
+bot.callbackQuery("download_pdf_direct", async (ctx) => {
+  await ctx.answerCallbackQuery({ text: "Generating your PDF..." });
+  await sendVocabularyPdfToUser(ctx, ctx.from.id);
+});
+
+async function sendVocabularyPdfToUser(ctx, userId) {
+  const user = await getUser(userId);
+  if (!user?.language) {
+    await ctx.reply("Please /start first to configure your target language.");
+    return;
+  }
+
+  const thinking = await ctx.reply("⏳ *Compiling your PDF vocabulary notebook...*", { parse_mode: "Markdown" });
+  const tempPath = path.join(tmpdir(), `vocabulary_${userId}_${Date.now()}.pdf`);
+
+  try {
+    const filePath = await generateVocabularyPdf(userId, user.language, tempPath);
+    try {
+      await ctx.api.deleteMessage(ctx.chat.id, thinking.message_id);
+    } catch (_) { }
+
+    if (!filePath) {
+      await ctx.reply("📭 You don't have any saved flashcards or words yet! Practice chatting or complete a drill first.");
+      return;
+    }
+
+    const docName = `My_${user.language}_Vocabulary.pdf`;
+    await ctx.replyWithDocument(new InputFile(filePath, docName), {
+      caption: `📖 *Here is your complete vocabulary PDF notebook!*\n\nIncludes base forms, parts of speech, translations, synonyms, explanations, and context sentences.`,
+      parse_mode: "Markdown"
+    });
+
+    await cleanupFile(filePath);
+  } catch (err) {
+    console.error("PDF export error:", err);
+    await ctx.reply("❌ Error generating PDF. Please make sure you have saved vocabulary and try again.");
+  }
+}
 
 // ── Voice Messages ────────────────────────────────────────────────────────────
 
@@ -773,6 +883,7 @@ bot.on("message:voice", async (ctx) => {
     const file = await ctx.getFile();
     const fileUrl = `https://api.telegram.org/file/bot${process.env.BOT_TOKEN}/${file.file_path}`;
     const res = await fetch(fileUrl);
+    if (!res.ok) throw new Error(`status ${res.status}`);
     const buffer = Buffer.from(await res.arrayBuffer());
 
     const transcribed = await transcribeAudio(buffer, "voice.ogg");
@@ -875,6 +986,11 @@ bot.on("message:text", async (ctx) => {
     return;
   }
 
+  if (lower.includes("pdf") || lower.includes("пдф") || lower.includes("скачать словарь")) {
+    await sendVocabularyPdfToUser(ctx, userId);
+    return;
+  }
+
   if (!(await enforceUsageLimit(ctx, userId))) return;
 
   const thinking = await ctx.reply("⏳ Thinking...");
@@ -913,28 +1029,7 @@ bot.on("message:text", async (ctx) => {
 // ── Utility Bot Commands ──────────────────────────────────────────────────────
 
 bot.command(["pdf", "export"], async (ctx) => {
-  const userId = ctx.from.id;
-  const user = await getUser(userId);
-  const tempPath = path.join(tmpdir(), `vocabulary_${userId}_${Date.now()}.pdf`);
-
-  await ctx.replyWithChatAction("upload_document");
-
-  try {
-    const filePath = await generateVocabularyPdf(userId, user?.language, tempPath);
-    if (!filePath) {
-      await ctx.reply("📭 No saved flashcards or words yet! Practice chatting first.");
-      return;
-    }
-
-    await ctx.replyWithDocument(new InputFile(filePath, `My_Vocabulary_${user?.language || "all"}.pdf`), {
-      caption: `📖 Here is your complete vocabulary PDF with base words, explanations, synonyms, and context sentences!`,
-    });
-
-    await cleanupFile(filePath);
-  } catch (err) {
-    console.error("PDF export error:", err);
-    await ctx.reply("❌ Error creating PDF. Please try again.");
-  }
+  await sendVocabularyPdfToUser(ctx, ctx.from.id);
 });
 
 bot.command("flashcards", async (ctx) => {
@@ -948,15 +1043,15 @@ bot.command("flashcards", async (ctx) => {
   }
 
   const due = await getDueFlashcards(userId);
-  const kb = new InlineKeyboard().webApp(
-    `📚 Open Flashcards (${due.length} due)`,
-    `${MINIAPP_URL}?userId=${userId}`
-  );
+  const kb = new InlineKeyboard()
+    .webApp(`📚 Open Flashcards (${due.length} due)`, `${MINIAPP_URL}?userId=${userId}`)
+    .row()
+    .text("📥 Download PDF Notebook", "download_pdf_direct");
 
   await ctx.reply(
     `🗂 You have *${cards.length}* flashcards saved.\n` +
     `⏰ *${due.length}* are due for review now.\n\n` +
-    `Tap below to open your deck:`,
+    `Tap below to open your deck or download your full notebook:`,
     { parse_mode: "Markdown", reply_markup: kb }
   );
 });
@@ -977,7 +1072,7 @@ bot.command("help", async (ctx) => {
     "  /skills — train specific skills: 🎧 Listening, 🗣 Speaking, 📖 Reading, ✍️ Writing\n" +
     "  /test — retake the CEFR diagnostic placement test anytime\n" +
     "  /testhistory — view your diagnostic placement test history\n" +
-    "  /flashcards — open your saved base-form vocabulary\n" +
+    "  /flashcards — open your saved base-form vocabulary deck\n" +
     "  /pdf — download your full vocabulary notebook as PDF\n" +
     "  /roadmap — view your progress update\n" +
     "  /reset — start over\n" +
@@ -1037,10 +1132,11 @@ async function sendDailyReminders() {
       try {
         const due = await getDueFlashcards(user_id);
         if (due.length >= 3) {
-          const kb = new InlineKeyboard().webApp(
-            `📚 Review ${due.length} cards`,
-            `${MINIAPP_URL}?userId=${user_id}`
-          );
+          const kb = new InlineKeyboard()
+            .webApp(`📚 Review ${due.length} cards`, `${MINIAPP_URL}?userId=${user_id}`)
+            .row()
+            .text("📥 Download PDF Notebook", "download_pdf_direct");
+
           await bot.api.sendMessage(
             user_id,
             `⏰ *Time to review your flashcards!*\n\nYou have *${due.length}* words due for practice.`,
@@ -1064,6 +1160,23 @@ const PORT = process.env.PORT || 3000;
 
 initDB().then(async () => {
   app.listen(PORT, () => console.log(`API running on port ${PORT}`));
+
+  // Register command list with Telegram menu button
+  try {
+    await bot.api.setMyCommands([
+      { command: "start", description: "Choose language, mediator & level test" },
+      { command: "skills", description: "Train Listening, Speaking, Reading, Writing" },
+      { command: "flashcards", description: "Open saved vocabulary cards" },
+      { command: "pdf", description: "Download vocabulary notebook as PDF" },
+      { command: "test", description: "Retake CEFR placement test" },
+      { command: "testhistory", description: "View placement test results" },
+      { command: "roadmap", description: "View latest progress update" },
+      { command: "help", description: "How to use this bot" }
+    ]);
+    console.log("✅ Telegram command menu registered successfully");
+  } catch (cmdErr) {
+    console.warn("Could not register bot commands:", cmdErr.message);
+  }
 
   if (PUBLIC_URL) {
     try {
