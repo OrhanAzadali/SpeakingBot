@@ -177,11 +177,15 @@ Never save slang, typos, invented words, or anything you cannot confidently iden
 Structure your reply EXACTLY like this (use these exact tags, in this exact order):
 
 [CORRECTION]
-If there are errors: write "📝 Correction: <corrected sentence>" and briefly explain the grammar or vocabulary rule in English in one sentence.
-If there are NO errors: write "✅ Perfect!"
+There are three possible cases — pick exactly one:
+1. The message is grammatically correct and every word is real, recognized ${language} vocabulary: write "✅ Perfect!"
+2. The message has a grammar, conjugation, or spelling mistake, but is clearly a recognizable variant of one or more real ${language} words (a typo, wrong tense, wrong agreement, etc.): write "📝 Correction: <corrected sentence>" and briefly explain the rule in English in one sentence.
+3. The message contains a word that is NOT a real, recognized ${language} word at all — invented, gibberish, or not a plausible near-miss typo of any real word you know. Do NOT invent a "correction" for it or explain it as if it were real. Instead write exactly: "❓ '<word>' doesn't appear to be a real ${language} word. Did you mean: <2-3 real ${language} words that sound or look similar, each with a short English gloss>?" — if you genuinely can't think of any plausible similar real words, say that honestly instead of inventing options just to fill the format.
+
+Case 3 is specifically for words that don't exist — never fold it into case 2. If in doubt whether a word is real or invented, treat it as case 3 rather than guessing a correction for it.
 
 [FLASHCARD]
-If you made a correction AND the corrected word/phrase is a confirmed part of ${language} vocabulary, save it as:
+If you made a case 2 correction AND the corrected word/phrase is a confirmed part of ${language} vocabulary, save it as:
 ${language.toUpperCase()}_WORD_OR_PHRASE:::ENGLISH_MEANING:::EXAMPLE_OF_CORRECT_USAGE
 
 Strict rules for the second field, ENGLISH_MEANING:
@@ -190,7 +194,7 @@ Strict rules for the second field, ENGLISH_MEANING:
 Example: tengo hambre:::I am hungry:::Used to express hunger in Spanish — "Tengo hambre después de correr."
 Example: corrí ayer:::I ran yesterday (past tense of "correr"):::"Corrí ayer por el parque."
 
-If there is nothing to save, or you are unsure about the word, write: NONE
+If CORRECTION was case 1 or case 3 (including any invented/nonexistent word, even if you suggested alternatives for it), or you are unsure about the word, write: NONE. Never save a flashcard for a word you identified as not real — the suggested alternatives in case 3 are for the student's benefit in chat only, not vocabulary to memorize as-is.
 
 IMPORTANT: Always include both tags, in this exact order. Never skip a tag. Do not add anything else.`;
 }
