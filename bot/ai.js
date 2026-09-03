@@ -70,24 +70,18 @@ function extractJsonObject(raw) {
   return match ? match[0] : raw;
 }
 
-// ── Strict Lemma Extraction Directives ────────────────────────────────────────
+// ── Strict Lemma & Strict Language Rules ──────────────────────────────────────
 function linguisticAccuracyBlock(language) {
-  return `LINGUISTIC ACCURACY & MANDATORY LEMMA CONVERSION:
-- Always use the standard orthography of ${language}, including every diacritic and accent.
-- STRICT BASE LEMMA / INFINITIVE RULE (CRITICAL):
-  When extracting vocabulary for flashcards, the "initial_form" field MUST ALWAYS be the uninflected dictionary headword:
-  * Nouns: MUST be singular nominative.
-    - Russian: NEVER output "вопроса", "вопросу", "вопросом" -> MUST output "вопрос".
-    - Russian: NEVER output "дружбы", "дружбе", "дружбу" -> MUST output "дружба".
-    - Russian: NEVER output "книгами", "книг" -> MUST output "книга".
-  * Demonstratives & Pronouns: MUST be dictionary lemma.
-    - Russian: NEVER output "этого", "этому", "этим" -> MUST output "этот" (or "это").
-  * Verbs: MUST be the bare infinitive.
-    - Spanish: NEVER output "tengo", "tuve" -> MUST output "tener".
-    - Russian: NEVER output "читал", "читаю" -> MUST output "читать".
-  * Adjectives: MUST be masculine singular nominative (e.g. Russian: "красивый", not "красивую").
-  NEVER return an inflected, case-declined, or conjugated form in the "initial_form" field.
-  Put the inflected form inside "used_form" only.`;
+  return `LINGUISTIC ACCURACY & STRICT BASE LEMMA MANDATE:
+- Target language: ${language}.
+- ALWAYS use the standard orthography of ${language}, including every diacritic and accent mark.
+- STRICT BASE LEMMA / INFINITIVE RULE:
+  When extracting vocabulary for flashcards, "initial_form" MUST ALWAYS be the uninflected dictionary headword:
+  * Nouns: MUST be singular nominative (e.g. Russian: "вопрос", "дружба", "книга"; Azerbaijani: "ev", "kitab", "dostluq").
+  * Demonstratives/Pronouns: MUST be dictionary headword (e.g. Russian: "этот"; Azerbaijani: "bu", "o").
+  * Verbs: MUST be the bare infinitive (e.g. Russian: "читать"; Spanish: "tener"; Azerbaijani: "oxumaq", "getmək").
+  * Adjectives: MUST be masculine singular nominative base form (e.g. Russian: "красивый"; Azerbaijani: "qırmızı").
+  NEVER save an inflected, case-declined, or conjugated form in "initial_form".`;
 }
 
 // ── Call 1: Spoken Conversation ───────────────────────────────────────────────
@@ -106,79 +100,72 @@ function buildAnalysisPrompt(language, level, mediatorLanguage = "english") {
   const isAdvanced = level.toLowerCase().includes("advanced");
   const explanationDirective = isAdvanced
     ? `Since the student is ADVANCED, all fields ("meaning", "synonyms", "explanation") MUST be written 100% in ${language} (monolingual immersion). Do NOT use any mediator language.`
-    : `Since the student is Beginner/Intermediate, write all explanations, meanings, and synonyms in the student's mediator language: ${mediatorLanguage.toUpperCase()}.`;
+    : `Since the student is Beginner/Intermediate, write all explanations, meanings, and synonyms strictly in the student's mediator language: ${mediatorLanguage.toUpperCase()}. Do NOT introduce any third language.`;
 
   return `You are a meticulous ${language} grammar and vocabulary analyst.
 Student level: ${level}.
 ${explanationDirective}
 ${linguisticAccuracyBlock(language)}
 
-Analyze the student's most recent message for ALL grammar, vocabulary, conjugation, and spelling errors across the ENTIRE message. Do not stop after the first mistake.
+Analyze the student's most recent message for ALL grammar, vocabulary, conjugation, and spelling errors across the ENTIRE message.
 
 Return your response strictly as a single JSON object:
 {
   "correctionText": "✅ Perfect!" OR "📝 Correction: <corrected sentence> (<1-sentence explanation>)",
   "mistakes": [
     {
-      "initial_form": "Pure dictionary/infinitive/lemma base form in ${language} native script (e.g. 'вопрос', 'дружба', 'этот', 'correr', 'книга')",
+      "initial_form": "Pure dictionary lemma/infinitive headword in ${language} native script (e.g. 'вопрос', 'qırmızı', 'oxumaq')",
       "used_form": "The inflected word exactly as it appeared in the sentence",
       "part_of_speech": "noun | verb | adjective | adverb | pronoun | phrase | preposition",
-      "meaning": "Definition of the initial_form (in ${isAdvanced ? language : mediatorLanguage})",
-      "synonyms": "Comma-separated synonyms or variants (in ${isAdvanced ? language : mediatorLanguage})",
-      "explanation": "Short grammatical explanation and rule note (in ${isAdvanced ? language : mediatorLanguage})",
+      "meaning": "Definition of initial_form (in ${isAdvanced ? language : mediatorLanguage})",
+      "synonyms": "Comma-separated synonyms (in ${isAdvanced ? language : mediatorLanguage})",
+      "explanation": "Short grammatical rule note (in ${isAdvanced ? language : mediatorLanguage})",
       "sentence": "Full corrected sentence with the word wrapped in <u>word</u>"
     }
   ]
+}`;
 }
 
-Rules:
-- If there are no errors, "mistakes" must be [].
-- "initial_form" MUST be the dictionary lemma headword, NEVER a declined noun or conjugated verb.
-- Extract EVERY distinct mistake across the sentence so none are omitted.`;
-}
-
-// ── Call 3: 4-Skill Drill Generator (Listening, Speaking, Reading, Writing) ───
+// ── Call 3: 4-Skill Drill Generator (Strict Bi-Lingual Purity) ─────────────────
 export async function generateSkillDrill(skill, targetLanguage, mediatorLanguage, level, drillType = "short") {
-  // Short drill = 5 micro-questions; Huge drill = 10 deep comprehensive questions
   const count = drillType === "huge" ? 10 : 5;
 
   const skillInstructions = {
-    listening: `GENERATE LISTENING COMPREHENSION DRILLS.
-Each question MUST contain:
-- "audio_script": An engaging, spoken narrative or dialogue in ${targetLanguage} (30-60 words). THIS WILL BE SPOKEN VIA TTS AUDIO!
-- "prompt": The comprehension question asking about details, intent, or main idea (written in ${mediatorLanguage}).
+    listening: `LISTENING COMPREHENSION:
+- "audio_script": Spoken passage 100% in ${targetLanguage} (30-60 words) to be read via TTS.
+- "prompt": The comprehension question in ${mediatorLanguage}.
 - "type": "choice" or "open".
-- "options": (if choice) 4 clear variants.
-- "correct_answer": The exact answer.`,
+- "options": (if choice) 4 variants strictly in ${targetLanguage} or ${mediatorLanguage}.
+- "correct_answer": Exact answer matching one of the options.`,
 
-    speaking: `GENERATE SPEAKING PROMPTS.
-Each question MUST contain:
-- "prompt": A concrete real-world speaking scenario or question in ${targetLanguage} with instructions in ${mediatorLanguage}. The student MUST respond by recording a voice message.
-- "type": "voice",
-- "target_phrases": 2-3 key idioms or structures the student should try to include.`,
+    speaking: `SPEAKING PROMPTS:
+- "prompt": A concrete speaking scenario/question testing ${targetLanguage}, with instructions in ${mediatorLanguage}.
+- "type": "voice".`,
 
-    reading: `GENERATE READING COMPREHENSION PASSAGES.
-Each question MUST contain:
-- "reading_passage": A rich text passage in ${targetLanguage} (50-100 words).
-- "prompt": Comprehension question testing main idea, inference, or vocabulary in context.
+    reading: `READING COMPREHENSION:
+- "reading_passage": Text passage 100% in ${targetLanguage} (50-100 words).
+- "prompt": Comprehension question in ${mediatorLanguage}.
 - "type": "choice" or "open".
-- "options": (if choice) 4 clear variants.
-- "correct_answer": The exact answer.`,
+- "options": (if choice) 4 variants.
+- "correct_answer": Exact answer.`,
 
-    writing: `GENERATE WRITING TASKS.
-Each question MUST contain:
-- "prompt": A structured writing prompt (e.g. email reply, short argument, story continuation, or sentence reformulation) targeting ${level} level.
-- "type": "open",
-- "guidelines": 2-3 specific grammatical requirements (e.g. use past continuous, conditional, or formal register).`
+    writing: `WRITING TASKS:
+- "prompt": Structured writing prompt in ${mediatorLanguage} requiring production in ${targetLanguage}.
+- "type": "open".`
   };
 
-  const prompt = `You are an elite language curriculum designer creating a ${drillType.toUpperCase()} ${skill.toUpperCase()} drill in ${targetLanguage} for a ${level}-level student.
-Mediator language for instructions: ${mediatorLanguage}.
+  const prompt = `You are a language testing specialist creating a ${drillType.toUpperCase()} ${skill.toUpperCase()} drill.
+STRICT TWO-LANGUAGE ISOLATION MANDATE:
+- Target Language being tested: ${targetLanguage}.
+- Mediator Language for instructions/translations: ${mediatorLanguage}.
+- ABSOLUTELY NEVER USE ANY THIRD LANGUAGE (NO English if neither target nor mediator is English).
+- All passages/scripts MUST be in ${targetLanguage}.
+- All questions/instructions MUST be in ${mediatorLanguage}.
 
 ${skillInstructions[skill]}
 
 Generate EXACTLY ${count} questions.
-Return ONLY a JSON object:
+Return ONLY JSON:
 {
   "skill": "${skill}",
   "drill_type": "${drillType}",
@@ -186,11 +173,11 @@ Return ONLY a JSON object:
     {
       "id": 1,
       "type": "choice | open | voice",
-      "audio_script": "Text to be synthesized into speech (ONLY FOR LISTENING, otherwise omit)",
-      "reading_passage": "Text passage to read (ONLY FOR READING, otherwise omit)",
-      "prompt": "The question or task instructions",
+      "audio_script": "...",
+      "reading_passage": "...",
+      "prompt": "...",
       "options": ["A) ...", "B) ...", "C) ...", "D) ..."],
-      "correct_answer": "..."
+      "correct_answer": "A) ..."
     }
   ]
 }`;
@@ -200,7 +187,7 @@ Return ONLY a JSON object:
       groq.chat.completions.create({
         model,
         messages: [{ role: "user", content: prompt }],
-        temperature: 0.3,
+        temperature: 0.2,
         max_tokens: 1800,
         response_format: { type: "json_object" },
         ...reasoningParams(model),
@@ -210,11 +197,10 @@ Return ONLY a JSON object:
     const raw = response.choices[0]?.message?.content?.trim();
     const parsed = JSON.parse(extractJsonObject(raw));
     const questions = parsed.questions || Object.values(parsed).find(Array.isArray);
-    if (!Array.isArray(questions) || questions.length === 0) throw new Error("Invalid drill questions structure");
+    if (!Array.isArray(questions) || questions.length === 0) throw new Error("Invalid drill questions");
     return { skill, drill_type: drillType, questions };
   } catch (err) {
     console.error(`Skill drill generation failed for ${skill}:`, err.message);
-    // Instant Fallback Drill
     return {
       skill,
       drill_type: drillType,
@@ -222,54 +208,57 @@ Return ONLY a JSON object:
         {
           id: 1,
           type: skill === "speaking" ? "voice" : (skill === "listening" ? "open" : "choice"),
-          audio_script: skill === "listening" ? `Every morning the market opens at sunrise, bringing farmers from all over the valley with fresh fruits and honey.` : undefined,
-          reading_passage: skill === "reading" ? `The old lighthouse on the northern coast has guided ships for over two centuries. Today, it operates automatically via satellite.` : undefined,
+          audio_script: skill === "listening" ? `Salam. Mən hər səhər saat yeddidə oyanıram və parkda qaçıram.` : undefined,
+          reading_passage: skill === "reading" ? `Bakı Xəzər dənizinin sahilində yerləşən qədim və gözəl bir şəhərdir.` : undefined,
           prompt: skill === "listening"
-            ? `Listen to the voice audio passage above. What two items do farmers bring to the market?`
+            ? `Qulaq asdığınız mətndə danışan şəxs səhər saat neçədə oyanır?`
             : (skill === "speaking"
-              ? `Describe your favorite time of day and what you usually do during that time. Send a voice message.`
-              : (skill === "writing"
-                ? `Write 2-3 sentences explaining why learning a language is valuable for your future.`
-                : `What is the northern coast lighthouse used for today?`)),
-          options: skill === "reading" ? ["A) Guided by lighthouse keepers", "B) Operates via satellite", "C) Abandoned", "D) Turned into a museum"] : undefined,
-          correct_answer: "Operates via satellite"
+              ? `Özünüz haqqında 2-3 cümlə deyin və səsli mesaj göndərin.`
+              : `Bakı hansı dənizin sahilində yerləşir?`),
+          options: skill === "reading" ? ["A) Qara dəniz", "B) Xəzər dənizi", "C) Aralıq dənizi", "D) Baltik dənizi"] : undefined,
+          correct_answer: "B) Xəzər dənizi"
         }
       ]
     };
   }
 }
 
-// ── Call 4: Skill Drill Answer Evaluator & Shared Vocabulary Extractor ─────────
+// ── Call 4: Skill Drill Open Answer Evaluator with Strict Language Gate ────────
 export async function evaluateSkillAnswer(skill, targetLanguage, mediatorLanguage, level, question, userAnswer, isVoice = false) {
-  const prompt = `You are grading a ${skill.toUpperCase()} language drill answer in ${targetLanguage}.
-Student level: ${level}.
-Mediator language: ${mediatorLanguage}.
+  const prompt = `You are an expert language examiner evaluating an open/spoken answer.
+Target Language being learned: ${targetLanguage}.
+Mediator Language: ${mediatorLanguage}.
 
-Question / Prompt: ${question.prompt}
-${question.audio_script ? `Audio Script was: "${question.audio_script}"` : ""}
+Question: "${question.prompt}"
+${question.audio_script ? `Audio Passage was: "${question.audio_script}"` : ""}
 ${question.reading_passage ? `Reading Passage was: "${question.reading_passage}"` : ""}
-Student Answer (${isVoice ? "spoken via voice note" : "typed"}): "${userAnswer}"
+Student's Answer: "${userAnswer}"
 
-TASK:
-1. Score the answer from 0 to 100 based on accuracy, comprehension, and language mastery.
-2. Provide a 1-2 sentence constructive feedback note in ${mediatorLanguage}.
-3. EXTRACT ALL GRAMMAR/VOCABULARY MISTAKES or NEW USEFUL WORDS the student struggled with or needs to master:
-   - "initial_form": Pure dictionary lemma/infinitive base form (e.g. Russian: "вопрос", "дружба", "этот").
-   - "used_form": How the student said/wrote it.
-   - "part_of_speech": noun, verb, adjective, etc.
+STRICT LANGUAGE ENFORCEMENT & CONCISENESS RULES:
+1. TARGET LANGUAGE MANDATE:
+   - The student MUST answer in ${targetLanguage}.
+   - CRITICAL: If the student answers in ${mediatorLanguage} (e.g. Russian "красный") or English instead of ${targetLanguage} (e.g. Azerbaijani "qırmızı"):
+     * Score MUST BE 0 to 20 maximum (penalized for answering in the wrong language).
+     * Feedback MUST explicitly state: "You understood the question, but you answered in ${mediatorLanguage}! You must answer in ${targetLanguage}. The correct word in ${targetLanguage} is: [correct word in ${targetLanguage}]."
+     * NEVER call an answer in ${mediatorLanguage} an answer in ${targetLanguage}!
+2. CONCISENESS TOLERANCE:
+   - If the student answered in ${targetLanguage} and correctly supplied the requested fact (even in 1 or 2 words, e.g. "qırmızı"), AWARD 100/100!
+   - NEVER penalize short direct answers as "too brief" or "lacking details" when the question only asked for a specific fact (color, time, name).
+3. EXTRACT NEW WORDS / MISTAKES:
+   - "initial_form": MUST be pure uninflected dictionary lemma/infinitive in ${targetLanguage} (e.g. "qırmızı", "ev", "getmək").
    - "meaning": Meaning in ${mediatorLanguage}.
-   - "explanation": Grammar/vocabulary explanation.
 
-Return ONLY a JSON object:
+Return ONLY JSON:
 {
-  "score": 85,
-  "feedback": "...",
+  "score": 100,
+  "language_correct": true,
+  "feedback": "Feedback in ${mediatorLanguage}",
   "mistakes": [
     {
-      "initial_form": "lemma",
+      "initial_form": "lemma in ${targetLanguage}",
       "used_form": "...",
       "part_of_speech": "...",
-      "meaning": "...",
+      "meaning": "in ${mediatorLanguage}",
       "synonyms": "...",
       "explanation": "...",
       "sentence": "..."
@@ -295,7 +284,7 @@ Return ONLY a JSON object:
     console.error("Evaluation error:", err.message);
     return {
       score: 75,
-      feedback: "Answer recorded! Keep practicing.",
+      feedback: "Cavab qeydə alındı! (Answer recorded)",
       mistakes: []
     };
   }
@@ -304,17 +293,18 @@ Return ONLY a JSON object:
 // ── Call 5: CEFR Diagnostic Placement Test Generator ──────────────────────────
 export async function generateLevelTest(targetLanguage, mediatorLanguage = "english") {
   const prompt = `You are a certified psychometric CEFR language testing specialist.
-Create a diagnostic placement test to accurately assess a student's proficiency in ${targetLanguage}.
-Write instructions in ${mediatorLanguage}, testing ${targetLanguage}.
+Create a diagnostic placement test to assess proficiency in ${targetLanguage}.
+Instructions in ${mediatorLanguage}, items testing ${targetLanguage}.
+NEVER use any third language.
 
 Generate EXACTLY 5 questions:
 - Q1 (A1-A2): Multiple Choice - Core Vocabulary (Variants A, B, C, D)
 - Q2 (B1): Multiple Choice - Grammar & Verb Tenses (Variants A, B, C, D)
 - Q3 (B2): Multiple Choice - Complex Syntax & Idioms (Variants A, B, C, D)
-- Q4 (B1-B2): Open Question (NO VARIANTS) - Fill in the blank or translation
-- Q5 (C1): Open Question (NO VARIANTS) - Free short production (1-2 sentences in ${targetLanguage})
+- Q4 (B1-B2): Open Question (NO VARIANTS) - Targeted translation or fill-in
+- Q5 (C1): Open Question (NO VARIANTS) - Free short answer (1-2 sentences in ${targetLanguage})
 
-Return ONLY a JSON object:
+Return ONLY JSON:
 {
   "questions": [
     { "id": 1, "type": "choice", "cefr_target": "A1-A2", "skill": "Vocabulary", "prompt": "...", "options": ["A) ...", "B) ...", "C) ...", "D) ..."], "correct_option": "A) ..." },
@@ -345,11 +335,11 @@ Return ONLY a JSON object:
   } catch (err) {
     return {
       questions: [
-        { id: 1, type: "choice", cefr_target: "A1-A2", skill: "Vocabulary", prompt: `Complete the sentence:`, options: ["A) Option 1", "B) Option 2", "C) Option 3", "D) Option 4"], correct_option: "A) Option 1" },
-        { id: 2, type: "choice", cefr_target: "B1", skill: "Grammar", prompt: `Select correct tense agreement:`, options: ["A) Option 1", "B) Option 2", "C) Option 3", "D) Option 4"], correct_option: "B) Option 2" },
-        { id: 3, type: "choice", cefr_target: "B2", skill: "Syntax", prompt: `Select natural word order:`, options: ["A) Option 1", "B) Option 2", "C) Option 3", "D) Option 4"], correct_option: "C) Option 3" },
-        { id: 4, type: "open", cefr_target: "B1-B2", skill: "Morphology", prompt: `Translate: "We have been waiting for two hours."` },
-        { id: 5, type: "open", cefr_target: "C1", skill: "Production", prompt: `Write 2 sentences describing your goals with ${targetLanguage}.` }
+        { id: 1, type: "choice", cefr_target: "A1-A2", skill: "Vocabulary", prompt: `Complete the phrase in ${targetLanguage}:`, options: ["A) Variant 1", "B) Variant 2", "C) Variant 3", "D) Variant 4"], correct_option: "A) Variant 1" },
+        { id: 2, type: "choice", cefr_target: "B1", skill: "Grammar", prompt: `Select correct tense:`, options: ["A) Variant 1", "B) Variant 2", "C) Variant 3", "D) Variant 4"], correct_option: "B) Variant 2" },
+        { id: 3, type: "choice", cefr_target: "B2", skill: "Syntax", prompt: `Select natural word order:`, options: ["A) Variant 1", "B) Variant 2", "C) Variant 3", "D) Variant 4"], correct_option: "C) Variant 3" },
+        { id: 4, type: "open", cefr_target: "B1-B2", skill: "Morphology", prompt: `Translate into ${targetLanguage}: "We are waiting."` },
+        { id: 5, type: "open", cefr_target: "C1", skill: "Production", prompt: `Write 2 sentences in ${targetLanguage} about your hobbies.` }
       ]
     };
   }
@@ -357,12 +347,11 @@ Return ONLY a JSON object:
 
 // ── Call 6: Placement Test Evaluator ──────────────────────────────────────────
 export async function evaluateLevelTest(targetLanguage, mediatorLanguage, questions, userAnswers) {
-  const prompt = `You are a certified CEFR examiner evaluating a student's diagnostic test in ${targetLanguage}.
-
-Test Questions & Student Answers:
+  const prompt = `You are a certified CEFR examiner evaluating a student's placement test in ${targetLanguage}.
+Student's answers:
 ${questions.map((q, i) => `Q${i + 1} (${q.skill}): ${q.prompt}\nAnswer: "${userAnswers[i] || "No answer"}"`).join("\n\n")}
 
-Evaluate: Vocabulary, Grammar, Syntax, Production.
+Evaluate against: Vocabulary, Grammar, Syntax, Production in ${targetLanguage}.
 Map to: "Beginner" (A1-A2), "Intermediate" (B1-B2), or "Advanced" (C1-C2).
 
 Return ONLY JSON:
@@ -376,7 +365,7 @@ Return ONLY JSON:
     "syntax": "Score out of 25",
     "production": "Score out of 25"
   },
-  "recommendations": "2-3 actionable sentences in ${mediatorLanguage}."
+  "recommendations": "2-3 sentences in ${mediatorLanguage}."
 }`;
 
   const response = await withModelFallback(CHAT_MODELS, (model) =>
@@ -399,7 +388,7 @@ export async function checkSemanticAnswer(wordOrPhrase, submittedAnswer, correct
   const submitted = String(submittedAnswer || "").trim();
   if (!submitted) return { correct: false, isSynonym: false, explanation: "No answer provided." };
 
-  const prompt = `You are an expert language quiz judge grading a student's answer.
+  const prompt = `You are a language quiz judge grading a student's answer.
 Target Word: "${wordOrPhrase}"
 Accepted Answer: "${correctAnswer}"
 Known Synonyms: "${synonyms || "none"}"
@@ -501,7 +490,7 @@ export async function chat(userId, userMessage, history, language, level, langua
     if (!m.initial_form || !m.meaning) continue;
     try {
       await addFlashcard(userId, {
-        word: m.initial_form.trim(), // Strict lemma base form
+        word: m.initial_form.trim(),
         correction: m.meaning.trim(),
         context: m.explanation || m.sentence || "",
         language: languageKey,
@@ -524,7 +513,7 @@ export async function chat(userId, userMessage, history, language, level, langua
 }
 
 function buildRoadmapPrompt(language, level) {
-  return `You are a structured ${language} learning coach producing a progress update for a ${level}-level student:
+  return `You are a structured ${language} coach producing a progress update for a ${level}-level student:
 📈 Progress update
 - Recently improved: ...
 - Still needs work: ...

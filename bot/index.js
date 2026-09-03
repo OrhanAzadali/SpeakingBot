@@ -209,6 +209,19 @@ async function generateVocabularyPdf(userId, language, outputPath) {
   });
 }
 
+// ── Helper: Clean Option Prefixes (e.g. "B) дом" -> "дом") ────────────────────
+function cleanOptionPrefix(str) {
+  return String(str || "")
+    .replace(/^[A-Da-d0-9][\)\.]\s*/, "")
+    .trim()
+    .toLowerCase();
+}
+
+function extractOptionLetter(str) {
+  const match = String(str || "").match(/^([A-Da-d0-9])[\)\.]/);
+  return match ? match[1].toUpperCase() : null;
+}
+
 // ── Onboarding Flow ───────────────────────────────────────────────────────────
 
 const MEDIATOR_LANGS = {
@@ -438,7 +451,6 @@ bot.command(["skills", "train"], async (ctx) => {
 
   const overview = await getUserSkillsOverview(userId, user.language);
 
-  // Determine weakest skill to give recommendation
   const entries = Object.entries(overview);
   entries.sort((a, b) => a[1].score - b[1].score);
   const weakestSkill = entries[0][0];
@@ -513,11 +525,10 @@ bot.callbackQuery(/^drillsize_(listening|speaking|reading|writing)_(short|huge)$
   }
 });
 
-// Present Next Drill Question (CRUCIAL: Sends Voice note for Listening!)
 async function presentNextDrillQuestion(ctx, userId, question, index, total, skill, languageKey) {
   const header = `🎯 ${skill.toUpperCase()} DRILL [${index + 1}/${total}]\n\n`;
 
-  // 🎧 LISTENING: Deliver actual audio speech via Edge-TTS!
+  // 🎧 LISTENING: Deliver actual audio speech via Edge-TTS voice note
   if (skill === "listening" && question.audio_script) {
     const audioPath = await textToSpeech(question.audio_script, languageKey);
     if (audioPath) {
@@ -528,7 +539,6 @@ async function presentNextDrillQuestion(ctx, userId, question, index, total, ski
     }
   }
 
-  // 📖 READING: Deliver reading passage
   let passageText = "";
   if (skill === "reading" && question.reading_passage) {
     passageText = `📖 Passage:\n"${question.reading_passage}"\n\n`;
@@ -546,7 +556,6 @@ async function presentNextDrillQuestion(ctx, userId, question, index, total, ski
     const body = `${header}${question.prompt}\n\n🎙 Hold the microphone button and SEND A VOICE MESSAGE with your response!`;
     await bot.api.sendMessage(userId, body);
   } else {
-    // Open text question (Writing, Open Listening, Open Reading)
     const body = `${header}${passageText}${question.prompt}\n\n✍️ Type your answer in the chat below:`;
     await bot.api.sendMessage(userId, body);
   }
@@ -567,23 +576,59 @@ bot.callbackQuery(/^drillopt_(\d+)_(\d+)$/, async (ctx) => {
   await handleDrillAnswerSubmission(ctx, userId, drill, currentQ, chosenAnswer, false);
 });
 
+// ── Robust Multiple-Choice & Language-Gated Answer Evaluator ──────────────────
 async function handleDrillAnswerSubmission(ctx, userId, drill, question, answerText, isVoice = false) {
   const user = await getUser(userId);
-  const thinking = await bot.api.sendMessage(userId, "🔍 Analyzing your answer and extracting vocabulary...");
+  let score = 0;
+  let feedback = "";
+  let mistakes = [];
 
-  const evaluation = await evaluateSkillAnswer(
-    drill.skill,
-    LANGUAGES[drill.language] || drill.language,
-    drill.mediator_language,
-    user?.level || "Intermediate",
-    question,
-    answerText,
-    isVoice
-  );
+  // FIX 1 & 2: Deterministic evaluation for Multiple-Choice buttons (no "too brief" / B) deductions)
+  if (question.type === "choice") {
+    const expected = question.correct_answer || question.correct_option || "";
+    const cleanChosen = cleanOptionPrefix(answerText);
+    const cleanExpected = cleanOptionPrefix(expected);
+    const letterChosen = extractOptionLetter(answerText);
+    const letterExpected = extractOptionLetter(expected);
 
-  // SHARED VOCABULARY INTEGRATION: Save every mistake or new word encountered into the main flashcards table!
-  if (Array.isArray(evaluation.mistakes)) {
-    for (const m of evaluation.mistakes) {
+    const isMatch =
+      cleanChosen === cleanExpected ||
+      (letterChosen && letterExpected && letterChosen === letterExpected) ||
+      answerText.trim() === expected.trim();
+
+    if (isMatch) {
+      score = 100;
+      feedback = "✅ Correct! Exact match.";
+    } else {
+      score = 0;
+      feedback = `❌ Incorrect. The correct option was: ${expected}`;
+    }
+  } else {
+    // FIX 3: Open / Spoken questions evaluated by AI with strict target-language enforcement
+    const thinking = await bot.api.sendMessage(userId, "🔍 Analyzing your answer...");
+
+    const evaluation = await evaluateSkillAnswer(
+      drill.skill,
+      LANGUAGES[drill.language] || drill.language,
+      drill.mediator_language,
+      user?.level || "Intermediate",
+      question,
+      answerText,
+      isVoice
+    );
+
+    score = evaluation.score;
+    feedback = evaluation.feedback;
+    mistakes = evaluation.mistakes || [];
+
+    try {
+      await bot.api.deleteMessage(userId, thinking.message_id);
+    } catch (_) { }
+  }
+
+  // Save extracted vocabulary to the shared flashcards database strictly under the active language
+  if (Array.isArray(mistakes)) {
+    for (const m of mistakes) {
       if (m.initial_form && m.meaning) {
         await addFlashcard(userId, {
           word: m.initial_form.trim(),
@@ -601,26 +646,18 @@ async function handleDrillAnswerSubmission(ctx, userId, drill, question, answerT
     }
   }
 
-  try {
-    await bot.api.deleteMessage(userId, thinking.message_id);
-  } catch (_) { }
-
   await bot.api.sendMessage(
     userId,
-    `Score: ${evaluation.score}/100\n💡 ${evaluation.feedback}`
+    `Score: ${score}/100\n💡 ${feedback}`
   );
 
-  const updatedDrill = await recordDrillAnswer(userId, answerText, evaluation.score);
+  const updatedDrill = await recordDrillAnswer(userId, answerText, score);
   if (updatedDrill.current_index < updatedDrill.questions.length) {
-    const nextQ = updatedDrill.questions[updatedTestIndex(updatedDrill)];
+    const nextQ = updatedDrill.questions[updatedDrill.current_index];
     await presentNextDrillQuestion(ctx, userId, nextQ, updatedDrill.current_index, updatedDrill.questions.length, drill.skill, drill.language);
   } else {
     await finishSkillDrillSession(ctx, userId, updatedDrill);
   }
-}
-
-function updatedTestIndex(drill) {
-  return drill.current_index;
 }
 
 async function finishSkillDrillSession(ctx, userId, drill) {
@@ -640,7 +677,6 @@ async function finishSkillDrillSession(ctx, userId, drill) {
   await clearActiveDrill(userId);
   await upsertUser(userId, { state: "chatting" });
 
-  // Adaptive recommendation logic
   const overview = await getUserSkillsOverview(userId, drill.language);
   const otherSkills = Object.entries(overview).filter(([s]) => s !== drill.skill);
   otherSkills.sort((a, b) => a[1].score - b[1].score);
@@ -656,7 +692,7 @@ async function finishSkillDrillSession(ctx, userId, drill) {
     `📊 *Session Score:* ${averageScore}/100\n` +
     `📚 *Vocabulary Extracted:* All new words have been saved to your base-form flashcards deck.\n\n` +
     (averageScore >= 80
-      ? `🌟 *Excellent work!* Your ${drill.skill} is well trained. We recommend moving to *${nextRecommended.toUpperCase()}* next to maintain balanced progress!`
+      ? `🌟 *Excellent work!* Your ${drill.skill} is well trained (${averageScore}%). We recommend moving to *${nextRecommended.toUpperCase()}* next to maintain balanced progress!`
       : `💪 Good effort! Keep practicing your ${drill.skill} or switch to *${nextRecommended.toUpperCase()}*.`);
 
   await bot.api.sendMessage(userId, summary, { parse_mode: "Markdown", reply_markup: kb });
@@ -692,7 +728,6 @@ bot.on("message:voice", async (ctx) => {
   const userId = ctx.from.id;
   const user = await getUser(userId);
 
-  // If user is answering a Speaking drill
   if (user?.state === "in_skill_drill") {
     const drill = await getActiveDrill(userId);
     if (drill && drill.skill === "speaking") {
@@ -790,7 +825,7 @@ bot.on("message:text", async (ctx) => {
     }
   }
 
-  // If in Diagnostic Placement Test answering an Open Question
+  // If in Placement Test
   if (user?.state === "in_level_test") {
     const test = await getActiveTest(userId);
     if (test) {
@@ -814,7 +849,7 @@ bot.on("message:text", async (ctx) => {
     return;
   }
 
-  // Intent detection: if the user explicitly types "train listening", route them directly!
+  // Intent routing
   const lower = ctx.message.text.toLowerCase();
   if (lower.includes("listening") || lower.includes("аудирование") || lower.includes("слух")) {
     await ctx.reply("🎧 Ready to train your listening! Type /skills or tap below to start:", {
