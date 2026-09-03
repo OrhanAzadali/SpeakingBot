@@ -174,7 +174,7 @@ META-COMMUNICATION & HELP REQUEST HANDLING:
 - If the student wrote in ${mediatorLanguage} to ask for help, request translation, or state that they don't understand (e.g. "не понимаю", "я не понимаю тебя", "нет, на русском", "help", "i don't understand", "russich", "sprach russo", "объясни слова"):
   * DO NOT mark it as "✅ Perfect!" (it is not a valid ${language} sentence).
   * DO NOT treat it as a broken attempt at ${language} and invent a grammar correction for it (do NOT correct "не понимаю" into "Ich verstehe nicht", and do NOT correct "russich" into "Russisch")!
-  * Set "correctionText" to a supportive acknowledgment in ${mediatorLanguage} (e.g. "ℹ️ Понятно, разбираем по-${mediatorLanguage}!").
+  * Set "correctionText" to a supportive acknowledgment in ${mediatorLanguage} - the second language the learner selected when started the bot (e.g. "ℹ️ Let's discuss it in ${mediatorLanguage}!").
   * Set "mistakes": [] (do NOT save flashcards for help cries).
 
 Carefully analyze the student's most recent message for actual ${language} grammar, vocabulary, conjugation, and spelling errors across the ENTIRE message.
