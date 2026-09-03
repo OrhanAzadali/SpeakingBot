@@ -70,18 +70,17 @@ function extractJsonObject(raw) {
   return match ? match[0] : raw;
 }
 
-// ── Strict Lemma & Strict Language Rules ──────────────────────────────────────
+// ── Strict Lemma & Linguistic Accuracy Rules ──────────────────────────────────
 function linguisticAccuracyBlock(language) {
   return `LINGUISTIC ACCURACY & STRICT BASE LEMMA MANDATE:
 - Target language: ${language}.
-- ALWAYS use the standard orthography of ${language}, including every diacritic and accent mark.
+- ALWAYS use standard orthography of ${language}, including all accents and diacritics.
 - STRICT BASE LEMMA / INFINITIVE RULE:
   When extracting vocabulary for flashcards, "initial_form" MUST ALWAYS be the uninflected dictionary headword:
-  * Nouns: MUST be singular nominative (e.g. Russian: "вопрос", "дружба", "книга"; Azerbaijani: "ev", "kitab", "dostluq").
-  * Demonstratives/Pronouns: MUST be dictionary headword (e.g. Russian: "этот"; Azerbaijani: "bu", "o").
-  * Verbs: MUST be the bare infinitive (e.g. Russian: "читать"; Spanish: "tener"; Azerbaijani: "oxumaq", "getmək").
-  * Adjectives: MUST be masculine singular nominative base form (e.g. Russian: "красивый"; Azerbaijani: "qırmızı").
-  NEVER save an inflected, case-declined, or conjugated form in "initial_form".`;
+  * Nouns: MUST be singular nominative (e.g. Russian: "вопрос", "дружба", "книга"; German: "Buch", "Freundschaft"; Azerbaijani: "ev", "kitab").
+  * Verbs: MUST be the bare infinitive (e.g. German: "lesen"; Russian: "читать"; Spanish: "tener"; Azerbaijani: "oxumaq").
+  * Adjectives: MUST be masculine singular nominative base form (e.g. German: "rot"; Russian: "красивый"; Azerbaijani: "qırmızı").
+  NEVER output an inflected, case-declined, or conjugated form in "initial_form". Put the inflected form inside "used_form" only.`;
 }
 
 // ── Call 1: Spoken Conversation ───────────────────────────────────────────────
@@ -100,7 +99,7 @@ function buildAnalysisPrompt(language, level, mediatorLanguage = "english") {
   const isAdvanced = level.toLowerCase().includes("advanced");
   const explanationDirective = isAdvanced
     ? `Since the student is ADVANCED, all fields ("meaning", "synonyms", "explanation") MUST be written 100% in ${language} (monolingual immersion). Do NOT use any mediator language.`
-    : `Since the student is Beginner/Intermediate, write all explanations, meanings, and synonyms strictly in the student's mediator language: ${mediatorLanguage.toUpperCase()}. Do NOT introduce any third language.`;
+    : `Since the student is Beginner/Intermediate, write all explanations, meanings, and synonyms strictly in the student's mediator language: ${mediatorLanguage.toUpperCase()}. Do NOT introduce any third language, and NEVER copy the target word into the meaning field.`;
 
   return `You are a meticulous ${language} grammar and vocabulary analyst.
 Student level: ${level}.
@@ -114,55 +113,54 @@ Return your response strictly as a single JSON object:
   "correctionText": "✅ Perfect!" OR "📝 Correction: <corrected sentence> (<1-sentence explanation>)",
   "mistakes": [
     {
-      "initial_form": "Pure dictionary lemma/infinitive headword in ${language} native script (e.g. 'вопрос', 'qırmızı', 'oxumaq')",
+      "initial_form": "Pure dictionary lemma/infinitive headword in ${language} native script (e.g. 'вопрос', 'Buch', 'qırmızı')",
       "used_form": "The inflected word exactly as it appeared in the sentence",
       "part_of_speech": "noun | verb | adjective | adverb | pronoun | phrase | preposition",
-      "meaning": "Definition of initial_form (in ${isAdvanced ? language : mediatorLanguage})",
-      "synonyms": "Comma-separated synonyms (in ${isAdvanced ? language : mediatorLanguage})",
-      "explanation": "Short grammatical rule note (in ${isAdvanced ? language : mediatorLanguage})",
+      "meaning": "Definition/translation of initial_form in ${isAdvanced ? language : mediatorLanguage} (NEVER the same word as initial_form!)",
+      "synonyms": "Comma-separated synonyms in ${isAdvanced ? language : mediatorLanguage}",
+      "explanation": "Short grammatical rule note in ${isAdvanced ? language : mediatorLanguage}",
       "sentence": "Full corrected sentence with the word wrapped in <u>word</u>"
     }
   ]
 }`;
 }
 
-// ── Call 3: 4-Skill Drill Generator (Strict Bi-Lingual Purity) ─────────────────
+// ── Call 3: 4-Skill Drill Generator (Strict CEFR Standards & No Circular Questions) ──
 export async function generateSkillDrill(skill, targetLanguage, mediatorLanguage, level, drillType = "short") {
   const count = drillType === "huge" ? 10 : 5;
 
-  const skillInstructions = {
-    listening: `LISTENING COMPREHENSION:
-- "audio_script": Spoken passage 100% in ${targetLanguage} (30-60 words) to be read via TTS.
-- "prompt": The comprehension question in ${mediatorLanguage}.
-- "type": "choice" or "open".
-- "options": (if choice) 4 variants strictly in ${targetLanguage} or ${mediatorLanguage}.
-- "correct_answer": Exact answer matching one of the options.`,
+  const prompt = `You are an elite CEFR test developer designing a ${drillType.toUpperCase()} ${skill.toUpperCase()} drill.
+Target language being learned: ${targetLanguage}.
+Mediator language for instructions: ${mediatorLanguage}.
 
-    speaking: `SPEAKING PROMPTS:
-- "prompt": A concrete speaking scenario/question testing ${targetLanguage}, with instructions in ${mediatorLanguage}.
-- "type": "voice".`,
+CRITICAL ANTI-CIRCULARITY & VALIDITY RULES:
+1. NEVER ask to translate a word from ${targetLanguage} into ${targetLanguage}!
+   - BAD: "Выберите перевод слова «Buch» на немецкий язык" (CIRCULAR & FORBIDDEN).
+   - GOOD (In-Context Cloze): Present a sentence in ${targetLanguage} with a blank (____) and provide 4 ${targetLanguage} options to choose from.
+   - GOOD (Translation): "Как переводится слово «[слово на ${mediatorLanguage}]» на ${targetLanguage}?" with 4 ${targetLanguage} options.
+2. ABSOLUTELY NO THIRD LANGUAGES:
+   - Use ONLY ${targetLanguage} (for materials, passages, target phrases) and ${mediatorLanguage} (for instructions).
+   - Do NOT use English if neither ${targetLanguage} nor ${mediatorLanguage} is English!
 
-    reading: `READING COMPREHENSION:
-- "reading_passage": Text passage 100% in ${targetLanguage} (50-100 words).
-- "prompt": Comprehension question in ${mediatorLanguage}.
-- "type": "choice" or "open".
-- "options": (if choice) 4 variants.
-- "correct_answer": Exact answer.`,
-
-    writing: `WRITING TASKS:
-- "prompt": Structured writing prompt in ${mediatorLanguage} requiring production in ${targetLanguage}.
-- "type": "open".`
-  };
-
-  const prompt = `You are a language testing specialist creating a ${drillType.toUpperCase()} ${skill.toUpperCase()} drill.
-STRICT TWO-LANGUAGE ISOLATION MANDATE:
-- Target Language being tested: ${targetLanguage}.
-- Mediator Language for instructions/translations: ${mediatorLanguage}.
-- ABSOLUTELY NEVER USE ANY THIRD LANGUAGE (NO English if neither target nor mediator is English).
-- All passages/scripts MUST be in ${targetLanguage}.
-- All questions/instructions MUST be in ${mediatorLanguage}.
-
-${skillInstructions[skill]}
+SPECIFIC SKILL INSTRUCTIONS:
+- listening:
+  * "audio_script": Spoken narrative/dialogue 100% in ${targetLanguage} (30-50 words) to be read via TTS.
+  * "prompt": Comprehension question in ${mediatorLanguage} testing a specific detail.
+  * "type": "choice" or "open".
+  * "options": (if choice) 4 clear variants.
+  * "correct_answer": Exact answer matching one of the options.
+- speaking:
+  * "prompt": A concrete speaking prompt in ${targetLanguage} with instructions in ${mediatorLanguage}. Student MUST reply with a voice note.
+  * "type": "voice".
+- reading:
+  * "reading_passage": Authentic passage 100% in ${targetLanguage} (50-80 words).
+  * "prompt": In-depth comprehension question in ${mediatorLanguage}.
+  * "type": "choice" or "open".
+  * "options": (if choice) 4 variants.
+  * "correct_answer": Exact answer.
+- writing:
+  * "prompt": Task instructions in ${mediatorLanguage} requiring production in ${targetLanguage} (sentence composition, email reply, opinion).
+  * "type": "open".
 
 Generate EXACTLY ${count} questions.
 Return ONLY JSON:
@@ -197,7 +195,7 @@ Return ONLY JSON:
     const raw = response.choices[0]?.message?.content?.trim();
     const parsed = JSON.parse(extractJsonObject(raw));
     const questions = parsed.questions || Object.values(parsed).find(Array.isArray);
-    if (!Array.isArray(questions) || questions.length === 0) throw new Error("Invalid drill questions");
+    if (!Array.isArray(questions) || questions.length === 0) throw new Error("Invalid drill questions structure");
     return { skill, drill_type: drillType, questions };
   } catch (err) {
     console.error(`Skill drill generation failed for ${skill}:`, err.message);
@@ -208,15 +206,17 @@ Return ONLY JSON:
         {
           id: 1,
           type: skill === "speaking" ? "voice" : (skill === "listening" ? "open" : "choice"),
-          audio_script: skill === "listening" ? `Salam. Mən hər səhər saat yeddidə oyanıram və parkda qaçıram.` : undefined,
-          reading_passage: skill === "reading" ? `Bakı Xəzər dənizinin sahilində yerləşən qədim və gözəl bir şəhərdir.` : undefined,
+          audio_script: skill === "listening" ? `Guten Morgen. Der Zug nach Berlin fährt heute von Gleis vier ab.` : undefined,
+          reading_passage: skill === "reading" ? `Berlin ist die Hauptstadt von Deutschland. Die Stadt ist bekannt für ihre Geschichte und Kultur.` : undefined,
           prompt: skill === "listening"
-            ? `Qulaq asdığınız mətndə danışan şəxs səhər saat neçədə oyanır?`
+            ? `С какого пути отправляется поезд в Берлин?`
             : (skill === "speaking"
-              ? `Özünüz haqqında 2-3 cümlə deyin və səsli mesaj göndərin.`
-              : `Bakı hansı dənizin sahilində yerləşir?`),
-          options: skill === "reading" ? ["A) Qara dəniz", "B) Xəzər dənizi", "C) Aralıq dənizi", "D) Baltik dənizi"] : undefined,
-          correct_answer: "B) Xəzər dənizi"
+              ? `Erzählen Sie kurz über Ihre Hobbys. (Отправьте голосовое сообщение)`
+              : (skill === "writing"
+                ? `Schreiben Sie zwei Sätze über Ihre Pläne für das Wochenende.`
+                : `Какая столица у Германии согласно тексту?`)),
+          options: skill === "reading" ? ["A) München", "B) Berlin", "C) Hamburg", "D) Köln"] : undefined,
+          correct_answer: "B) Berlin"
         }
       ]
     };
@@ -225,27 +225,27 @@ Return ONLY JSON:
 
 // ── Call 4: Skill Drill Open Answer Evaluator with Strict Language Gate ────────
 export async function evaluateSkillAnswer(skill, targetLanguage, mediatorLanguage, level, question, userAnswer, isVoice = false) {
-  const prompt = `You are an expert language examiner evaluating an open/spoken answer.
+  const prompt = `You are a certified language examiner grading a student's answer.
 Target Language being learned: ${targetLanguage}.
-Mediator Language: ${mediatorLanguage}.
+Mediator Language for explanations: ${mediatorLanguage}.
 
 Question: "${question.prompt}"
-${question.audio_script ? `Audio Passage was: "${question.audio_script}"` : ""}
-${question.reading_passage ? `Reading Passage was: "${question.reading_passage}"` : ""}
+${question.audio_script ? `Audio Passage: "${question.audio_script}"` : ""}
+${question.reading_passage ? `Reading Passage: "${question.reading_passage}"` : ""}
 Student's Answer: "${userAnswer}"
 
-STRICT LANGUAGE ENFORCEMENT & CONCISENESS RULES:
-1. TARGET LANGUAGE MANDATE:
+STRICT CEFR EVALUATION & LANGUAGE RULES:
+1. TARGET LANGUAGE REQUIREMENT:
    - The student MUST answer in ${targetLanguage}.
-   - CRITICAL: If the student answers in ${mediatorLanguage} (e.g. Russian "красный") or English instead of ${targetLanguage} (e.g. Azerbaijani "qırmızı"):
+   - CRITICAL: If the student answers in ${mediatorLanguage} (e.g. Russian "красный") or English instead of ${targetLanguage} (e.g. German "rot", Azerbaijani "qırmızı"):
      * Score MUST BE 0 to 20 maximum (penalized for answering in the wrong language).
-     * Feedback MUST explicitly state: "You understood the question, but you answered in ${mediatorLanguage}! You must answer in ${targetLanguage}. The correct word in ${targetLanguage} is: [correct word in ${targetLanguage}]."
-     * NEVER call an answer in ${mediatorLanguage} an answer in ${targetLanguage}!
+     * Feedback MUST state clearly in ${mediatorLanguage}: "Вы поняли вопрос, но ответили на ${mediatorLanguage}! Ответ должен быть на ${targetLanguage}. На ${targetLanguage} правильный ответ: [слово на ${targetLanguage}]."
+     * NEVER praise an answer in ${mediatorLanguage} as an answer in ${targetLanguage}!
 2. CONCISENESS TOLERANCE:
-   - If the student answered in ${targetLanguage} and correctly supplied the requested fact (even in 1 or 2 words, e.g. "qırmızı"), AWARD 100/100!
-   - NEVER penalize short direct answers as "too brief" or "lacking details" when the question only asked for a specific fact (color, time, name).
+   - If the student answered in ${targetLanguage} and correctly supplied the requested fact (even in 1-2 words), AWARD 100/100!
+   - NEVER penalize short direct answers as "too brief" or "lacking details" when the question only asked for a specific fact.
 3. EXTRACT NEW WORDS / MISTAKES:
-   - "initial_form": MUST be pure uninflected dictionary lemma/infinitive in ${targetLanguage} (e.g. "qırmızı", "ev", "getmək").
+   - "initial_form": MUST be pure uninflected dictionary lemma/infinitive in ${targetLanguage} (e.g. "rot", "lesen", "Buch").
    - "meaning": Meaning in ${mediatorLanguage}.
 
 Return ONLY JSON:
@@ -258,7 +258,7 @@ Return ONLY JSON:
       "initial_form": "lemma in ${targetLanguage}",
       "used_form": "...",
       "part_of_speech": "...",
-      "meaning": "in ${mediatorLanguage}",
+      "meaning": "meaning in ${mediatorLanguage}",
       "synonyms": "...",
       "explanation": "...",
       "sentence": "..."
@@ -284,34 +284,72 @@ Return ONLY JSON:
     console.error("Evaluation error:", err.message);
     return {
       score: 75,
-      feedback: "Cavab qeydə alındı! (Answer recorded)",
+      feedback: "Ответ записан!",
       mistakes: []
     };
   }
 }
 
-// ── Call 5: CEFR Diagnostic Placement Test Generator ──────────────────────────
+// ── Call 5: CEFR Diagnostic Placement Test Generator (True CEFR Format) ───────
 export async function generateLevelTest(targetLanguage, mediatorLanguage = "english") {
   const prompt = `You are a certified psychometric CEFR language testing specialist.
 Create a diagnostic placement test to assess proficiency in ${targetLanguage}.
-Instructions in ${mediatorLanguage}, items testing ${targetLanguage}.
-NEVER use any third language.
+Instructions/prompts in ${mediatorLanguage}, testing items strictly in ${targetLanguage}.
 
-Generate EXACTLY 5 questions:
-- Q1 (A1-A2): Multiple Choice - Core Vocabulary (Variants A, B, C, D)
-- Q2 (B1): Multiple Choice - Grammar & Verb Tenses (Variants A, B, C, D)
-- Q3 (B2): Multiple Choice - Complex Syntax & Idioms (Variants A, B, C, D)
-- Q4 (B1-B2): Open Question (NO VARIANTS) - Targeted translation or fill-in
-- Q5 (C1): Open Question (NO VARIANTS) - Free short answer (1-2 sentences in ${targetLanguage})
+STRICT CEFR METHODOLOGY & ANTI-CIRCULARITY RULES:
+1. NEVER ask: "Выберите перевод слова [TargetWord] на [TargetLanguage]". That is circular and completely invalid!
+2. FORMAT REQUIREMENTS FOR EACH CEFR LEVEL:
+   - Q1 (A1-A2 Vocabulary & Everyday Context): In-Context Cloze sentence in ${targetLanguage} with a gap (____). The student must choose the semantically and grammatically fitting ${targetLanguage} word.
+   - Q2 (B1 Grammar & Morphology): Sentence in ${targetLanguage} with a gap testing verb tense, agreement, or preposition case in ${targetLanguage}.
+   - Q3 (B2 Syntax & Conjunctions): Sentence in ${targetLanguage} with a gap testing complex clause connectors, conjunctions, or idioms.
+   - Q4 (B1-B2 Open Targeted Production - NO VARIANTS): Fill in the missing target word or grammatical form without multiple choice options.
+   - Q5 (C1 Open Production - NO VARIANTS): Prompt asking for 1-2 original sentences in ${targetLanguage} giving an opinion or hypothesis.
+3. NO THIRD LANGUAGES: Use ONLY ${targetLanguage} and ${mediatorLanguage}.
 
-Return ONLY JSON:
+Return ONLY JSON in this format:
 {
   "questions": [
-    { "id": 1, "type": "choice", "cefr_target": "A1-A2", "skill": "Vocabulary", "prompt": "...", "options": ["A) ...", "B) ...", "C) ...", "D) ..."], "correct_option": "A) ..." },
-    { "id": 2, "type": "choice", "cefr_target": "B1", "skill": "Grammar", "prompt": "...", "options": ["A) ...", "B) ...", "C) ...", "D) ..."], "correct_option": "B) ..." },
-    { "id": 3, "type": "choice", "cefr_target": "B2", "skill": "Syntax", "prompt": "...", "options": ["A) ...", "B) ...", "C) ...", "D) ..."], "correct_option": "C) ..." },
-    { "id": 4, "type": "open", "cefr_target": "B1-B2", "skill": "Morphology", "prompt": "..." },
-    { "id": 5, "type": "open", "cefr_target": "C1", "skill": "Production", "prompt": "..." }
+    {
+      "id": 1,
+      "type": "choice",
+      "cefr_target": "A1-A2",
+      "skill": "Vocabulary",
+      "prompt": "Instructions in ${mediatorLanguage} + sentence in ${targetLanguage} with ____",
+      "options": ["A) ...", "B) ...", "C) ...", "D) ..."],
+      "correct_option": "A) ..."
+    },
+    {
+      "id": 2,
+      "type": "choice",
+      "cefr_target": "B1",
+      "skill": "Grammar",
+      "prompt": "Instructions in ${mediatorLanguage} + sentence in ${targetLanguage} with ____",
+      "options": ["A) ...", "B) ...", "C) ...", "D) ..."],
+      "correct_option": "B) ..."
+    },
+    {
+      "id": 3,
+      "type": "choice",
+      "cefr_target": "B2",
+      "skill": "Syntax",
+      "prompt": "Instructions in ${mediatorLanguage} + sentence in ${targetLanguage} with ____",
+      "options": ["A) ...", "B) ...", "C) ...", "D) ..."],
+      "correct_option": "C) ..."
+    },
+    {
+      "id": 4,
+      "type": "open",
+      "cefr_target": "B1-B2",
+      "skill": "Morphology",
+      "prompt": "Targeted sentence or prompt in ${mediatorLanguage} requiring a specific ${targetLanguage} form..."
+    },
+    {
+      "id": 5,
+      "type": "open",
+      "cefr_target": "C1",
+      "skill": "Production",
+      "prompt": "Free production prompt in ${mediatorLanguage} asking for 1-2 sentences in ${targetLanguage}..."
+    }
   ]
 }`;
 
@@ -321,7 +359,7 @@ Return ONLY JSON:
         model,
         messages: [{ role: "user", content: prompt }],
         temperature: 0.2,
-        max_tokens: 1400,
+        max_tokens: 1500,
         response_format: { type: "json_object" },
         ...reasoningParams(model),
       })
@@ -330,16 +368,53 @@ Return ONLY JSON:
     const raw = response.choices[0]?.message?.content?.trim();
     const parsed = JSON.parse(extractJsonObject(raw));
     const questions = parsed.questions || Object.values(parsed).find(Array.isArray);
-    if (!Array.isArray(questions) || questions.length === 0) throw new Error("No questions");
+    if (!Array.isArray(questions) || questions.length === 0) throw new Error("No questions generated");
     return { questions };
   } catch (err) {
+    console.warn("AI placement test generation fallback:", err.message);
     return {
       questions: [
-        { id: 1, type: "choice", cefr_target: "A1-A2", skill: "Vocabulary", prompt: `Complete the phrase in ${targetLanguage}:`, options: ["A) Variant 1", "B) Variant 2", "C) Variant 3", "D) Variant 4"], correct_option: "A) Variant 1" },
-        { id: 2, type: "choice", cefr_target: "B1", skill: "Grammar", prompt: `Select correct tense:`, options: ["A) Variant 1", "B) Variant 2", "C) Variant 3", "D) Variant 4"], correct_option: "B) Variant 2" },
-        { id: 3, type: "choice", cefr_target: "B2", skill: "Syntax", prompt: `Select natural word order:`, options: ["A) Variant 1", "B) Variant 2", "C) Variant 3", "D) Variant 4"], correct_option: "C) Variant 3" },
-        { id: 4, type: "open", cefr_target: "B1-B2", skill: "Morphology", prompt: `Translate into ${targetLanguage}: "We are waiting."` },
-        { id: 5, type: "open", cefr_target: "C1", skill: "Production", prompt: `Write 2 sentences in ${targetLanguage} about your hobbies.` }
+        {
+          id: 1,
+          type: "choice",
+          cefr_target: "A1-A2",
+          skill: "Vocabulary",
+          prompt: `Выберите подходящее слово для пропуска:\n"Ich habe gestern ein interessantes _____ gelesen."`,
+          options: ["A) Buch", "B) Brot", "C) Tisch", "D) Auto"],
+          correct_option: "A) Buch"
+        },
+        {
+          id: 2,
+          type: "choice",
+          cefr_target: "B1",
+          skill: "Grammar",
+          prompt: `Выберите правильную форму глагола:\n"Wenn ich Zeit habe, _____ ich dich morgen anrufen."`,
+          options: ["A) werde", "B) wird", "C) werden", "D) wurde"],
+          correct_option: "A) werde"
+        },
+        {
+          id: 3,
+          type: "choice",
+          cefr_target: "B2",
+          skill: "Syntax",
+          prompt: `Выберите правильный союз:\n"Er ging zur Arbeit, _____ er sich nicht wohl fühlte."`,
+          options: ["A) weil", "B) obwohl", "C) dass", "D) damit"],
+          correct_option: "B) obwohl"
+        },
+        {
+          id: 4,
+          type: "open",
+          cefr_target: "B1-B2",
+          skill: "Morphology",
+          prompt: `Напишите форму прошедшего времени (Perfekt) глагола «machen» на немецком языке:`
+        },
+        {
+          id: 5,
+          type: "open",
+          cefr_target: "C1",
+          skill: "Production",
+          prompt: `Напишите 1-2 предложения на немецком языке, выражающие ваше мнение о роли технологий в образовании:`
+        }
       ]
     };
   }
@@ -351,7 +426,7 @@ export async function evaluateLevelTest(targetLanguage, mediatorLanguage, questi
 Student's answers:
 ${questions.map((q, i) => `Q${i + 1} (${q.skill}): ${q.prompt}\nAnswer: "${userAnswers[i] || "No answer"}"`).join("\n\n")}
 
-Evaluate against: Vocabulary, Grammar, Syntax, Production in ${targetLanguage}.
+Evaluate: Vocabulary, Grammar, Syntax, Production in ${targetLanguage}.
 Map to: "Beginner" (A1-A2), "Intermediate" (B1-B2), or "Advanced" (C1-C2).
 
 Return ONLY JSON:

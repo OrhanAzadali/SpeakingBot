@@ -465,6 +465,16 @@ export async function getRoadmap(userId) {
 export async function addFlashcard(userId, cardData) {
   let word, correction, context, language, initial_form, used_form, part_of_speech, synonyms, explanation, sentence;
 
+  // Add inside addFlashcard() in db.js:
+  const normWord = String(baseForm || "").toLowerCase().trim();
+  const normCorrection = String(correction || "").toLowerCase().trim();
+
+  // Reject circular cards (e.g. word: "Buch", correction: "Buch")
+  if (normWord === normCorrection || normWord.replace(/[^\p{L}]/gu, '') === normCorrection.replace(/[^\p{L}]/gu, '')) {
+    console.warn(`Skipped circular flashcard: "${baseForm}" -> "${correction}"`);
+    return;
+  }
+
   if (typeof cardData === "object" && cardData !== null && !Array.isArray(cardData)) {
     ({
       word,
