@@ -107,8 +107,46 @@ export async function initDB() {
       answers JSONB DEFAULT '[]'::JSONB,
       created_at TIMESTAMPTZ DEFAULT NOW()
     );
+
+    -- Dedicated Skills Tracking: Stores proficiency, mastery score, and drills for each of the 4 sections
+    CREATE TABLE IF NOT EXISTS user_skills (
+      user_id BIGINT NOT NULL,
+      language TEXT NOT NULL,
+      skill TEXT NOT NULL, -- 'listening', 'speaking', 'reading', 'writing'
+      score INT DEFAULT 0, -- aggregate proficiency 0-100
+      drills_completed INT DEFAULT 0,
+      updated_at TIMESTAMPTZ DEFAULT NOW(),
+      PRIMARY KEY (user_id, language, skill)
+    );
+
+    -- Historical drill session results
+    CREATE TABLE IF NOT EXISTS skill_progress (
+      id SERIAL PRIMARY KEY,
+      user_id BIGINT NOT NULL,
+      language TEXT NOT NULL,
+      skill TEXT NOT NULL,
+      drill_type TEXT NOT NULL, -- 'short' (up to 20) or 'huge' (up to 10)
+      total_questions INT NOT NULL,
+      score INT NOT NULL,
+      feedback TEXT,
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    );
+
+    -- Active in-progress skill training drill session
+    CREATE TABLE IF NOT EXISTS active_drills (
+      user_id BIGINT PRIMARY KEY,
+      language TEXT NOT NULL,
+      mediator_language TEXT NOT NULL,
+      skill TEXT NOT NULL,
+      drill_type TEXT NOT NULL,
+      questions JSONB NOT NULL,
+      current_index INT DEFAULT 0,
+      answers JSONB DEFAULT '[]'::JSONB,
+      scores JSONB DEFAULT '[]'::JSONB,
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    );
   `);
-  console.log("✅ Database tables ready");
+  console.log("✅ Database tables & 4-skill progress schemas ready");
 }
 
 // ── Users ─────────────────────────────────────────────────────────────────────
@@ -134,67 +172,97 @@ export async function upsertUser(userId, fields = {}) {
   `, [userId, language ?? null, level ?? null, state ?? null, mediator_language ?? null]);
 }
 
-// ── Subscriptions / usage limits ───────────────────────────────────────────────
+// ── 4-Skill Progress & Active Drills Management ───────────────────────────────
 
-export async function isPremiumActive(userId) {
-  const { rows } = await pool.query(
-    "SELECT premium_until FROM users WHERE user_id = $1",
-    [userId]
-  );
-  const until = rows[0]?.premium_until;
-  return !!until && new Date(until) > new Date();
+export async function saveActiveDrill(userId, language, mediatorLanguage, skill, drillType, questions) {
+  await pool.query(`
+    INSERT INTO active_drills (user_id, language, mediator_language, skill, drill_type, questions, current_index, answers, scores)
+    VALUES ($1, $2, $3, $4, $5, $6, 0, '[]'::JSONB, '[]'::JSONB)
+    ON CONFLICT (user_id) DO UPDATE SET
+      language = $2,
+      mediator_language = $3,
+      skill = $4,
+      drill_type = $5,
+      questions = $6,
+      current_index = 0,
+      answers = '[]'::JSONB,
+      scores = '[]'::JSONB,
+      created_at = NOW()
+  `, [userId, language, mediatorLanguage, skill, drillType, JSON.stringify(questions)]);
 }
 
-// Extends (or starts) a user's premium window by days from whichever is
-// later: now, or their current expiry (so early renewals stack instead of
-// wasting remaining time).
-export async function grantPremium(userId, days) {
-  await pool.query(
-    `UPDATE users
-     SET premium_until = GREATEST(COALESCE(premium_until, NOW()), NOW()) + ($2 || ' days')::INTERVAL,
-         status = 'premium'
-     WHERE user_id = $1`,
-    [userId, days]
-  );
-}
-
-// Checks a free-tier user's daily message quota, resetting the counter if the
-// day has rolled over, then increments it. Premium users always pass. Returns
-// { allowed, premium, count?, limit? } — count/limit are omitted for premium
-// users since they don't apply.
-export async function checkAndIncrementUsage(userId, freeLimit) {
-  if (await isPremiumActive(userId)) {
-    return { allowed: true, premium: true };
-  }
-
+export async function getActiveDrill(userId) {
   const { rows } = await pool.query(
-    "SELECT daily_message_count, daily_reset_date FROM users WHERE user_id = $1",
+    "SELECT * FROM active_drills WHERE user_id = $1",
     [userId]
   );
-  const row = rows[0];
-  const today = new Date().toISOString().slice(0, 10);
-  const resetDate = row?.daily_reset_date
-    ? new Date(row.daily_reset_date).toISOString().slice(0, 10)
-    : null;
+  return rows[0] ?? null;
+}
 
-  let count = resetDate === today ? (row?.daily_message_count ?? 0) : 0;
+export async function recordDrillAnswer(userId, answerText, score) {
+  const drill = await getActiveDrill(userId);
+  if (!drill) return null;
 
-  if (count >= freeLimit) {
-    // Persist the (possibly just-reset) count/date even when blocking, so a
-    // stale reset date from a previous day doesn't linger indefinitely.
-    await pool.query(
-      "UPDATE users SET daily_message_count = $2, daily_reset_date = $3 WHERE user_id = $1",
-      [userId, count, today]
-    );
-    return { allowed: false, premium: false, count, limit: freeLimit };
-  }
+  const currentAnswers = Array.isArray(drill.answers) ? drill.answers : [];
+  const currentScores = Array.isArray(drill.scores) ? drill.scores : [];
+  currentAnswers.push(answerText);
+  currentScores.push(score);
 
-  count += 1;
-  await pool.query(
-    "UPDATE users SET daily_message_count = $2, daily_reset_date = $3 WHERE user_id = $1",
-    [userId, count, today]
+  const nextIndex = drill.current_index + 1;
+
+  await pool.query(`
+    UPDATE active_drills
+    SET current_index = $1, answers = $2, scores = $3
+    WHERE user_id = $4
+  `, [nextIndex, JSON.stringify(currentAnswers), JSON.stringify(currentScores), userId]);
+
+  return {
+    ...drill,
+    current_index: nextIndex,
+    answers: currentAnswers,
+    scores: currentScores,
+  };
+}
+
+export async function clearActiveDrill(userId) {
+  await pool.query("DELETE FROM active_drills WHERE user_id = $1", [userId]);
+}
+
+export async function completeDrillSession(userId, language, skill, drillType, totalQuestions, finalScore, feedback) {
+  // 1. Record in historical drill progress
+  await pool.query(`
+    INSERT INTO skill_progress (user_id, language, skill, drill_type, total_questions, score, feedback)
+    VALUES ($1, $2, $3, $4, $5, $6, $7)
+  `, [userId, language, skill, drillType, totalQuestions, finalScore, feedback]);
+
+  // 2. Update user skill profile (running average and drill count)
+  await pool.query(`
+    INSERT INTO user_skills (user_id, language, skill, score, drills_completed, updated_at)
+    VALUES ($1, $2, $3, $4, 1, NOW())
+    ON CONFLICT (user_id, language, skill) DO UPDATE SET
+      score = ROUND((user_skills.score * user_skills.drills_completed + $4) / (user_skills.drills_completed + 1)),
+      drills_completed = user_skills.drills_completed + 1,
+      updated_at = NOW()
+  `, [userId, language, skill, finalScore]);
+}
+
+export async function getUserSkillsOverview(userId, language) {
+  const skills = ['listening', 'speaking', 'reading', 'writing'];
+  const { rows } = await pool.query(
+    "SELECT skill, score, drills_completed FROM user_skills WHERE user_id = $1 AND language = $2",
+    [userId, language]
   );
-  return { allowed: true, premium: false, count, limit: freeLimit };
+
+  const profile = {};
+  skills.forEach(s => {
+    const record = rows.find(r => r.skill === s);
+    profile[s] = {
+      score: record ? record.score : 0,
+      drills_completed: record ? record.drills_completed : 0
+    };
+  });
+
+  return profile;
 }
 
 // ── Diagnostic Level Tests (CEFR Evaluation & Auto-Purge at 151) ──────────────
@@ -202,15 +270,12 @@ export async function checkAndIncrementUsage(userId, freeLimit) {
 export async function saveTestResult(userId, language, testData) {
   const { detected_level, score, breakdown, recommendations } = testData;
 
-  // 1. Insert new test record
   await pool.query(
     `INSERT INTO level_tests (user_id, language, detected_level, score, breakdown, recommendations)
      VALUES ($1, $2, $3, $4, $5, $6)`,
     [userId, language, detected_level, score, JSON.stringify(breakdown), recommendations]
   );
 
-  // 2. Enforce retention policy: store up to 150 tests specifically for this user.
-  // When count exceeds 150 (i.e. hits 151), delete the oldest 10 tests.
   const { rows } = await pool.query(
     "SELECT COUNT(*)::int AS count FROM level_tests WHERE user_id = $1",
     [userId]
@@ -218,7 +283,6 @@ export async function saveTestResult(userId, language, testData) {
   const count = rows[0]?.count ?? 0;
 
   if (count > 150) {
-    console.log(`User ${userId} has ${count} tests (>150). Deleting oldest 10 tests...`);
     await pool.query(`
       DELETE FROM level_tests
       WHERE id IN (
@@ -230,7 +294,6 @@ export async function saveTestResult(userId, language, testData) {
     `, [userId]);
   }
 
-  // 3. Update the user's active level in the users table
   await pool.query(
     "UPDATE users SET level = $1, state = 'chatting' WHERE user_id = $2",
     [detected_level, userId]
@@ -247,7 +310,7 @@ export async function getUserTestHistory(userId, language, limit = 5) {
   return rows;
 }
 
-// ── Active Diagnostic Test State ─────────────────────────────────────────────
+// ── Active Test Session ───────────────────────────────────────────────────────
 
 export async function saveActiveTest(userId, language, mediatorLanguage, questions) {
   await pool.query(`
@@ -296,6 +359,60 @@ export async function clearActiveTest(userId) {
   await pool.query("DELETE FROM active_tests WHERE user_id = $1", [userId]);
 }
 
+// ── Subscriptions & Usage Limits ─────────────────────────────────────────────
+
+export async function isPremiumActive(userId) {
+  const { rows } = await pool.query(
+    "SELECT premium_until FROM users WHERE user_id = $1",
+    [userId]
+  );
+  const until = rows[0]?.premium_until;
+  return !!until && new Date(until) > new Date();
+}
+
+export async function grantPremium(userId, days) {
+  await pool.query(
+    `UPDATE users
+     SET premium_until = GREATEST(COALESCE(premium_until, NOW()), NOW()) + ($2 || ' days')::INTERVAL,
+         status = 'premium'
+     WHERE user_id = $1`,
+    [userId, days]
+  );
+}
+
+export async function checkAndIncrementUsage(userId, freeLimit) {
+  if (await isPremiumActive(userId)) {
+    return { allowed: true, premium: true };
+  }
+
+  const { rows } = await pool.query(
+    "SELECT daily_message_count, daily_reset_date FROM users WHERE user_id = $1",
+    [userId]
+  );
+  const row = rows[0];
+  const today = new Date().toISOString().slice(0, 10);
+  const resetDate = row?.daily_reset_date
+    ? new Date(row.daily_reset_date).toISOString().slice(0, 10)
+    : null;
+
+  let count = resetDate === today ? (row?.daily_message_count ?? 0) : 0;
+
+  if (count >= freeLimit) {
+    await pool.query(
+      "UPDATE users SET daily_message_count = $2, daily_reset_date = $3 WHERE user_id = $1",
+      [userId, count, today]
+    );
+    return { allowed: false, premium: false, count, limit: freeLimit };
+  }
+
+  count += 1;
+  await pool.query(
+    "UPDATE users SET daily_message_count = $2, daily_reset_date = $3 WHERE user_id = $1",
+    [userId, count, today]
+  );
+  return { allowed: true, premium: false, count, limit: freeLimit };
+}
+
 // ── History ───────────────────────────────────────────────────────────────────
 
 export async function addHistory(userId, role, content) {
@@ -317,9 +434,6 @@ export async function clearHistory(userId) {
   await pool.query("DELETE FROM history WHERE user_id = $1", [userId]);
 }
 
-// Total user (not assistant) messages ever sent — used to trigger the
-// roadmap update every 5th message. Deliberately not tied to the free-tier
-// daily counter, which resets each day; this should keep counting forever.
 export async function countUserMessages(userId) {
   const { rows } = await pool.query(
     "SELECT COUNT(*)::int AS count FROM history WHERE user_id = $1 AND role = 'user'",
@@ -328,7 +442,7 @@ export async function countUserMessages(userId) {
   return rows[0]?.count ?? 0;
 }
 
-// ── Learning roadmap ─────────────────────────────────────────────────────────
+// ── Learning Roadmap ─────────────────────────────────────────────────────────
 
 export async function saveRoadmap(userId, roadmapText) {
   await pool.query(`
@@ -346,9 +460,8 @@ export async function getRoadmap(userId) {
   return rows[0] ?? null;
 }
 
-// ── Flashcards ────────────────────────────────────────────────────────────────
+// ── Flashcards (Guaranteed Lemma Output via COALESCE) ─────────────────────────
 
-// Saves cards with full linguistic metadata, supporting both structured object and legacy arguments
 export async function addFlashcard(userId, cardData) {
   let word, correction, context, language, initial_form, used_form, part_of_speech, synonyms, explanation, sentence;
 
@@ -366,14 +479,12 @@ export async function addFlashcard(userId, cardData) {
       sentence = null,
     } = cardData);
   } else {
-    // Legacy positional arguments fallback
     word = arguments[1];
     correction = arguments[2];
     context = arguments[3] ?? "";
     language = arguments[4] ?? null;
   }
 
-  // Ensure initial_form is always populated with the pure dictionary lemma
   const baseForm = initial_form || word;
 
   await pool.query(`
@@ -397,51 +508,53 @@ export async function addFlashcard(userId, cardData) {
   ]);
 }
 
-// Strict match only. Cards with language = NULL (saved before the addFlashcard
-// language-argument bug was fixed) are deliberately excluded here rather than
-// shown under every language — that fallback is what caused Spanish, French,
-// etc. cards to all mix together in one deck. Run the one-time backfill in
-// cleanup_bad_flashcards.sql to tag those old rows with the right language
-// instead of relying on this query to paper over it.
-//
-// Ordered newest-first (DESC) so a freshly-added mistake word appears at the
-// top of the deck the next time the Mini App fetches this list, instead of
-// being buried at the end behind every older card.
 export async function getFlashcardsByLanguage(userId, language) {
-  const { rows } = await pool.query(
-    "SELECT * FROM flashcards WHERE user_id = $1 AND language = $2 ORDER BY id DESC",
-    [userId, language]
-  );
-  return rows;
-}
-
-export async function getFlashcards(userId) {
-  const { rows } = await pool.query(
-    "SELECT * FROM flashcards WHERE user_id = $1",
-    [userId]
-  );
+  const { rows } = await pool.query(`
+    SELECT
+      id, user_id,
+      COALESCE(NULLIF(initial_form, ''), word) AS word,
+      correction, context, language,
+      COALESCE(NULLIF(initial_form, ''), word) AS initial_form,
+      used_form, part_of_speech, synonyms, explanation, sentence,
+      next_review, ease_factor, interval, correct_streak
+    FROM flashcards
+    WHERE user_id = $1 AND language = $2
+    ORDER BY id DESC
+  `, [userId, language]);
   return rows;
 }
 
 export async function getFlashcardById(id, userId) {
-  const { rows } = await pool.query(
-    "SELECT * FROM flashcards WHERE id = $1 AND user_id = $2",
-    [id, userId]
-  );
+  const { rows } = await pool.query(`
+    SELECT
+      id, user_id,
+      COALESCE(NULLIF(initial_form, ''), word) AS word,
+      correction, context, language,
+      COALESCE(NULLIF(initial_form, ''), word) AS initial_form,
+      used_form, part_of_speech, synonyms, explanation, sentence,
+      next_review, ease_factor, interval, correct_streak
+    FROM flashcards
+    WHERE id = $1 AND user_id = $2
+  `, [id, userId]);
   return rows[0] ?? null;
 }
 
 export async function getDueFlashcards(userId) {
-  const { rows } = await pool.query(
-    "SELECT * FROM flashcards WHERE user_id = $1 AND next_review <= NOW() ORDER BY id DESC LIMIT 20",
-    [userId]
-  );
+  const { rows } = await pool.query(`
+    SELECT
+      id, user_id,
+      COALESCE(NULLIF(initial_form, ''), word) AS word,
+      correction, context, language,
+      COALESCE(NULLIF(initial_form, ''), word) AS initial_form,
+      used_form, part_of_speech, synonyms, explanation, sentence,
+      next_review, ease_factor, interval, correct_streak
+    FROM flashcards
+    WHERE user_id = $1 AND next_review <= NOW()
+    ORDER BY id DESC LIMIT 20
+  `, [userId]);
   return rows;
 }
 
-// Requires userId so a caller can't update a flashcard belonging to someone
-// else just by guessing/incrementing IDs. Returns true on success, false if
-// the card doesn't exist or doesn't belong to that user.
 export async function updateFlashcard(id, remembered, userId) {
   const { rows } = await pool.query(
     "SELECT * FROM flashcards WHERE id = $1 AND user_id = $2",
@@ -469,15 +582,8 @@ export async function updateFlashcard(id, remembered, userId) {
   return true;
 }
 
-export default pool;
+// ── Quiz & Learned Words ──────────────────────────────────────────────────────
 
-// ── Quiz mode ─────────────────────────────────────────────────────────────────
-// Tracks a separate correct-in-a-row streak per card, independent of the
-// spaced-repetition fields the Flashcards mode uses. Three correct answers in
-// a row means the word is considered mastered: it's moved out of flashcards
-// (so it stops appearing in Quiz/Flashcards practice) and into learned_words
-// as a permanent record, preserving all linguistic metadata (initial_form,
-// used_form, part_of_speech, synonyms, explanation, sentence).
 export async function recordQuizResult(id, userId, correct) {
   const { rows } = await pool.query(
     "SELECT * FROM flashcards WHERE id = $1 AND user_id = $2",
@@ -501,7 +607,7 @@ export async function recordQuizResult(id, userId, correct) {
       [
         userId,
         card.language,
-        card.word,
+        card.initial_form || card.word,
         card.correction,
         card.initial_form || card.word,
         card.used_form || card.word,
@@ -527,7 +633,6 @@ export async function getLearnedWords(userId, language) {
   return rows;
 }
 
-// Gathers all user vocabulary from both active and mastered tables for PDF export
 export async function getAllUserVocabulary(userId, language = null) {
   const params = [userId];
   let langFilter = "";
@@ -538,11 +643,13 @@ export async function getAllUserVocabulary(userId, language = null) {
   }
 
   const flashcardsQuery = pool.query(
-    `SELECT *, 'Active Flashcard' AS status FROM flashcards WHERE user_id = $1 ${langFilter} ORDER BY id DESC`,
+    `SELECT *, COALESCE(NULLIF(initial_form, ''), word) AS display_word, 'Active Flashcard' AS status
+     FROM flashcards WHERE user_id = $1 ${langFilter} ORDER BY id DESC`,
     params
   );
   const learnedQuery = pool.query(
-    `SELECT *, 'Mastered' AS status, meaning AS correction FROM learned_words WHERE user_id = $1 ${langFilter} ORDER BY learned_at DESC`,
+    `SELECT *, COALESCE(NULLIF(initial_form, ''), word) AS display_word, 'Mastered' AS status, meaning AS correction
+     FROM learned_words WHERE user_id = $1 ${langFilter} ORDER BY learned_at DESC`,
     params
   );
 
@@ -553,6 +660,8 @@ export async function getAllUserVocabulary(userId, language = null) {
     total: activeRes.rows.length + learnedRes.rows.length,
   };
 }
+
+export default pool;
 
 // // db.js — PostgreSQL version (replaces lowdb)
 // import pg from "pg";

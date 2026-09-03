@@ -7,10 +7,6 @@ import { tmpdir } from "os";
 
 const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
 
-// Current production models per Groq's own deprecation docs (console.groq.com/docs/deprecations).
-// Rate limits are per-model, so cycling through distinct models on a 429 accesses
-// separate quota buckets rather than retrying the same one. We include high-throughput
-// Llama models alongside gpt-oss/qwen to ensure seamless fallback without model-not-found errors.
 const CHAT_MODELS = [
   "llama-3.3-70b-versatile",
   "llama-3.1-8b-instant",
@@ -20,20 +16,10 @@ const CHAT_MODELS = [
 ];
 const STT_MODELS = ["whisper-large-v3", "whisper-large-v3-turbo"];
 
-// gpt-oss models spend completion tokens on hidden chain-of-thought before
-// writing any visible content. With a low max_tokens, a request that needs
-// real reasoning (e.g. "tell me about Julius Caesar") can exhaust the whole
-// budget on that hidden reasoning, leaving message.content empty even though
-// the API call itself succeeded — this is what was breaking both the voice
-// reply and its text fallback. reasoning_effort:"low" keeps the model from
-// over-spending on reasoning for what's usually a simple conversational
-// turn; other models ignore or omit this parameter.
 function reasoningParams(model) {
   return model.startsWith("openai/gpt-oss") ? { reasoning_effort: "low" } : {};
 }
 
-// Tries each model in order, falling back on an actual rate-limit (429) or transient
-// failure. Logs a warning and continues down the list, re-throwing only if all models fail.
 async function withModelFallback(models, callFn) {
   let lastErr;
   for (const model of models) {
@@ -49,157 +35,95 @@ async function withModelFallback(models, callFn) {
 }
 
 export const LANGUAGES = {
-  spanish: "Spanish",
-  english: "English",
-  french: "French",
-  german: "German",
-  japanese: "Japanese",
-  italian: "Italian",
-  portuguese: "Portuguese",
-  russian: "Russian",
-  arabic: "Arabic",
-  chinese: "Chinese (Mandarin)",
-  hindi: "Hindi",
-  korean: "Korean",
-  turkish: "Turkish",
-  dutch: "Dutch",
-  polish: "Polish",
-  swedish: "Swedish",
-  vietnamese: "Vietnamese",
-  indonesian: "Indonesian",
-  thai: "Thai",
-  filipino: "Filipino",
-  ukrainian: "Ukrainian",
-  malay: "Malay",
-  romanian: "Romanian",
-  greek: "Greek",
-  czech: "Czech",
-  hungarian: "Hungarian",
-  tamil: "Tamil",
-  telugu: "Telugu",
-  bengali: "Bengali",
-  hebrew: "Hebrew",
-  norwegian: "Norwegian",
-  danish: "Danish",
-  finnish: "Finnish",
-  slovak: "Slovak",
-  catalan: "Catalan",
-  persian: "Persian",
-  marathi: "Marathi",
-  swahili: "Swahili",
-  afrikaans: "Afrikaans",
-  azerbaijani: "Azerbaijani"
+  spanish: "Spanish", english: "English", french: "French", german: "German",
+  japanese: "Japanese", italian: "Italian", portuguese: "Portuguese", russian: "Russian",
+  arabic: "Arabic", chinese: "Chinese (Mandarin)", hindi: "Hindi", korean: "Korean",
+  turkish: "Turkish", dutch: "Dutch", polish: "Polish", swedish: "Swedish",
+  vietnamese: "Vietnamese", indonesian: "Indonesian", thai: "Thai", filipino: "Filipino",
+  ukrainian: "Ukrainian", malay: "Malay", romanian: "Romanian", greek: "Greek",
+  czech: "Czech", hungarian: "Hungarian", tamil: "Tamil", telugu: "Telugu",
+  bengali: "Bengali", hebrew: "Hebrew", norwegian: "Norwegian", danish: "Danish",
+  finnish: "Finnish", slovak: "Slovak", catalan: "Catalan", persian: "Persian",
+  marathi: "Marathi", swahili: "Swahili", afrikaans: "Afrikaans", azerbaijani: "Azerbaijani"
 };
 
-// Best Edge TTS voice for each language
 const TTS_VOICES = {
-  spanish: "es-ES-AlvaroNeural",
-  english: "en-US-GuyNeural",
-  french: "fr-FR-HenriNeural",
-  german: "de-DE-ConradNeural",
-  japanese: "ja-JP-KeitaNeural",
-  italian: "it-IT-DiegoNeural",
-  portuguese: "pt-BR-AntonioNeural",
-  russian: "ru-RU-DmitryNeural",
-  arabic: "ar-SA-HamedNeural",
-  chinese: "zh-CN-YunxiNeural",
-  hindi: "hi-IN-MadhuramNeural",
-  korean: "ko-KR-InGookNeural",
-  turkish: "tr-TR-AhmetNeural",
-  dutch: "nl-NL-MaartenNeural",
-  polish: "pl-PL-MarekNeural",
-  swedish: "sv-SE-MattiasNeural",
-  vietnamese: "vi-VN-NamMinhNeural",
-  indonesian: "id-ID-ArdiNeural",
-  thai: "th-TH-NiwatNeural",
-  filipino: "fil-PH-AngeloNeural",
-  ukrainian: "uk-UA-OstapNeural",
-  malay: "ms-MY-OsmanNeural",
-  romanian: "ro-RO-EmilNeural",
-  greek: "el-GR-NestorasNeural",
-  czech: "cs-CZ-AntoninNeural",
-  hungarian: "hu-HU-TamasNeural",
-  tamil: "ta-IN-ValluvarNeural",
-  telugu: "te-IN-MohanNeural",
-  bengali: "bn-IN-BashkarNeural",
-  hebrew: "he-IL-AvriNeural",
-  norwegian: "nb-NO-FinnNeural",
-  danish: "da-DK-JeppeNeural",
-  finnish: "fi-FI-HarriNeural",
-  slovak: "sk-SK-LukasNeural",
-  catalan: "ca-ES-EnricNeural",
-  persian: "fa-IR-FaridNeural",
-  marathi: "mr-IN-ManoharNeural",
-  swahili: "sw-KE-RafikiNeural",
-  afrikaans: "af-ZA-WillemNeural",
+  spanish: "es-ES-AlvaroNeural", english: "en-US-GuyNeural", french: "fr-FR-HenriNeural",
+  german: "de-DE-ConradNeural", japanese: "ja-JP-KeitaNeural", italian: "it-IT-DiegoNeural",
+  portuguese: "pt-BR-AntonioNeural", russian: "ru-RU-DmitryNeural", arabic: "ar-SA-HamedNeural",
+  chinese: "zh-CN-YunxiNeural", hindi: "hi-IN-MadhuramNeural", korean: "ko-KR-InGookNeural",
+  turkish: "tr-TR-AhmetNeural", dutch: "nl-NL-MaartenNeural", polish: "pl-PL-MarekNeural",
+  swedish: "sv-SE-MattiasNeural", vietnamese: "vi-VN-NamMinhNeural", indonesian: "id-ID-ArdiNeural",
+  thai: "th-TH-NiwatNeural", filipino: "fil-PH-AngeloNeural", ukrainian: "uk-UA-OstapNeural",
+  malay: "ms-MY-OsmanNeural", romanian: "ro-RO-EmilNeural", greek: "el-GR-NestorasNeural",
+  czech: "cs-CZ-AntoninNeural", hungarian: "hu-HU-TamasNeural", tamil: "ta-IN-ValluvarNeural",
+  telugu: "te-IN-MohanNeural", bengali: "bn-IN-BashkarNeural", hebrew: "he-IL-AvriNeural",
+  norwegian: "nb-NO-FinnNeural", danish: "da-DK-JeppeNeural", finnish: "fi-FI-HarriNeural",
+  slovak: "sk-SK-LukasNeural", catalan: "ca-ES-EnricNeural", persian: "fa-IR-FaridNeural",
+  marathi: "mr-IN-ManoharNeural", swahili: "sw-KE-RafikiNeural", afrikaans: "af-ZA-WillemNeural",
   azerbaijani: "az-AZ-BabekNeural"
 };
 
-// Shared linguistic-accuracy block — needed by both the conversation call
-// (spoken reply) and the analysis call (correction text/examples), so it's
-// kept in one place rather than duplicated with drift risk.
-// Now strictly enforces the dictionary lemma / infinitive rule for base-word storage.
+function extractJsonObject(raw) {
+  if (!raw) throw new Error("Empty response from AI");
+  const match = raw.match(/\{[\s\S]*\}/);
+  return match ? match[0] : raw;
+}
+
+// ── Strict Lemma Extraction Directives ────────────────────────────────────────
 function linguisticAccuracyBlock(language) {
-  return `LINGUISTIC ACCURACY (MANDATORY):
-- Always use the correct, standard orthography of ${language}, including every required diacritic, accent mark, or special character (for example: á/é/í/ó/ú/ñ in Spanish, ç/é/è/ê in French, ü/ö/ä/ß in German, ı/ş/ğ/ç in Turkish, tone marks in Vietnamese, and so on for whichever language applies). Never simplify or drop these to plain ASCII — an omitted diacritic is a real spelling error and will also make the text-to-speech voice mispronounce the word.
-- STRICT LEMMA / INITIAL BASE-FORM RULE (CRITICAL):
-  When saving words as flashcards, you MUST resolve the word to its pure dictionary base/initial form:
-  * Nouns: MUST be singular nominative (e.g. Russian: not 'вопроса'/'вопросу', but 'вопрос'; not 'дружбы', but 'дружба'; not 'книгами', but 'книга').
-  * Pronouns/Demonstratives: MUST be dictionary lemma (e.g. Russian: not 'этого'/'этому', but 'этот' or 'это').
-  * Verbs: MUST be the bare infinitive (e.g. Spanish: not 'tengo'/'comí', but 'tener'/'comer'; Russian: not 'читал', but 'читать').
-  * Adjectives: MUST be masculine singular nominative base form (e.g. Russian: not 'красивую', but 'красивый').
-  NEVER output an inflected, declined, or conjugated form in the "initial_form" field.
-- Before finalizing any sentence, silently proofread it for grammatical correctness: verb conjugation, tense, gender and number agreement, correct word order, and natural article/preposition use. Only output a sentence once you are confident a native speaker would consider it correct and natural.
-- If you are uncertain whether a word, idiom, or grammatical construction is correct, do NOT guess — replace it with a simpler alternative you are fully confident is correct. A plain, simple, unambiguous sentence is always better than an impressive but potentially wrong one.
-- Avoid rare, archaic, overly regional, or ambiguous vocabulary that a text-to-speech engine or a learner could easily mispronounce or misread; prefer common, standard vocabulary appropriate for the student's level.
-- TRANSLITERATION HANDLING: if ${language}'s native writing system is not the Latin alphabet (e.g. Cyrillic for Russian/Ukrainian, Arabic script, Greek, Hebrew, Devanagari for Hindi/Marathi, Bengali, Tamil, Telugu, Thai, Chinese characters, Japanese kana/kanji, Hangul for Korean), the student may type using Latin-letter transliteration instead of the native script, because they lack a native-script keyboard. Recognize transliterated input exactly as if it had been typed in ${language}'s own script — never treat it as a foreign word, an English spelling mistake, or gibberish. Silently interpret which native-script word or phrase it represents (applying normal grammar/conjugation correction to that word), and then proceed as usual.
-- OUTPUT SCRIPT: no matter which script the student typed in, every single piece of ${language} text you produce anywhere in your reply — corrections, flashcard fields, example sentences — must be written in ${language}'s own native script. Never output a romanized/transliterated spelling as a "corrected" or saved form of a word; always convert it to native script first.`;
+  return `LINGUISTIC ACCURACY & MANDATORY LEMMA CONVERSION:
+- Always use the standard orthography of ${language}, including every diacritic and accent.
+- STRICT BASE LEMMA / INFINITIVE RULE (CRITICAL):
+  When extracting vocabulary for flashcards, the "initial_form" field MUST ALWAYS be the uninflected dictionary headword:
+  * Nouns: MUST be singular nominative.
+    - Russian: NEVER output "вопроса", "вопросу", "вопросом" -> MUST output "вопрос".
+    - Russian: NEVER output "дружбы", "дружбе", "дружбу" -> MUST output "дружба".
+    - Russian: NEVER output "книгами", "книг" -> MUST output "книга".
+  * Demonstratives & Pronouns: MUST be dictionary lemma.
+    - Russian: NEVER output "этого", "этому", "этим" -> MUST output "этот" (or "это").
+  * Verbs: MUST be the bare infinitive.
+    - Spanish: NEVER output "tengo", "tuve" -> MUST output "tener".
+    - Russian: NEVER output "читал", "читаю" -> MUST output "читать".
+  * Adjectives: MUST be masculine singular nominative (e.g. Russian: "красивый", not "красивую").
+  NEVER return an inflected, case-declined, or conjugated form in the "initial_form" field.
+  Put the inflected form inside "used_form" only.`;
 }
 
-// Call 1: CONVERSATION — small, fast, only produces the spoken reply.
+// ── Call 1: Spoken Conversation ───────────────────────────────────────────────
 function buildConversationPrompt(language, level) {
-  return `You are a friendly, encouraging, and voice-enabled ${language} language coach.
-You are passionate about helping students learn languages and speak with confidence.
-You CAN speak — your reply is automatically converted to audio and sent as a voice message.
-Never tell the user you cannot speak or that you are a text-only assistant. You are a speaking coach.
-The student's level is ${level}.
-
+  return `You are a friendly, voice-enabled ${language} coach.
+You CAN speak — your reply is converted to audio.
+Student's current level: ${level}.
 ${linguisticAccuracyBlock(language)}
-
 Continue the conversation naturally in ${language} at ${level} level.
-Ask one simple, engaging follow-up question to keep the dialogue going.
-Be warm, patient, and encouraging — like a good tutor would be.
-Keep it concise (2-4 sentences) — you are not correcting grammar here, that is handled separately.
-Your reply is converted to speech and read aloud, so write it as plain natural sentences only: no Markdown (no asterisks, underscores, backticks, headers, or bullet lists), no emoji.`;
+Ask one simple follow-up question.
+Keep it concise (2-4 sentences). Plain natural sentences only: no markdown, no emoji.`;
 }
 
-// Call 2: ANALYSIS — grammar correction + comprehensive multi-mistake extraction.
-// Captures EVERY mistake across the entire sentence, resolving each word to its pure lemma base form,
-// recording the inflected form, grammatical role, synonyms, explanation, and context sentence.
-// Employs the mediator language for Beginner/Intermediate learners, and 100% target language for Advanced.
+// ── Call 2: Grammar Analysis & Multi-Mistake Extraction ───────────────────────
 function buildAnalysisPrompt(language, level, mediatorLanguage = "english") {
   const isAdvanced = level.toLowerCase().includes("advanced");
-  const explanationLangDirective = isAdvanced
-    ? `Since the student is ADVANCED, all fields ("meaning", "synonyms", "explanation") MUST be written 100% in ${language} (monolingual immersion explanation). Do NOT use any mediator language.`
+  const explanationDirective = isAdvanced
+    ? `Since the student is ADVANCED, all fields ("meaning", "synonyms", "explanation") MUST be written 100% in ${language} (monolingual immersion). Do NOT use any mediator language.`
     : `Since the student is Beginner/Intermediate, write all explanations, meanings, and synonyms in the student's mediator language: ${mediatorLanguage.toUpperCase()}.`;
 
-  return `You are a meticulous ${language} grammar analyst for a language-learning app. The student's level is ${level}. You do not converse with the student — you only analyze their most recent message.
-
-${explanationLangDirective}
+  return `You are a meticulous ${language} grammar and vocabulary analyst.
+Student level: ${level}.
+${explanationDirective}
 ${linguisticAccuracyBlock(language)}
 
-Carefully analyze the student's most recent message for grammar, vocabulary, and spelling errors across the ENTIRE message. Do not stop after the first mistake.
-A single message can contain several separate, unrelated mistakes (e.g. wrong verb conjugation AND wrong noun case), and every one of them must be captured.
+Analyze the student's most recent message for ALL grammar, vocabulary, conjugation, and spelling errors across the ENTIRE message. Do not stop after the first mistake.
 
-Return your response strictly as a single JSON object in this exact format:
+Return your response strictly as a single JSON object:
 {
   "correctionText": "✅ Perfect!" OR "📝 Correction: <corrected sentence> (<1-sentence explanation>)",
   "mistakes": [
     {
       "initial_form": "Pure dictionary/infinitive/lemma base form in ${language} native script (e.g. 'вопрос', 'дружба', 'этот', 'correr', 'книга')",
-      "used_form": "The inflected word exactly as it appeared or should appear in context",
+      "used_form": "The inflected word exactly as it appeared in the sentence",
       "part_of_speech": "noun | verb | adjective | adverb | pronoun | phrase | preposition",
-      "meaning": "Definition/meaning of the initial_form (in ${isAdvanced ? language : mediatorLanguage})",
+      "meaning": "Definition of the initial_form (in ${isAdvanced ? language : mediatorLanguage})",
       "synonyms": "Comma-separated synonyms or variants (in ${isAdvanced ? language : mediatorLanguage})",
       "explanation": "Short grammatical explanation and rule note (in ${isAdvanced ? language : mediatorLanguage})",
       "sentence": "Full corrected sentence with the word wrapped in <u>word</u>"
@@ -208,69 +132,65 @@ Return your response strictly as a single JSON object in this exact format:
 }
 
 Rules:
-- If the message has no errors or contains invented/gibberish words, "mistakes" must be [].
-- Never save invented words or near-identical translations where the meaning matches the target word itself.
-- Extract EVERY distinct legitimate mistake across the entire input so none are omitted.`;
+- If there are no errors, "mistakes" must be [].
+- "initial_form" MUST be the dictionary lemma headword, NEVER a declined noun or conjugated verb.
+- Extract EVERY distinct mistake across the sentence so none are omitted.`;
 }
 
-// Call 3: AI DIAGNOSTIC LEVEL TEST GENERATOR (CEFR Placement)
-export async function generateLevelTest(targetLanguage, mediatorLanguage = "english") {
-  const prompt = `You are a certified psychometric CEFR language testing specialist.
-Create a diagnostic placement test to accurately assess a student's proficiency in ${targetLanguage}.
+// ── Call 3: 4-Skill Drill Generator (Listening, Speaking, Reading, Writing) ───
+export async function generateSkillDrill(skill, targetLanguage, mediatorLanguage, level, drillType = "short") {
+  // Short drill = 5 micro-questions; Huge drill = 10 deep comprehensive questions
+  const count = drillType === "huge" ? 10 : 5;
 
-The test must be calibrated against CEFR parameters (Vocabulary, Grammar, Syntax, Production).
-Write instructions in ${mediatorLanguage}, testing ${targetLanguage}.
+  const skillInstructions = {
+    listening: `GENERATE LISTENING COMPREHENSION DRILLS.
+Each question MUST contain:
+- "audio_script": An engaging, spoken narrative or dialogue in ${targetLanguage} (30-60 words). THIS WILL BE SPOKEN VIA TTS AUDIO!
+- "prompt": The comprehension question asking about details, intent, or main idea (written in ${mediatorLanguage}).
+- "type": "choice" or "open".
+- "options": (if choice) 4 clear variants.
+- "correct_answer": The exact answer.`,
 
-Generate EXACTLY 5 questions:
-- Q1 (A1-A2): Multiple Choice - Core Vocabulary (Variants A, B, C, D)
-- Q2 (B1): Multiple Choice - Grammar & Verb Tenses (Variants A, B, C, D)
-- Q3 (B2): Multiple Choice - Complex Syntax & Idioms (Variants A, B, C, D)
-- Q4 (B1-B2): Open Question (NO VARIANTS) - Fill in the blank or translation
-- Q5 (C1): Open Question (NO VARIANTS) - Free short production (ask for 1-2 sentences in ${targetLanguage})
+    speaking: `GENERATE SPEAKING PROMPTS.
+Each question MUST contain:
+- "prompt": A concrete real-world speaking scenario or question in ${targetLanguage} with instructions in ${mediatorLanguage}. The student MUST respond by recording a voice message.
+- "type": "voice",
+- "target_phrases": 2-3 key idioms or structures the student should try to include.`,
 
+    reading: `GENERATE READING COMPREHENSION PASSAGES.
+Each question MUST contain:
+- "reading_passage": A rich text passage in ${targetLanguage} (50-100 words).
+- "prompt": Comprehension question testing main idea, inference, or vocabulary in context.
+- "type": "choice" or "open".
+- "options": (if choice) 4 clear variants.
+- "correct_answer": The exact answer.`,
+
+    writing: `GENERATE WRITING TASKS.
+Each question MUST contain:
+- "prompt": A structured writing prompt (e.g. email reply, short argument, story continuation, or sentence reformulation) targeting ${level} level.
+- "type": "open",
+- "guidelines": 2-3 specific grammatical requirements (e.g. use past continuous, conditional, or formal register).`
+  };
+
+  const prompt = `You are an elite language curriculum designer creating a ${drillType.toUpperCase()} ${skill.toUpperCase()} drill in ${targetLanguage} for a ${level}-level student.
+Mediator language for instructions: ${mediatorLanguage}.
+
+${skillInstructions[skill]}
+
+Generate EXACTLY ${count} questions.
 Return ONLY a JSON object:
 {
+  "skill": "${skill}",
+  "drill_type": "${drillType}",
   "questions": [
     {
       "id": 1,
-      "type": "choice",
-      "cefr_target": "A1-A2",
-      "skill": "Vocabulary",
-      "prompt": "Question text...",
+      "type": "choice | open | voice",
+      "audio_script": "Text to be synthesized into speech (ONLY FOR LISTENING, otherwise omit)",
+      "reading_passage": "Text passage to read (ONLY FOR READING, otherwise omit)",
+      "prompt": "The question or task instructions",
       "options": ["A) ...", "B) ...", "C) ...", "D) ..."],
-      "correct_option": "A) ..."
-    },
-    {
-      "id": 2,
-      "type": "choice",
-      "cefr_target": "B1",
-      "skill": "Grammar",
-      "prompt": "Question text...",
-      "options": ["A) ...", "B) ...", "C) ...", "D) ..."],
-      "correct_option": "B) ..."
-    },
-    {
-      "id": 3,
-      "type": "choice",
-      "cefr_target": "B2",
-      "skill": "Syntax",
-      "prompt": "Question text...",
-      "options": ["A) ...", "B) ...", "C) ...", "D) ..."],
-      "correct_option": "C) ..."
-    },
-    {
-      "id": 4,
-      "type": "open",
-      "cefr_target": "B1-B2",
-      "skill": "Morphology",
-      "prompt": "Fill in the blank or translation prompt..."
-    },
-    {
-      "id": 5,
-      "type": "open",
-      "cefr_target": "C1",
-      "skill": "Production",
-      "prompt": "Free response prompt in ${targetLanguage}..."
+      "correct_answer": "..."
     }
   ]
 }`;
@@ -280,8 +200,8 @@ Return ONLY a JSON object:
       groq.chat.completions.create({
         model,
         messages: [{ role: "user", content: prompt }],
-        temperature: 0.2,
-        max_tokens: 1500,
+        temperature: 0.3,
+        max_tokens: 1800,
         response_format: { type: "json_object" },
         ...reasoningParams(model),
       })
@@ -289,99 +209,174 @@ Return ONLY a JSON object:
 
     const raw = response.choices[0]?.message?.content?.trim();
     const parsed = JSON.parse(extractJsonObject(raw));
-
-    // Normalize in case the model returns { test: [...] } or { diagnostic_test: [...] }
-    const questions = Array.isArray(parsed)
-      ? parsed
-      : (parsed.questions || parsed.test || parsed.quiz || Object.values(parsed).find(Array.isArray));
-
-    if (Array.isArray(questions) && questions.length > 0) {
-      return { questions };
-    }
-    throw new Error("Invalid questions array in AI response");
+    const questions = parsed.questions || Object.values(parsed).find(Array.isArray);
+    if (!Array.isArray(questions) || questions.length === 0) throw new Error("Invalid drill questions structure");
+    return { skill, drill_type: drillType, questions };
   } catch (err) {
-    console.warn("AI test generation failed or timed out, using pre-calibrated CEFR placement test:", err.message);
-    // Bulletproof Fallback: Guarantees the user is NEVER blocked by an API hiccup
+    console.error(`Skill drill generation failed for ${skill}:`, err.message);
+    // Instant Fallback Drill
     return {
+      skill,
+      drill_type: drillType,
       questions: [
         {
           id: 1,
-          type: "choice",
-          cefr_target: "A1-A2",
-          skill: "Vocabulary",
-          prompt: `Choose the correct word to complete the greeting in ${targetLanguage}:`,
-          options: ["A) Option 1", "B) Option 2", "C) Option 3", "D) Option 4"],
-          correct_option: "A) Option 1"
-        },
-        {
-          id: 2,
-          type: "choice",
-          cefr_target: "B1",
-          skill: "Grammar",
-          prompt: `Select the grammatically correct sentence in ${targetLanguage}:`,
-          options: ["A) Option 1", "B) Option 2", "C) Option 3", "D) Option 4"],
-          correct_option: "B) Option 2"
-        },
-        {
-          id: 3,
-          type: "choice",
-          cefr_target: "B2",
-          skill: "Syntax",
-          prompt: `Which sentence uses natural word order and proper prepositions in ${targetLanguage}?`,
-          options: ["A) Option 1", "B) Option 2", "C) Option 3", "D) Option 4"],
-          correct_option: "C) Option 3"
-        },
-        {
-          id: 4,
-          type: "open",
-          cefr_target: "B1-B2",
-          skill: "Morphology",
-          prompt: `Translate this phrase into ${targetLanguage}: "We have been waiting for two hours."`
-        },
-        {
-          id: 5,
-          type: "open",
-          cefr_target: "C1",
-          skill: "Production",
-          prompt: `Write 2-3 sentences in ${targetLanguage} describing your favorite city and why you like it.`
+          type: skill === "speaking" ? "voice" : (skill === "listening" ? "open" : "choice"),
+          audio_script: skill === "listening" ? `Every morning the market opens at sunrise, bringing farmers from all over the valley with fresh fruits and honey.` : undefined,
+          reading_passage: skill === "reading" ? `The old lighthouse on the northern coast has guided ships for over two centuries. Today, it operates automatically via satellite.` : undefined,
+          prompt: skill === "listening"
+            ? `Listen to the voice audio passage above. What two items do farmers bring to the market?`
+            : (skill === "speaking"
+              ? `Describe your favorite time of day and what you usually do during that time. Send a voice message.`
+              : (skill === "writing"
+                ? `Write 2-3 sentences explaining why learning a language is valuable for your future.`
+                : `What is the northern coast lighthouse used for today?`)),
+          options: skill === "reading" ? ["A) Guided by lighthouse keepers", "B) Operates via satellite", "C) Abandoned", "D) Turned into a museum"] : undefined,
+          correct_answer: "Operates via satellite"
         }
       ]
     };
   }
 }
-// Call 4: AI DIAGNOSTIC LEVEL TEST EVALUATOR
-export async function evaluateLevelTest(targetLanguage, mediatorLanguage, questions, userAnswers) {
-  const prompt = `You are a certified CEFR language examiner evaluating a student's diagnostic test in ${targetLanguage}.
 
-Test Questions & Student's Submitted Answers:
-${questions
-      .map((q, i) => `Question ${i + 1} (${q.skill}, ${q.cefr_target}):\nPrompt: ${q.prompt}\nStudent Answer: "${userAnswers[i] || "No answer"}"`)
-      .join("\n\n")}
+// ── Call 4: Skill Drill Answer Evaluator & Shared Vocabulary Extractor ─────────
+export async function evaluateSkillAnswer(skill, targetLanguage, mediatorLanguage, level, question, userAnswer, isVoice = false) {
+  const prompt = `You are grading a ${skill.toUpperCase()} language drill answer in ${targetLanguage}.
+Student level: ${level}.
+Mediator language: ${mediatorLanguage}.
+
+Question / Prompt: ${question.prompt}
+${question.audio_script ? `Audio Script was: "${question.audio_script}"` : ""}
+${question.reading_passage ? `Reading Passage was: "${question.reading_passage}"` : ""}
+Student Answer (${isVoice ? "spoken via voice note" : "typed"}): "${userAnswer}"
 
 TASK:
-Analyze the answers against CEFR parameters:
-1. Vocabulary accuracy and breadth
-2. Grammar, tense agreement, and morphology
-3. Syntax and sentence cohesion
-4. Open natural production in ${targetLanguage}
+1. Score the answer from 0 to 100 based on accuracy, comprehension, and language mastery.
+2. Provide a 1-2 sentence constructive feedback note in ${mediatorLanguage}.
+3. EXTRACT ALL GRAMMAR/VOCABULARY MISTAKES or NEW USEFUL WORDS the student struggled with or needs to master:
+   - "initial_form": Pure dictionary lemma/infinitive base form (e.g. Russian: "вопрос", "дружба", "этот").
+   - "used_form": How the student said/wrote it.
+   - "part_of_speech": noun, verb, adjective, etc.
+   - "meaning": Meaning in ${mediatorLanguage}.
+   - "explanation": Grammar/vocabulary explanation.
 
-Map the student's overall level into one of the 3 coach categories:
-- "Beginner" (corresponds to A1-A2)
-- "Intermediate" (corresponds to B1-B2)
-- "Advanced" (corresponds to C1-C2)
+Return ONLY a JSON object:
+{
+  "score": 85,
+  "feedback": "...",
+  "mistakes": [
+    {
+      "initial_form": "lemma",
+      "used_form": "...",
+      "part_of_speech": "...",
+      "meaning": "...",
+      "synonyms": "...",
+      "explanation": "...",
+      "sentence": "..."
+    }
+  ]
+}`;
 
-Respond ONLY with a JSON object:
+  try {
+    const response = await withModelFallback(CHAT_MODELS, (model) =>
+      groq.chat.completions.create({
+        model,
+        messages: [{ role: "user", content: prompt }],
+        temperature: 0.1,
+        max_tokens: 650,
+        response_format: { type: "json_object" },
+        ...reasoningParams(model),
+      })
+    );
+
+    const raw = response.choices[0]?.message?.content?.trim();
+    return JSON.parse(extractJsonObject(raw));
+  } catch (err) {
+    console.error("Evaluation error:", err.message);
+    return {
+      score: 75,
+      feedback: "Answer recorded! Keep practicing.",
+      mistakes: []
+    };
+  }
+}
+
+// ── Call 5: CEFR Diagnostic Placement Test Generator ──────────────────────────
+export async function generateLevelTest(targetLanguage, mediatorLanguage = "english") {
+  const prompt = `You are a certified psychometric CEFR language testing specialist.
+Create a diagnostic placement test to accurately assess a student's proficiency in ${targetLanguage}.
+Write instructions in ${mediatorLanguage}, testing ${targetLanguage}.
+
+Generate EXACTLY 5 questions:
+- Q1 (A1-A2): Multiple Choice - Core Vocabulary (Variants A, B, C, D)
+- Q2 (B1): Multiple Choice - Grammar & Verb Tenses (Variants A, B, C, D)
+- Q3 (B2): Multiple Choice - Complex Syntax & Idioms (Variants A, B, C, D)
+- Q4 (B1-B2): Open Question (NO VARIANTS) - Fill in the blank or translation
+- Q5 (C1): Open Question (NO VARIANTS) - Free short production (1-2 sentences in ${targetLanguage})
+
+Return ONLY a JSON object:
+{
+  "questions": [
+    { "id": 1, "type": "choice", "cefr_target": "A1-A2", "skill": "Vocabulary", "prompt": "...", "options": ["A) ...", "B) ...", "C) ...", "D) ..."], "correct_option": "A) ..." },
+    { "id": 2, "type": "choice", "cefr_target": "B1", "skill": "Grammar", "prompt": "...", "options": ["A) ...", "B) ...", "C) ...", "D) ..."], "correct_option": "B) ..." },
+    { "id": 3, "type": "choice", "cefr_target": "B2", "skill": "Syntax", "prompt": "...", "options": ["A) ...", "B) ...", "C) ...", "D) ..."], "correct_option": "C) ..." },
+    { "id": 4, "type": "open", "cefr_target": "B1-B2", "skill": "Morphology", "prompt": "..." },
+    { "id": 5, "type": "open", "cefr_target": "C1", "skill": "Production", "prompt": "..." }
+  ]
+}`;
+
+  try {
+    const response = await withModelFallback(CHAT_MODELS, (model) =>
+      groq.chat.completions.create({
+        model,
+        messages: [{ role: "user", content: prompt }],
+        temperature: 0.2,
+        max_tokens: 1400,
+        response_format: { type: "json_object" },
+        ...reasoningParams(model),
+      })
+    );
+
+    const raw = response.choices[0]?.message?.content?.trim();
+    const parsed = JSON.parse(extractJsonObject(raw));
+    const questions = parsed.questions || Object.values(parsed).find(Array.isArray);
+    if (!Array.isArray(questions) || questions.length === 0) throw new Error("No questions");
+    return { questions };
+  } catch (err) {
+    return {
+      questions: [
+        { id: 1, type: "choice", cefr_target: "A1-A2", skill: "Vocabulary", prompt: `Complete the sentence:`, options: ["A) Option 1", "B) Option 2", "C) Option 3", "D) Option 4"], correct_option: "A) Option 1" },
+        { id: 2, type: "choice", cefr_target: "B1", skill: "Grammar", prompt: `Select correct tense agreement:`, options: ["A) Option 1", "B) Option 2", "C) Option 3", "D) Option 4"], correct_option: "B) Option 2" },
+        { id: 3, type: "choice", cefr_target: "B2", skill: "Syntax", prompt: `Select natural word order:`, options: ["A) Option 1", "B) Option 2", "C) Option 3", "D) Option 4"], correct_option: "C) Option 3" },
+        { id: 4, type: "open", cefr_target: "B1-B2", skill: "Morphology", prompt: `Translate: "We have been waiting for two hours."` },
+        { id: 5, type: "open", cefr_target: "C1", skill: "Production", prompt: `Write 2 sentences describing your goals with ${targetLanguage}.` }
+      ]
+    };
+  }
+}
+
+// ── Call 6: Placement Test Evaluator ──────────────────────────────────────────
+export async function evaluateLevelTest(targetLanguage, mediatorLanguage, questions, userAnswers) {
+  const prompt = `You are a certified CEFR examiner evaluating a student's diagnostic test in ${targetLanguage}.
+
+Test Questions & Student Answers:
+${questions.map((q, i) => `Q${i + 1} (${q.skill}): ${q.prompt}\nAnswer: "${userAnswers[i] || "No answer"}"`).join("\n\n")}
+
+Evaluate: Vocabulary, Grammar, Syntax, Production.
+Map to: "Beginner" (A1-A2), "Intermediate" (B1-B2), or "Advanced" (C1-C2).
+
+Return ONLY JSON:
 {
   "detected_level": "Beginner | Intermediate | Advanced",
   "cefr_grade": "A1 | A2 | B1 | B2 | C1 | C2",
   "score": 85,
   "breakdown": {
-    "vocabulary": "Score out of 25 & brief comment",
-    "grammar": "Score out of 25 & brief comment",
-    "syntax": "Score out of 25 & brief comment",
-    "production": "Score out of 25 & brief comment"
+    "vocabulary": "Score out of 25",
+    "grammar": "Score out of 25",
+    "syntax": "Score out of 25",
+    "production": "Score out of 25"
   },
-  "recommendations": "2-3 actionable sentences in ${mediatorLanguage} outlining learning goals."
+  "recommendations": "2-3 actionable sentences in ${mediatorLanguage}."
 }`;
 
   const response = await withModelFallback(CHAT_MODELS, (model) =>
@@ -398,91 +393,37 @@ Respond ONLY with a JSON object:
   const raw = response.choices[0]?.message?.content?.trim();
   return JSON.parse(extractJsonObject(raw));
 }
-// Call 5: ROADMAP — periodic background check (triggered by code, not the
-// model, every N user messages — see maybeGenerateRoadmap). Reads recent
-// history from Supabase and produces a standalone progress update, sent as
-// its own text message instead of being embedded in the spoken reply.
-function buildRoadmapPrompt(language, level) {
-  return `You are a structured ${language} learning coach producing a periodic progress update for a ${level}-level student, based on the recent conversation history provided to you.
 
-You are not only a conversation partner — you are also a structured language tutor responsible for guiding the student through a progressive learning journey in ${language}.
-Track the student's weak areas (e.g., grammar mistakes, missing vocabulary domains, tense confusion, word order issues) as shown in the conversation, and prioritize them in this update.
+// ── Call 7: Semantic Quiz Judge ───────────────────────────────────────────────
+export async function checkSemanticAnswer(wordOrPhrase, submittedAnswer, correctAnswer, synonyms = "") {
+  const submitted = String(submittedAnswer || "").trim();
+  if (!submitted) return { correct: false, isSynonym: false, explanation: "No answer provided." };
 
-Write a roadmap update with:
-- What the student has recently improved
-- What still needs work
-- The next 1-3 learning goals (very simple and actionable)
-- A suggested practice focus (e.g., "past tense narration", "daily conversation vocabulary", "question formation")
+  const prompt = `You are an expert language quiz judge grading a student's answer.
+Target Word: "${wordOrPhrase}"
+Accepted Answer: "${correctAnswer}"
+Known Synonyms: "${synonyms || "none"}"
+Student Answer: "${submitted}"
 
-Guidance for calibrating the update:
-- Always prioritize progressive difficulty: do not overwhelm the student, and only suggest increasing complexity if the history shows they're ready for it.
-- Recommend recycling previously learned vocabulary in new contexts to reinforce retention.
-- If the student has struggled repeatedly with a concept, suggest breaking it into smaller steps, an analogy, or a quick drill.
-- If the student is performing strongly, suggest slightly more advanced structures and encourage natural expression over repetition.
-- Do not invent progress you can't see evidence for in the provided history — if there isn't enough to say something concrete yet, keep that section brief and generic rather than fabricating detail.
-
-Format as a short message (under 130 words total) using this structure:
-📈 Progress update
-- Recently improved: ...
-- Still needs work: ...
-- Next goals: ...
-- Practice focus: ...
-
-Write it in English (this is meta-feedback about learning progress, not part of the ${language} immersion conversation itself). This must feel like part of a continuous personalized curriculum, not a one-off note.`;
-}
-
-// Call 6: QUIZ ANSWER JUDGE — semantic comparison for grading typed quiz
-// answers. Replaces plain character-distance comparison, which had two
-// failure modes: it rejected valid answers phrased differently than the
-// stored string (synonyms, paraphrases, reordered words), and it could
-// accept a wrong answer that just happened to be a near-miss typo of the
-// *correct* answer's spelling rather than actually knowing the meaning.
-// An AI judge evaluates meaning instead of character overlap.
-function buildQuizJudgePrompt() {
-  return `You are an expert language quiz judge grading a student's answer.
-A student was shown a word/phrase in their target language and asked to give its meaning.
-
-TASK:
-Judge whether the student's answer conveys the correct core meaning.
-Accept:
-- Synonyms, paraphrases, and reasonable sub-meanings (e.g. if the accepted meaning is "the rest, other ones", then "the rest", "rest", "others", "the other ones", "remaining" are ALL 100% CORRECT).
-- Minor typos and spelling slips that do not change the core meaning.
-
-Respond with ONLY a JSON object:
+Accept synonyms, paraphrases, and subsets (e.g. if accepted answer is "the rest, other ones", then "rest", "the rest", "others" are ALL 100% CORRECT).
+Return ONLY JSON:
 {
   "correct": true,
   "isSynonym": true,
-  "explanation": "Short note confirming why it is accepted or what the exact accepted meaning is"
+  "explanation": "..."
 }`;
-}
-
-export async function checkSemanticAnswer(wordOrPhrase, submittedAnswer, correctAnswer, synonyms = "") {
-  const submitted = String(submittedAnswer || "").trim();
-  if (!submitted) {
-    return { correct: false, isSynonym: false, explanation: "No answer provided." };
-  }
 
   try {
     const response = await withModelFallback(CHAT_MODELS, (model) =>
       groq.chat.completions.create({
         model,
-        messages: [
-          { role: "system", content: buildQuizJudgePrompt() },
-          {
-            role: "user",
-            content: `Target Word: "${wordOrPhrase}"\nAccepted Answer: "${correctAnswer}"\nKnown Synonyms: "${synonyms || "none"}"\nStudent Answer: "${submitted}"`
-          }
-        ],
+        messages: [{ role: "user", content: prompt }],
         temperature: 0,
-        // NOTE: gpt-oss models spend completion tokens on hidden chain-of-thought
-        // before writing visible content. max_tokens must accommodate this hidden
-        // reasoning to prevent empty response fallbacks.
-        max_tokens: 300,
+        max_tokens: 250,
         response_format: { type: "json_object" },
         ...reasoningParams(model),
       })
     );
-
     const raw = response.choices[0]?.message?.content?.trim();
     const parsed = JSON.parse(extractJsonObject(raw));
     return {
@@ -491,60 +432,29 @@ export async function checkSemanticAnswer(wordOrPhrase, submittedAnswer, correct
       explanation: parsed.explanation || (parsed.correct ? "Correct!" : `Accepted: ${correctAnswer}`)
     };
   } catch (err) {
-    // Never let a Groq/API hiccup break quiz grading entirely — fall back to
-    // smart token matching so the feature degrades gracefully instead of erroring out.
-    console.error("Semantic quiz check failed, falling back to smart token match:", err.message);
     return smartFallbackMatch(submitted, correctAnswer, synonyms);
   }
 }
 
-// Defense in depth: even with response_format:"json_object", a model can
-// occasionally wrap its answer in ```json fences or add stray whitespace/
-// text around the object. Pulling out the first {...} span makes JSON.parse
-// robust to that instead of throwing and silently degrading to fuzzy match.
-
-// Generates a 5-question test with both multiple choice (with variants) and open questions (without variants)
-// Helper to strip any ```json or whitespace wrappers before parsing
-// Otherwise AI responses that may contain markdown code fences
-function extractJsonObject(raw) {
-  if (!raw) throw new Error("Empty response from AI");
-  const match = raw.match(/\{[\s\S]*\}/);
-  return match ? match[0] : raw;
-}
-// Fallback ONLY — used solely if the AI judge call throws (network/API outage).
-// Splits multi-word translations and synonyms to allow valid sub-answers like "rest" or "others".
 function smartFallbackMatch(submitted, correctAnswer, synonyms = "") {
-  const normalize = (s) =>
-    String(s || "")
-      .toLowerCase()
-      .replace(/[^\p{L}\p{N}\s]/gu, " ")
-      .replace(/\s+/g, " ")
-      .trim();
-
-  const sub = normalize(submitted);
-  const targets = [correctAnswer, ...(synonyms ? synonyms.split(",") : [])]
-    .flatMap((t) => t.split(/[,;/]/))
-    .map(normalize)
-    .filter(Boolean);
-
+  const norm = (s) => String(s || "").toLowerCase().replace(/[^\p{L}\p{N}\s]/gu, " ").replace(/\s+/g, " ").trim();
+  const sub = norm(submitted);
+  const targets = [correctAnswer, ...(synonyms ? synonyms.split(",") : [])].flatMap((t) => t.split(/[,;/]/)).map(norm).filter(Boolean);
   for (const t of targets) {
     if (sub === t || t.includes(sub) || sub.includes(t)) {
-      return { correct: true, isSynonym: sub !== normalize(correctAnswer), explanation: "Accepted!" };
+      return { correct: true, isSynonym: sub !== norm(correctAnswer), explanation: "Accepted!" };
     }
   }
-
   return { correct: false, isSynonym: false, explanation: `Correct answer: ${correctAnswer}` };
 }
 
+// ── Chat Pipeline ─────────────────────────────────────────────────────────────
 export async function chat(userId, userMessage, history, language, level, languageKey, mediatorLanguage = "english") {
   const conversationMessages = [
     ...history.map((h) => ({ role: h.role, content: h.content })),
     { role: "user", content: userMessage },
   ];
 
-  // The conversation and analysis calls are independent of each other's
-  // output, so they run in parallel — this keeps total latency close to a
-  // single call's, even though it's now two smaller, more focused requests.
   const [conversationResponse, analysisResponse] = await Promise.all([
     withModelFallback(CHAT_MODELS, (model) =>
       groq.chat.completions.create({
@@ -563,8 +473,6 @@ export async function chat(userId, userMessage, history, language, level, langua
         model,
         messages: [
           { role: "system", content: buildAnalysisPrompt(language, level, mediatorLanguage) },
-          // The analyzer only needs to judge the latest message; a little
-          // trailing context is enough, it doesn't need the full history.
           ...conversationMessages.slice(-4),
         ],
         temperature: 0.1,
@@ -575,18 +483,13 @@ export async function chat(userId, userMessage, history, language, level, langua
     ),
   ]);
 
-  // Defense in depth: even with the reasoning tuning above, an unusually
-  // demanding request could still exhaust max_tokens on hidden reasoning and
-  // come back empty. Never let that reach Telegram or TTS as empty text —
-  // both reject it outright, which is exactly what caused the "Couldn't
-  // process voice" error with no useful text ever shown to the user.
   const rawReply = conversationResponse.choices[0].message.content?.trim();
   const reply = rawReply || "Sorry, could you rephrase that? I didn't quite catch it.";
 
   let analysisData = { correctionText: "✅ Perfect!", mistakes: [] };
   try {
     const rawAnalysis = analysisResponse.choices[0].message.content?.trim();
-    analysisData = JSON.parse(rawAnalysis);
+    analysisData = JSON.parse(extractJsonObject(rawAnalysis));
   } catch (err) {
     console.error("Failed to parse analysis JSON:", err.message);
   }
@@ -594,13 +497,11 @@ export async function chat(userId, userMessage, history, language, level, langua
   const correction = analysisData.correctionText || "✅ Perfect!";
   const mistakes = Array.isArray(analysisData.mistakes) ? analysisData.mistakes : [];
 
-  // The model lists every mistake it found in the message, one per
-  // object in the mistakes array — not just the first one — so all of them need to be parsed and saved.
   for (const m of mistakes) {
     if (!m.initial_form || !m.meaning) continue;
     try {
       await addFlashcard(userId, {
-        word: m.initial_form.trim(), // Stored strictly in pure lemma / infinitive form
+        word: m.initial_form.trim(), // Strict lemma base form
         correction: m.meaning.trim(),
         context: m.explanation || m.sentence || "",
         language: languageKey,
@@ -611,9 +512,8 @@ export async function chat(userId, userMessage, history, language, level, langua
         explanation: m.explanation?.trim() || "",
         sentence: m.sentence?.trim() || userMessage,
       });
-      console.log(`Flashcard saved: [${m.initial_form}] (${m.part_of_speech}) -> "${m.meaning}" (language=${languageKey})`);
     } catch (err) {
-      console.error(`Flashcard: DB insert FAILED for "${m.initial_form}":`, err.message);
+      console.error(`Flashcard DB insert failed for "${m.initial_form}":`, err.message);
     }
   }
 
@@ -623,10 +523,16 @@ export async function chat(userId, userMessage, history, language, level, langua
   return { correction, reply };
 }
 
-// Fires only every 5th user message (checked via a cheap COUNT query, not
-// left to the model to self-judge). Reads recent history from Supabase,
-// generates a roadmap update, and persists it to user_progress. Returns null
-// on the other 4/5 messages so callers can skip sending anything.
+function buildRoadmapPrompt(language, level) {
+  return `You are a structured ${language} learning coach producing a progress update for a ${level}-level student:
+📈 Progress update
+- Recently improved: ...
+- Still needs work: ...
+- Next goals: ...
+- Practice focus: ...
+Keep it under 120 words.`;
+}
+
 export async function maybeGenerateRoadmap(userId, language, level) {
   const userMessageCount = await countUserMessages(userId);
   if (userMessageCount === 0 || userMessageCount % 5 !== 0) return null;
@@ -648,40 +554,26 @@ export async function maybeGenerateRoadmap(userId, language, level) {
   );
 
   const roadmap = response.choices[0].message.content?.trim();
-  // If this comes back empty, skip silently rather than throw — a missing
-  // progress update shouldn't surface as a full error on a message whose
-  // actual reply already sent successfully.
   if (!roadmap) return null;
 
   await saveRoadmap(userId, roadmap);
   return roadmap;
 }
 
-// Strips markdown syntax and emoji so the TTS engine doesn't read symbols
-// (asterisks, underscores, backticks, etc.) aloud. Relying on prompt
-// instructions alone isn't reliable — models slip back into markdown even
-// when told not to, so this is a deterministic safety net.
 function stripForSpeech(text) {
   return text
-    // Markdown links: [text](url) -> text
     .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
-    // Bold / italic markers
     .replace(/\*\*(.*?)\*\*/g, "$1")
     .replace(/__(.*?)__/g, "$1")
     .replace(/\*(.*?)\*/g, "$1")
     .replace(/_(.*?)_/g, "$1")
-    // Code blocks / inline code
     .replace(/```[\s\S]*?```/g, "")
     .replace(/`([^`]*)`/g, "$1")
-    // Headers, blockquotes, list markers
     .replace(/^#{1,6}\s*/gm, "")
     .replace(/^>\s?/gm, "")
     .replace(/^[\s]*[-*+]\s+/gm, "")
-    // Any leftover markdown symbols
     .replace(/[*_~`#]/g, "")
-    // Emoji (covers most common ranges used in the prompt/replies)
     .replace(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{2190}-\u{21FF}\u{2B00}-\u{2BFF}]/gu, "")
-    // Collapse whitespace left behind by the above
     .replace(/\n{2,}/g, ". ")
     .replace(/\n/g, " ")
     .replace(/\s{2,}/g, " ")
@@ -693,10 +585,7 @@ export async function textToSpeech(text, languageKey) {
   const folder = tmpdir();
   const spokenText = stripForSpeech(text);
 
-  if (!spokenText) {
-    console.warn("TTS skipped: nothing left to speak after stripping markdown/emoji.");
-    return null;
-  }
+  if (!spokenText) return null;
 
   try {
     const tts = new MsEdgeTTS();
@@ -716,11 +605,6 @@ export async function cleanupFile(filePath) {
 }
 
 export async function transcribeAudio(audioBuffer, filename = "audio.ogg") {
-  // toFile (from groq-sdk, same lineage as the OpenAI SDK) doesn't depend on
-  // the global Web File API — `new File(...)` requires Node 18.13+ AND a
-  // host that hasn't stripped/polyfilled it differently, which varies across
-  // hosting providers. toFile works from a plain Buffer everywhere, so this
-  // removes one whole category of "works locally, fails on Render" bugs.
   const file = await toFile(audioBuffer, filename, { type: "audio/ogg" });
   return withModelFallback(STT_MODELS, (model) =>
     groq.audio.transcriptions.create({
