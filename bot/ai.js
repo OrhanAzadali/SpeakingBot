@@ -15,6 +15,18 @@ const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
 const CHAT_MODELS = ["openai/gpt-oss-120b", "openai/gpt-oss-20b", "qwen/qwen3.6-27b"];
 const STT_MODELS = ["whisper-large-v3", "whisper-large-v3-turbo"];
 
+// gpt-oss models spend completion tokens on hidden chain-of-thought before
+// writing any visible content. With a low max_tokens, a request that needs
+// real reasoning (e.g. "tell me about Julius Caesar") can exhaust the whole
+// budget on that hidden reasoning, leaving message.content empty even though
+// the API call itself succeeded — this is what was breaking both the voice
+// reply and its text fallback. reasoning_effort:"low" keeps the model from
+// over-spending on reasoning for what's usually a simple conversational
+// turn; qwen3.6-27b doesn't support this param, so it's added conditionally.
+function reasoningParams(model) {
+  return model.startsWith("openai/gpt-oss") ? { reasoning_effort: "low" } : {};
+}
+
 // Tries each model in order, only falling back on an actual rate-limit (429)
 // response — any other error (bad request, auth, etc.) is not a reason to
 // silently retry on a different model, so it's re-thrown immediately.
@@ -276,7 +288,8 @@ export async function chat(userId, userMessage, history, language, level, langua
           ...conversationMessages,
         ],
         temperature: 0.7,
-        max_tokens: 220,
+        max_tokens: 450,
+        ...reasoningParams(model),
       })
     ),
     withModelFallback(CHAT_MODELS, (model) =>
@@ -289,12 +302,20 @@ export async function chat(userId, userMessage, history, language, level, langua
           ...conversationMessages.slice(-4),
         ],
         temperature: 0.3,
-        max_tokens: 200,
+        max_tokens: 350,
+        ...reasoningParams(model),
       })
     ),
   ]);
 
-  const reply = conversationResponse.choices[0].message.content.trim();
+  // Defense in depth: even with the reasoning tuning above, an unusually
+  // demanding request could still exhaust max_tokens on hidden reasoning and
+  // come back empty. Never let that reach Telegram or TTS as empty text —
+  // both reject it outright, which is exactly what caused the "Couldn't
+  // process voice" error with no useful text ever shown to the user.
+  const rawReply = conversationResponse.choices[0].message.content?.trim();
+  const reply = rawReply || "Sorry, could you rephrase that? I didn't quite catch it.";
+
   const raw = analysisResponse.choices[0].message.content;
 
   const correctionMatch = raw.match(/\[CORRECTION\]([\s\S]*?)\[FLASHCARD\]/);
@@ -335,11 +356,17 @@ export async function maybeGenerateRoadmap(userId, language, level) {
         ...recent.map((h) => ({ role: h.role, content: h.content })),
       ],
       temperature: 0.5,
-      max_tokens: 220,
+      max_tokens: 350,
+      ...reasoningParams(model),
     })
   );
 
-  const roadmap = response.choices[0].message.content.trim();
+  const roadmap = response.choices[0].message.content?.trim();
+  // If this comes back empty, skip silently rather than throw — a missing
+  // progress update shouldn't surface as a full error on a message whose
+  // actual reply already sent successfully.
+  if (!roadmap) return null;
+
   await saveRoadmap(userId, roadmap);
   return roadmap;
 }
@@ -379,6 +406,11 @@ export async function textToSpeech(text, languageKey) {
   const voice = TTS_VOICES[languageKey] || "en-US-GuyNeural";
   const folder = tmpdir();
   const spokenText = stripForSpeech(text);
+
+  if (!spokenText) {
+    console.warn("TTS skipped: nothing left to speak after stripping markdown/emoji.");
+    return null;
+  }
 
   try {
     const tts = new MsEdgeTTS();
