@@ -493,22 +493,42 @@ export async function checkSemanticAnswer(wordOrPhrase, submittedAnswer, correct
           },
         ],
         temperature: 0,
-        max_tokens: 20,
+        // NOTE: this used to be 20. gpt-oss models spend completion tokens on
+        // hidden chain-of-thought *before* writing any visible content (same
+        // issue documented above for the chat()/roadmap calls). At 20 tokens
+        // the hidden reasoning alone exhausted the budget, message.content
+        // came back empty, JSON.parse("") threw, and every single answer
+        // silently fell through to the old character-distance fuzzy match
+        // below — which is why paraphrases like "rest" / "others" for
+        // "the rest, other ones" were being marked wrong: they were never
+        // actually reaching the AI judge's verdict, only Levenshtein distance.
+        max_tokens: 300,
         response_format: { type: "json_object" },
         ...reasoningParams(model),
       })
     );
     const raw = response.choices[0]?.message?.content?.trim();
-    const parsed = JSON.parse(raw);
+    const parsed = JSON.parse(extractJsonObject(raw));
     if (typeof parsed.correct === "boolean") return parsed.correct;
     throw new Error(`Unexpected judge response shape: ${raw}`);
   } catch (err) {
     // Never let a Groq/API hiccup break quiz grading entirely — fall back to
     // the old fuzzy string match so the feature degrades gracefully instead
-    // of erroring out on every submitted answer.
+    // of erroring out on every submitted answer. This should now be rare
+    // (network/API errors only) instead of the default path.
     console.error("Semantic quiz check failed, falling back to fuzzy string match:", err.message);
     return fuzzyStringMatch(submitted, correctAnswer);
   }
+}
+
+// Defense in depth: even with response_format:"json_object", a model can
+// occasionally wrap its answer in ```json fences or add stray whitespace/
+// text around the object. Pulling out the first {...} span makes JSON.parse
+// robust to that instead of throwing and silently degrading to fuzzy match.
+function extractJsonObject(raw) {
+  if (!raw) throw new Error("Empty judge response");
+  const match = raw.match(/\{[\s\S]*\}/);
+  return match ? match[0] : raw;
 }
 
 // Fallback ONLY — used solely if the AI judge call throws (network/API
