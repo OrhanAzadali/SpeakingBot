@@ -324,10 +324,23 @@ export async function chat(userId, userMessage, history, language, level, langua
   const correction = correctionMatch ? correctionMatch[1].trim() : "✅ Perfect!";
   const flashcardRaw = flashcardMatch ? flashcardMatch[1].trim().split("\n")[0] : "NONE";
 
-  if (flashcardRaw !== "NONE" && flashcardRaw.includes(":::")) {
+  if (flashcardRaw === "NONE") {
+    console.log("Flashcard: model returned NONE this turn.");
+  } else if (!flashcardRaw.includes(":::")) {
+    console.log(`Flashcard: skipped — unexpected format (no ":::" found): ${JSON.stringify(flashcardRaw)}`);
+  } else {
     const [word, corr, context] = flashcardRaw.split(":::");
-    if (word && corr && isMeaningfullyDifferent(word, corr)) {
-      await addFlashcard(userId, word.trim(), corr.trim(), context?.trim() ?? "", languageKey ?? null);
+    if (!word || !corr) {
+      console.log(`Flashcard: skipped — missing word or meaning: ${JSON.stringify(flashcardRaw)}`);
+    } else if (!isMeaningfullyDifferent(word, corr)) {
+      console.log(`Flashcard: skipped — too similar to be a real translation: "${word.trim()}" vs "${corr.trim()}"`);
+    } else {
+      try {
+        await addFlashcard(userId, word.trim(), corr.trim(), context?.trim() ?? "", languageKey ?? null);
+        console.log(`Flashcard: saved "${word.trim()}" -> "${corr.trim()}" (language=${languageKey})`);
+      } catch (err) {
+        console.error(`Flashcard: DB insert FAILED for "${word.trim()}":`, err.message);
+      }
     }
   }
 
