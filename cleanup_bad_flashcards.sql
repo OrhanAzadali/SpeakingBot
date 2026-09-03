@@ -44,14 +44,35 @@
 
 -- DELETE FROM flashcards WHERE user_id = 8291613988 AND language IS NULL;
 -- Or, to clear it for every user at once instead of one at a time:
--- DELETE FROM flashcards WHERE language IS NULL;
--- Or, to clear everything from flashcards table for all users at once:
 -- DELETE FROM flashcards;
 
-SELECT user_id, language, COUNT(*) 
-FROM flashcards 
-GROUP BY user_id, language 
-ORDER BY user_id, language;
+-- SELECT user_id, language, COUNT(*) 
+-- FROM flashcards 
+-- GROUP BY user_id, language 
+-- ORDER BY user_id, language;
+
+
+
+-- CREATE TABLE IF NOT EXISTS level_tests (
+--   id SERIAL PRIMARY KEY,
+--   user_id BIGINT NOT NULL,
+--   language TEXT NOT NULL,
+--   detected_level TEXT NOT NULL,
+--   score INT NOT NULL,
+--   breakdown JSONB NOT NULL,
+--   recommendations TEXT,
+--   created_at TIMESTAMPTZ DEFAULT NOW()
+-- );
+
+-- CREATE TABLE IF NOT EXISTS active_tests (
+--   user_id BIGINT PRIMARY KEY,
+--   language TEXT NOT NULL,
+--   mediator_language TEXT NOT NULL,
+--   questions JSONB NOT NULL,
+--   current_index INT DEFAULT 0,
+--   answers JSONB DEFAULT '[]'::JSONB,
+--   created_at TIMESTAMPTZ DEFAULT NOW()
+-- );
 
 
 -- Active development project for a speaking/language-practice bot with flashcard and quiz features

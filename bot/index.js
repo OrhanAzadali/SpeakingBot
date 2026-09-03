@@ -373,12 +373,23 @@ bot.callbackQuery("start_placement_test", async (ctx) => {
 });
 
 async function initiateLevelTest(ctx, language, mediatorLanguage) {
-  const thinking = await ctx.reply("⏳ *Generating your personalized CEFR placement test with AI...*", { parse_mode: "Markdown" });
+  const thinking = await ctx.reply("⏳ Generating your placement test with AI...");
   try {
-    const testData = await generateLevelTest(LANGUAGES[language] || language, mediatorLanguage);
+    const targetName = LANGUAGES[language] || language;
+    const testData = await generateLevelTest(targetName, mediatorLanguage);
+
+    if (!testData || !Array.isArray(testData.questions) || testData.questions.length === 0) {
+      throw new Error("No questions returned from test generator");
+    }
+
     await saveActiveTest(ctx.from.id, language, mediatorLanguage, testData.questions);
     await upsertUser(ctx.from.id, { state: "in_level_test" });
-    await ctx.api.deleteMessage(ctx.chat.id, thinking.message_id);
+
+    // Safe message deletion (never throws if already deleted)
+    try {
+      await ctx.api.deleteMessage(ctx.chat.id, thinking.message_id);
+    } catch (_) { }
+
     await presentNextTestQuestion(ctx, ctx.from.id, testData.questions[0], 0, testData.questions.length);
   } catch (err) {
     console.error("Test generation error:", err);
@@ -387,27 +398,28 @@ async function initiateLevelTest(ctx, language, mediatorLanguage) {
 }
 
 async function presentNextTestQuestion(ctx, userId, question, index, total) {
-  const header = `📝 *Question ${index + 1} of ${total}* [Target: ${question.cefr_target} • ${question.skill}]\n\n`;
+  // Use plain text formatting so underscores like `_____` in fill-in-the-blanks NEVER crash Telegram!
+  const header = `📝 Question ${index + 1} of ${total} [Target: ${question.cefr_target} • ${question.skill}]\n\n`;
 
-  if (question.type === "choice" && question.options) {
+  if (question.type === "choice" && Array.isArray(question.options)) {
     const kb = new InlineKeyboard();
     question.options.forEach((opt, optIdx) => {
       kb.text(opt, `testopt_${index}_${optIdx}`).row();
     });
 
-    const body = `${header}${question.prompt}\n\n_Select the best variant below:_`;
+    const body = `${header}${question.prompt}\n\n👉 Select the best variant below:`;
     if (ctx.callbackQuery) {
-      await ctx.editMessageText(body, { parse_mode: "Markdown", reply_markup: kb });
+      await ctx.editMessageText(body, { reply_markup: kb });
     } else {
-      await ctx.reply(body, { parse_mode: "Markdown", reply_markup: kb });
+      await ctx.reply(body, { reply_markup: kb });
     }
   } else {
     // Open question without variants
-    const body = `${header}${question.prompt}\n\n✍️ *Please type your answer in the chat below:*`;
+    const body = `${header}${question.prompt}\n\n✍️ Please type your answer directly in the chat:`;
     if (ctx.callbackQuery) {
-      await ctx.editMessageText(body, { parse_mode: "Markdown" });
+      await ctx.editMessageText(body);
     } else {
-      await ctx.reply(body, { parse_mode: "Markdown" });
+      await ctx.reply(body);
     }
   }
 }
@@ -562,8 +574,6 @@ bot.on("message:voice", async (ctx) => {
     );
   }
 });
-
-// ── Text messages ─────────────────────────────────────────────────────────────
 
 // ── Text messages ─────────────────────────────────────────────────────────────
 
