@@ -185,16 +185,20 @@ There are three possible cases — pick exactly one:
 Case 3 is specifically for words that don't exist — never fold it into case 2. If in doubt whether a word is real or invented, treat it as case 3 rather than guessing a correction for it.
 
 [FLASHCARD]
-If you made a case 2 correction AND the corrected word/phrase is a confirmed part of ${language} vocabulary, save it as:
+Go through the ENTIRE message word by word and phrase by phrase — do not stop after the first mistake you find. A single message can contain several separate, unrelated mistakes (e.g. a wrong verb conjugation AND a wrong word choice later in the same sentence), and every one of them must be captured, not just the first.
+
+For EACH distinct mistake where the corrected word/phrase is a confirmed part of ${language} vocabulary, output one line in this exact format:
 ${language.toUpperCase()}_WORD_OR_PHRASE:::ENGLISH_MEANING:::EXAMPLE_OF_CORRECT_USAGE
+
+Output ONE line per mistake, in the order the mistakes appear in the message. Do not merge multiple mistakes into a single line, and do not truncate the list after the first entry.
 
 Strict rules for the second field, ENGLISH_MEANING:
 - It MUST be written in English, and MUST be the meaning/translation of the ${language} word or phrase — never a respelled, re-conjugated, or "corrected" version of the same ${language} text.
-- It MUST NOT be the same word/phrase as the first field, even with different spelling, accents, or capitalization. If the only thing you can produce is a corrected version of the same ${language} text (no English meaning), write NONE instead — do not save a flashcard with two near-identical fields.
-Example: tengo hambre:::I am hungry:::Used to express hunger in Spanish — "Tengo hambre después de correr."
-Example: corrí ayer:::I ran yesterday (past tense of "correr"):::"Corrí ayer por el parque."
+- It MUST NOT be the same word/phrase as the first field, even with different spelling, accents, or capitalization. If the only thing you can produce is a corrected version of the same ${language} text (no English meaning), omit that line instead — do not save a flashcard with two near-identical fields.
+Example line 1: tengo hambre:::I am hungry:::Used to express hunger in Spanish — "Tengo hambre después de correr."
+Example line 2: corrí ayer:::I ran yesterday (past tense of "correr"):::"Corrí ayer por el parque."
 
-If CORRECTION was case 1 or case 3 (any invented/nonexistent word), or you are unsure about the word, write: NONE. Never save a flashcard for a word you identified as not real.
+If CORRECTION was case 1 or case 3 (any invented/nonexistent word), or there are no confirmed vocabulary mistakes worth saving anywhere in the message, write a single line: NONE. Never save a flashcard for a word you identified as not real.
 
 IMPORTANT: Always include both tags, in this exact order. Never skip a tag. Do not add anything else.`;
 }
@@ -326,19 +330,37 @@ export async function chat(userId, userMessage, history, language, level, langua
   const flashcardMatch = raw.match(/\[FLASHCARD\]([\s\S]*?)$/);
 
   const correction = correctionMatch ? correctionMatch[1].trim() : "✅ Perfect!";
-  const flashcardRaw = flashcardMatch ? flashcardMatch[1].trim().split("\n")[0] : "NONE";
 
-  if (flashcardRaw === "NONE") {
+  // The model now lists every mistake it found in the message, one per
+  // line — not just the first one — so all of them need to be parsed and
+  // saved, not only flashcardLines[0].
+  const flashcardBlock = flashcardMatch ? flashcardMatch[1].trim() : "NONE";
+  const flashcardLines = flashcardBlock
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  if (flashcardLines.length === 0 || (flashcardLines.length === 1 && flashcardLines[0] === "NONE")) {
     console.log("Flashcard: model returned NONE this turn.");
-  } else if (!flashcardRaw.includes(":::")) {
-    console.log(`Flashcard: skipped — unexpected format (no ":::" found): ${JSON.stringify(flashcardRaw)}`);
   } else {
-    const [word, corr, context] = flashcardRaw.split(":::");
-    if (!word || !corr) {
-      console.log(`Flashcard: skipped — missing word or meaning: ${JSON.stringify(flashcardRaw)}`);
-    } else if (!isMeaningfullyDifferent(word, corr)) {
-      console.log(`Flashcard: skipped — too similar to be a real translation: "${word.trim()}" vs "${corr.trim()}"`);
-    } else {
+    for (const flashcardRaw of flashcardLines) {
+      if (flashcardRaw === "NONE") continue; // model may still emit a stray NONE alongside real lines; skip it, don't abort the rest
+      if (!flashcardRaw.includes(":::")) {
+        console.log(`Flashcard: skipped — unexpected format (no ":::" found): ${JSON.stringify(flashcardRaw)}`);
+        continue;
+      }
+      const [word, corr, context] = flashcardRaw.split(":::");
+      if (!word || !corr) {
+        console.log(`Flashcard: skipped — missing word or meaning: ${JSON.stringify(flashcardRaw)}`);
+        continue;
+      }
+      if (!isMeaningfullyDifferent(word, corr)) {
+        console.log(`Flashcard: skipped — too similar to be a real translation: "${word.trim()}" vs "${corr.trim()}"`);
+        continue;
+      }
+      // addFlashcard writes to the single `flashcards` table that both the
+      // Flashcards deck and Quiz mode read from, so every mistake caught
+      // here automatically becomes available in both features.
       try {
         await addFlashcard(userId, word.trim(), corr.trim(), context?.trim() ?? "", languageKey ?? null);
         console.log(`Flashcard: saved "${word.trim()}" -> "${corr.trim()}" (language=${languageKey})`);
@@ -440,6 +462,67 @@ export async function textToSpeech(text, languageKey) {
   }
 }
 
+// Call: QUIZ ANSWER JUDGE — semantic comparison for grading typed quiz
+// answers. Replaces plain character-distance comparison, which had two
+// failure modes: it rejected valid answers phrased differently than the
+// stored string (synonyms, paraphrases, reordered words), and it could
+// accept a wrong answer that just happened to be a near-miss typo of the
+// *correct* answer's spelling rather than actually knowing the meaning.
+// An AI judge evaluates meaning instead of character overlap.
+function buildQuizJudgePrompt() {
+  return `You are grading a language-learning quiz. The student was shown a word or phrase in the target language and asked to type its meaning in English.
+
+Judge whether the student's submitted answer conveys the same core meaning as the accepted correct answer. Accept synonyms, paraphrases, reasonable partial answers, and minor spelling/grammar slips that don't change the meaning. Reject answers that describe a different meaning, are empty/gibberish, or are unrelated to the correct answer.
+
+Respond with ONLY a JSON object and nothing else, in exactly this shape: {"correct": true} or {"correct": false}`;
+}
+
+export async function checkSemanticAnswer(wordOrPhrase, submittedAnswer, correctAnswer) {
+  const submitted = String(submittedAnswer || "").trim();
+  if (!submitted) return false;
+
+  try {
+    const response = await withModelFallback(CHAT_MODELS, (model) =>
+      groq.chat.completions.create({
+        model,
+        messages: [
+          { role: "system", content: buildQuizJudgePrompt() },
+          {
+            role: "user",
+            content: `Target-language word/phrase: ${wordOrPhrase}\nAccepted correct answer: ${correctAnswer}\nStudent's submitted answer: ${submitted}`,
+          },
+        ],
+        temperature: 0,
+        max_tokens: 20,
+        response_format: { type: "json_object" },
+        ...reasoningParams(model),
+      })
+    );
+    const raw = response.choices[0]?.message?.content?.trim();
+    const parsed = JSON.parse(raw);
+    if (typeof parsed.correct === "boolean") return parsed.correct;
+    throw new Error(`Unexpected judge response shape: ${raw}`);
+  } catch (err) {
+    // Never let a Groq/API hiccup break quiz grading entirely — fall back to
+    // the old fuzzy string match so the feature degrades gracefully instead
+    // of erroring out on every submitted answer.
+    console.error("Semantic quiz check failed, falling back to fuzzy string match:", err.message);
+    return fuzzyStringMatch(submitted, correctAnswer);
+  }
+}
+
+// Fallback ONLY — used solely if the AI judge call throws (network/API
+// outage). Character-distance comparison is no longer the primary grading
+// path since it can't judge meaning, only spelling similarity.
+function fuzzyStringMatch(submitted, correctAnswer) {
+  const a = normalizeForComparison(submitted);
+  const b = normalizeForComparison(correctAnswer);
+  if (!a || !b) return false;
+  if (a === b) return true;
+  const tolerance = Math.min(3, Math.max(1, Math.floor(b.length / 6)));
+  return levenshteinDistance(a, b) <= tolerance;
+}
+
 export async function cleanupFile(filePath) {
   try {
     await unlink(filePath);
@@ -461,6 +544,7 @@ export async function transcribeAudio(audioBuffer, filename = "audio.ogg") {
     })
   );
 }
+
 
 // OLD PROMPT RULES:
 

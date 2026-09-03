@@ -7,7 +7,7 @@ import {
   getDueFlashcards, getFlashcardsByLanguage, getFlashcardById, updateFlashcard, recordQuizResult,
   checkAndIncrementUsage, grantPremium, getRoadmap
 } from "./db.js";
-import { chat, transcribeAudio, textToSpeech, cleanupFile, LANGUAGES, maybeGenerateRoadmap } from "./ai.js";
+import { chat, transcribeAudio, textToSpeech, cleanupFile, LANGUAGES, maybeGenerateRoadmap, checkSemanticAnswer } from "./ai.js";
 
 import express from "express";
 import cors from "cors";
@@ -148,47 +148,13 @@ app.post("/api/flashcards/:id/review", requireTelegramAuth, async (req, res) => 
   res.json({ ok: true });
 });
 
-// Strips punctuation/parenthetical notes and collapses whitespace so minor
-// formatting differences don't count against the user.
-function normalizeAnswer(str) {
-  return String(str || "")
-    .toLowerCase()
-    .replace(/\([^)]*\)/g, "") // drop "(not ...)"-style notes
-    .replace(/[^\p{L}\p{N}\s]/gu, "") // strip punctuation, unicode-aware
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-function levenshtein(a, b) {
-  const dp = Array.from({ length: a.length + 1 }, () => new Array(b.length + 1).fill(0));
-  for (let i = 0; i <= a.length; i++) dp[i][0] = i;
-  for (let j = 0; j <= b.length; j++) dp[0][j] = j;
-  for (let i = 1; i <= a.length; i++) {
-    for (let j = 1; j <= b.length; j++) {
-      dp[i][j] = a[i - 1] === b[j - 1]
-        ? dp[i - 1][j - 1]
-        : 1 + Math.min(dp[i - 1][j], dp[i][j - 1], dp[i - 1][j - 1]);
-    }
-  }
-  return dp[a.length][b.length];
-}
-
-// Used for both typed answers (needs typo tolerance) and multiple-choice
-// (the submitted text is one of the shown options verbatim, so this reduces
-// to an exact match after normalization).
-function isCorrectAnswer(submitted, correctAnswer) {
-  const a = normalizeAnswer(submitted);
-  const b = normalizeAnswer(correctAnswer);
-  if (!a || !b) return false;
-  if (a === b) return true;
-  const tolerance = Math.min(3, Math.max(1, Math.floor(b.length / 6)));
-  return levenshtein(a, b) <= tolerance;
-}
-
 // Quiz mode: the server — not the client — decides whether the submitted
-// answer was correct, by comparing it against the stored correction. This
-// stops a client from just claiming { correct: true } to instantly master
-// (and delete) any card. 3 correct answers in a row masters the word.
+// answer was correct. Grading is now AI-powered semantic comparison
+// (checkSemanticAnswer, via Groq) instead of character-level string/edit-
+// distance comparison, so paraphrases and synonyms are accepted and a
+// same-spelling-but-wrong-meaning answer is rejected. This stops a client
+// from just claiming { correct: true } to instantly master (and delete) any
+// card. 3 correct answers in a row masters the word.
 app.post("/api/flashcards/:id/quiz", requireTelegramAuth, async (req, res) => {
   const { id } = req.params;
   const { answer } = req.body;
@@ -201,7 +167,7 @@ app.post("/api/flashcards/:id/quiz", requireTelegramAuth, async (req, res) => {
     return res.status(404).json({ error: "Flashcard not found" });
   }
 
-  const correct = isCorrectAnswer(answer, card.correction);
+  const correct = await checkSemanticAnswer(card.word, answer, card.correction);
   const result = await recordQuizResult(Number(id), req.telegramUser.id, correct);
   res.json({ correct, correctAnswer: card.correction, ...result });
 });

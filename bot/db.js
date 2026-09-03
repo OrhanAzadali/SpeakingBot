@@ -220,9 +220,13 @@ export async function addFlashcard(userId, word, correction, context, language) 
 // etc. cards to all mix together in one deck. Run the one-time backfill in
 // cleanup_bad_flashcards.sql to tag those old rows with the right language
 // instead of relying on this query to paper over it.
+//
+// Ordered newest-first (DESC) so a freshly-added mistake word appears at the
+// top of the deck the next time the Mini App fetches this list, instead of
+// being buried at the end behind every older card.
 export async function getFlashcardsByLanguage(userId, language) {
   const { rows } = await pool.query(
-    "SELECT * FROM flashcards WHERE user_id = $1 AND language = $2 ORDER BY id",
+    "SELECT * FROM flashcards WHERE user_id = $1 AND language = $2 ORDER BY id DESC",
     [userId, language]
   );
   return rows;
@@ -324,8 +328,6 @@ export async function getLearnedWords(userId, language) {
   );
   return rows;
 }
-
-
 
 // // db.js — PostgreSQL version (replaces lowdb)
 // import pg from "pg";
