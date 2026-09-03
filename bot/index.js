@@ -313,6 +313,9 @@ bot.callbackQuery(/^lang_(.+)$/, async (ctx) => {
 // ── Mediator selection & Mandatory Diagnostic Test Prompt ─────────────────────
 
 bot.callbackQuery(/^med_(.+)$/, async (ctx) => {
+  // CRITICAL: Acknowledge Telegram immediately to stop button spinning and double-delivery
+  await ctx.answerCallbackQuery();
+
   const mediator_language = ctx.match[1];
   const userId = ctx.from.id;
   await upsertUser(userId, { mediator_language, state: "starting_test" });
@@ -327,7 +330,6 @@ bot.callbackQuery(/^med_(.+)$/, async (ctx) => {
     { parse_mode: "Markdown", reply_markup: kb }
   );
 });
-
 // Optional Command: User requests a level test anytime
 bot.command(["test", "leveltest"], async (ctx) => {
   const userId = ctx.from.id;
@@ -560,6 +562,8 @@ bot.on("message:voice", async (ctx) => {
     );
   }
 });
+
+// ── Text messages ─────────────────────────────────────────────────────────────
 
 // ── Text messages ─────────────────────────────────────────────────────────────
 

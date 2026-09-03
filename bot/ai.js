@@ -215,12 +215,20 @@ Rules:
 
 // Call 3: AI DIAGNOSTIC LEVEL TEST GENERATOR (CEFR Placement)
 // Generates a 5-question test with both multiple choice (with variants) and open questions (without variants)
+// Helper to strip any ```json or whitespace wrappers before parsing
+function extractJsonObject(raw) {
+  if (!raw) throw new Error("Empty response from AI");
+  const match = raw.match(/\{[\s\S]*\}/);
+  return match ? match[0] : raw;
+}
+
+// Call 3: AI DIAGNOSTIC LEVEL TEST GENERATOR (CEFR Placement)
 export async function generateLevelTest(targetLanguage, mediatorLanguage = "english") {
-  const prompt = `You are a modern psychometric and CEFR language testing specialist.
-Create a thorough diagnostic placement test to accurately assess a student's proficiency in ${targetLanguage}.
+  const prompt = `You are a certified psychometric CEFR language testing specialist.
+Create a diagnostic placement test to accurately assess a student's proficiency in ${targetLanguage}.
 
 The test must be calibrated against modern CEFR parameters (Vocabulary range, Grammar/Morphology, Syntax, and Production).
-Write instructions and questions in the student's mediator language (${mediatorLanguage}), but the language items must test ${targetLanguage}.
+Write instructions and prompts in the student's mediator language (${mediatorLanguage}), testing ${targetLanguage}.
 
 Generate EXACTLY 5 questions spanning from basic to advanced difficulty:
 - Q1 (A1-A2): Multiple Choice - Core Vocabulary & Word Choice (Variants A, B, C, D)
@@ -229,7 +237,7 @@ Generate EXACTLY 5 questions spanning from basic to advanced difficulty:
 - Q4 (B1-B2): Open Question (NO VARIANTS) - Fill in the blank or targeted translation requiring correct morphology
 - Q5 (C1): Open Question (NO VARIANTS) - Free short answer production in ${targetLanguage} (e.g. give a 2-sentence opinion on a topic)
 
-Return ONLY a JSON object in this exact format:
+Return ONLY a JSON object:
 {
   "questions": [
     {
@@ -237,7 +245,7 @@ Return ONLY a JSON object in this exact format:
       "type": "choice",
       "cefr_target": "A1-A2",
       "skill": "Vocabulary",
-      "prompt": "Question text...",
+      "prompt": "Question text in ${mediatorLanguage}...",
       "options": ["A) ...", "B) ...", "C) ...", "D) ..."],
       "correct_option": "A) ..."
     },
@@ -246,7 +254,7 @@ Return ONLY a JSON object in this exact format:
       "type": "choice",
       "cefr_target": "B1",
       "skill": "Grammar",
-      "prompt": "Question text...",
+      "prompt": "Question text in ${mediatorLanguage}...",
       "options": ["A) ...", "B) ...", "C) ...", "D) ..."],
       "correct_option": "B) ..."
     },
@@ -255,7 +263,7 @@ Return ONLY a JSON object in this exact format:
       "type": "choice",
       "cefr_target": "B2",
       "skill": "Syntax",
-      "prompt": "Question text...",
+      "prompt": "Question text in ${mediatorLanguage}...",
       "options": ["A) ...", "B) ...", "C) ...", "D) ..."],
       "correct_option": "C) ..."
     },
@@ -264,14 +272,14 @@ Return ONLY a JSON object in this exact format:
       "type": "open",
       "cefr_target": "B1-B2",
       "skill": "Morphology",
-      "prompt": "Question text (instruct the student to type their answer)..."
+      "prompt": "Question text in ${mediatorLanguage} (instruct the student to type their answer)..."
     },
     {
       "id": 5,
       "type": "open",
       "cefr_target": "C1",
       "skill": "Production",
-      "prompt": "Prompt text requiring 2-3 sentences in ${targetLanguage}..."
+      "prompt": "Prompt text in ${mediatorLanguage} requiring 2-3 sentences in ${targetLanguage}..."
     }
   ]
 }`;
@@ -287,11 +295,11 @@ Return ONLY a JSON object in this exact format:
     })
   );
 
-  return JSON.parse(response.choices[0].message.content);
+  const raw = response.choices[0]?.message?.content?.trim();
+  return JSON.parse(extractJsonObject(raw));
 }
 
 // Call 4: AI DIAGNOSTIC LEVEL TEST EVALUATOR
-// Evaluates student answers against CEFR benchmarks (Vocabulary, Grammar, Syntax, Production)
 export async function evaluateLevelTest(targetLanguage, mediatorLanguage, questions, userAnswers) {
   const prompt = `You are a certified CEFR language examiner evaluating a student's diagnostic test in ${targetLanguage}.
 
@@ -312,7 +320,7 @@ Map the student's overall level into one of the 3 coach categories:
 - "Intermediate" (corresponds to B1-B2)
 - "Advanced" (corresponds to C1-C2)
 
-Respond ONLY with a JSON object in this exact structure:
+Respond ONLY with a JSON object:
 {
   "detected_level": "Beginner | Intermediate | Advanced",
   "cefr_grade": "A1 | A2 | B1 | B2 | C1 | C2",
@@ -337,9 +345,9 @@ Respond ONLY with a JSON object in this exact structure:
     })
   );
 
-  return JSON.parse(response.choices[0].message.content);
+  const raw = response.choices[0]?.message?.content?.trim();
+  return JSON.parse(extractJsonObject(raw));
 }
-
 // Call 5: ROADMAP — periodic background check (triggered by code, not the
 // model, every N user messages — see maybeGenerateRoadmap). Reads recent
 // history from Supabase and produces a standalone progress update, sent as
