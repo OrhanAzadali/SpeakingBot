@@ -773,7 +773,6 @@ bot.on("message:voice", async (ctx) => {
     const file = await ctx.getFile();
     const fileUrl = `https://api.telegram.org/file/bot${process.env.BOT_TOKEN}/${file.file_path}`;
     const res = await fetch(fileUrl);
-    if (!res.ok) throw new Error(`status ${res.status}`);
     const buffer = Buffer.from(await res.arrayBuffer());
 
     const transcribed = await transcribeAudio(buffer, "voice.ogg");

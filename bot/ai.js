@@ -58,7 +58,7 @@ export const LANGUAGES = {
   marathi: "Marathi", swahili: "Swahili", afrikaans: "Afrikaans", azerbaijani: "Azerbaijani"
 };
 
-// Best Edge TTS voice for each supported language
+// Best Edge TTS neural voice for each supported language
 const TTS_VOICES = {
   spanish: "es-ES-AlvaroNeural", english: "en-US-GuyNeural", french: "fr-FR-HenriNeural",
   german: "de-DE-ConradNeural", japanese: "ja-JP-KeitaNeural", italian: "it-IT-DiegoNeural",
@@ -87,7 +87,7 @@ function extractJsonObject(raw) {
 function linguisticAccuracyBlock(language) {
   return `LINGUISTIC ACCURACY & STRICT BASE LEMMA MANDATE:
 - Target language: ${language}.
-- ALWAYS use the standard orthography of ${language}, including every diacritic and accent mark.
+- ALWAYS use standard orthography of ${language}, including every diacritic and accent mark.
 - STRICT BASE LEMMA / INFINITIVE RULE (MANDATORY):
   When extracting vocabulary for flashcards, "initial_form" MUST ALWAYS be the uninflected dictionary headword:
   * Nouns: MUST be singular nominative (e.g. Russian: "вопрос", "дружба", "книга"; German: "Buch", "Freundschaft"; Azerbaijani: "ev", "kitab").
@@ -97,36 +97,63 @@ function linguisticAccuracyBlock(language) {
   NEVER output an inflected, case-declined, or conjugated form in "initial_form". Put the inflected form inside "used_form" only.`;
 }
 
-// ── Call 1: Spoken Conversation with Level-Aware Scaffolding ──────────────────
+// ── Call 1: Spoken Conversation with Morphosyntactic & Grammar Deep Dives ────
 function buildConversationPrompt(language, level, mediatorLanguage = "english") {
   const isBeginner = level.toLowerCase().includes("beginner");
+  const isIntermediate = level.toLowerCase().includes("intermediate");
+  const isAdvanced = level.toLowerCase().includes("advanced");
 
-  const beginnerScaffolding = isBeginner
-    ? `BEGINNER SCAFFOLDING & MEDIATOR SUPPORT RULE (MANDATORY FOR BEGINNERS):
-- The student is a complete BEGINNER starting ${language} from scratch. Their native/mediator language is ${mediatorLanguage.toUpperCase()}.
-- If the student expresses confusion (e.g. "не понимаю", "i don't understand", "what?", "помоги"), asks for translation, or asks to speak in their mediator language (e.g. "нет, на русском", "говори по-русски", "speak in English", "russich", "sprach russo"):
-  1. DO NOT stubbornly stay only in ${language}! NEVER say "I only speak ${language}" or "wir bleiben auf ${language}". That prevents beginners from making progress!
-  2. Switch to ${mediatorLanguage} to bridge the gap and help them:
-     - Warmly acknowledge in ${mediatorLanguage} (e.g. "Без проблем, давай разберем по-русски!").
-     - Explain what your previous ${language} sentence meant in ${mediatorLanguage}.
-     - Give them the simple ${language} phrase with an exact translation (e.g. "«Wie heißt du?» означает «Как тебя зовут?»").
-     - Show them an easy template to answer in ${language} (e.g. "Ответь так: «Ich heiße ... [твое имя]». Попробуй!").
-- When introducing new questions or phrases to Beginners, always accompany them with a short helpful translation or clue in ${mediatorLanguage}.`
-    : `INTERMEDIATE & ADVANCED IMMERSION RULE:
-- The student is ${level.toUpperCase()}.
-- You MUST conduct the conversation immersion entirely in ${language}.
-- Do NOT switch your conversation replies to ${mediatorLanguage}. Keep them immersed in ${language}. If they struggle, simplify your ${language} vocabulary or rephrase in ${language}, but maintain target-language immersion.`;
+  const explanationLang = isAdvanced ? language : mediatorLanguage;
 
-  return `You are a friendly, encouraging, and voice-enabled ${language} language coach.
-You CAN speak — your reply is automatically converted to audio and sent as a voice message.
+  const grammarBreakdownEngine = `
+DEEP GRAMMATICAL, PHONETIC & SYNTACTIC BREAKDOWN ENGINE:
+Whenever the student asks to explain words, conjugations, declensions, or grammar rules (e.g. "объясни слова...", "как спрягается...", "что значат...", "how is X conjugated?", "explain grammar"):
+OR whenever introducing essential new verbs/nouns to Beginners/Intermediates:
+You MUST provide a structured, in-depth linguistic breakdown in ${explanationLang.toUpperCase()}:
+
+Structure your breakdown cleanly:
+1. Meaning & Part of Speech:
+   State the exact grammatical role (verb, noun, adjective, pronoun, etc.) and primary meaning.
+2. Pronunciation & Phonetics:
+   - IPA transcription (e.g. «ˈhaɪs.t»).
+   - Phonetic transcription/approximation in ${explanationLang} characters (e.g. «ха-ис-т»).
+   - Stress placement indicator.
+3. Base Form / Lemma:
+   - Bare Infinitive (for verbs) or Nominative Singular with article (for nouns).
+4. Full Conjugation or Declension Paradigm:
+   - For Verbs: Complete person/number conjugation table (1st, 2nd, 3rd person singular and plural) in the relevant tense with translations for every single line.
+   - For Nouns: Gender, singular/plural, cases (Nominative, Genitive, Dative, Accusative) with articles and translations.
+   - For Adjectives: Comparison degrees and case endings.
+5. Contextual Example Sentences:
+   Provide 2 everyday examples in ${language} with translations in ${explanationLang}.
+6. Golden Usage Rule & Practice Exercise:
+   A 1-sentence memorable rule on how to use it, followed by an immediate actionable drill (e.g. "Упражнение: скажи «Ich heiße ...» несколько раз, меняя имя на своё!").
+`;
+
+  const scaffoldingDirective = isBeginner
+    ? `BEGINNER SCAFFOLDING & MEDIATOR SUPPORT (MANDATORY):
+- The student is a complete BEGINNER. Their mediator language is ${mediatorLanguage.toUpperCase()}.
+- If the student expresses confusion (e.g. "не понимаю", "i don't understand", "помоги"), asks for translation, or requests help in ${mediatorLanguage} (e.g. "нет, на русском", "speak English", "russich"):
+  1. NEVER stubbornly stay only in ${language}! NEVER say "I only speak ${language}" or "wir bleiben auf ${language}".
+  2. Use ${mediatorLanguage} to bridge the gap: explain what the phrase meant, translate it clearly, and give an easy template to reply.`
+    : (isIntermediate
+      ? `INTERMEDIATE SCAFFOLDING:
+- Conduct conversation primarily in ${language}.
+- When student asks for grammatical explanations or gets stuck, explain the grammar/conjugation in ${mediatorLanguage}, but keep conversational follow-ups in ${language}.`
+      : `ADVANCED IMMERSION:
+- Conduct 100% of the conversation and all grammatical explanations in ${language}. Maintain full target-language immersion.`);
+
+  return `You are a friendly, expert, and voice-enabled ${language} language coach.
 The student's level is ${level}.
 The student's mediator language is ${mediatorLanguage}.
 
 ${linguisticAccuracyBlock(language)}
 
-${beginnerScaffolding}
+${grammarBreakdownEngine}
 
-Keep your replies concise (2-4 sentences). Plain natural sentences only: no markdown (no asterisks, bullet points), no emoji.`;
+${scaffoldingDirective}
+
+Keep conversational turns natural and supportive. Plain text only: no audio-unfriendly formatting.`;
 }
 
 // ── Call 2: Grammar Analysis & Multi-Mistake Extraction ───────────────────────
@@ -144,10 +171,10 @@ ${explanationDirective}
 ${linguisticAccuracyBlock(language)}
 
 META-COMMUNICATION & HELP REQUEST HANDLING:
-- If the student wrote in ${mediatorLanguage} to ask for help, request translation, or state that they don't understand (e.g. "не понимаю", "я не понимаю тебя", "нет, на русском", "help", "i don't understand", "russich", "sprach russo"):
+- If the student wrote in ${mediatorLanguage} to ask for help, request translation, or state that they don't understand (e.g. "не понимаю", "я не понимаю тебя", "нет, на русском", "help", "i don't understand", "russich", "sprach russo", "объясни слова"):
   * DO NOT mark it as "✅ Perfect!" (it is not a valid ${language} sentence).
   * DO NOT treat it as a broken attempt at ${language} and invent a grammar correction for it (do NOT correct "не понимаю" into "Ich verstehe nicht", and do NOT correct "russich" into "Russisch")!
-  * Set "correctionText" to a supportive acknowledgment in ${mediatorLanguage} (e.g. "ℹ️ Запрос помощи на ${mediatorLanguage}. Тренер объяснит фразу!").
+  * Set "correctionText" to a supportive acknowledgment in ${mediatorLanguage} (e.g. "ℹ️ Понятно, разбираем по-${mediatorLanguage}!").
   * Set "mistakes": [] (do NOT save flashcards for help cries).
 
 Carefully analyze the student's most recent message for actual ${language} grammar, vocabulary, conjugation, and spelling errors across the ENTIRE message.
@@ -800,6 +827,7 @@ export async function transcribeAudio(audioBuffer, filename = "audio.ogg") {
     })
   );
 }
+
 // // ai.js
 // import Groq, { toFile } from "groq-sdk";
 // import { addFlashcard, addHistory, getHistory, countUserMessages, saveRoadmap } from "./db.js";
