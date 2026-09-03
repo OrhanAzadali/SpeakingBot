@@ -214,16 +214,6 @@ Rules:
 }
 
 // Call 3: AI DIAGNOSTIC LEVEL TEST GENERATOR (CEFR Placement)
-// Generates a 5-question test with both multiple choice (with variants) and open questions (without variants)
-// Helper to strip any ```json or whitespace wrappers before parsing
-// Otherwise AI responses that may contain markdown code fences
-function extractJsonObject(raw) {
-  if (!raw) throw new Error("Empty response from AI");
-  const match = raw.match(/\{[\s\S]*\}/);
-  return match ? match[0] : raw;
-}
-
-// Call 3: AI DIAGNOSTIC LEVEL TEST GENERATOR (CEFR Placement)
 export async function generateLevelTest(targetLanguage, mediatorLanguage = "english") {
   const prompt = `You are a certified psychometric CEFR language testing specialist.
 Create a diagnostic placement test to accurately assess a student's proficiency in ${targetLanguage}.
@@ -512,12 +502,15 @@ export async function checkSemanticAnswer(wordOrPhrase, submittedAnswer, correct
 // occasionally wrap its answer in ```json fences or add stray whitespace/
 // text around the object. Pulling out the first {...} span makes JSON.parse
 // robust to that instead of throwing and silently degrading to fuzzy match.
+
+// Generates a 5-question test with both multiple choice (with variants) and open questions (without variants)
+// Helper to strip any ```json or whitespace wrappers before parsing
+// Otherwise AI responses that may contain markdown code fences
 function extractJsonObject(raw) {
-  if (!raw) throw new Error("Empty judge response");
+  if (!raw) throw new Error("Empty response from AI");
   const match = raw.match(/\{[\s\S]*\}/);
   return match ? match[0] : raw;
 }
-
 // Fallback ONLY — used solely if the AI judge call throws (network/API outage).
 // Splits multi-word translations and synonyms to allow valid sub-answers like "rest" or "others".
 function smartFallbackMatch(submitted, correctAnswer, synonyms = "") {
