@@ -177,8 +177,8 @@ app.get("/api/vocabulary/pdf", requireTelegramAuth, async (req, res) => {
 });
 
 // ── Crash-Proof PDF Engine ───────────────────────────────────────────────────
-// Detects available Unicode fonts on the hosting system (e.g. Linux / Render / Mac / Windows)
-// so that Russian (Cyrillic), Arabic, Greek, or German umlauts NEVER crash PDFKit.
+// Detects available Unicode fonts on the hosting system (Linux / Render / Mac / Windows)
+// so that Russian (Cyrillic), Greek, German, or non-Latin alphabets NEVER crash PDFKit.
 function findSystemUnicodeFont() {
   const potentialFonts = [
     // Debian / Ubuntu / Render standard paths
@@ -189,7 +189,8 @@ function findSystemUnicodeFont() {
     // Windows paths
     "C:\\Windows\\Fonts\\arial.ttf",
     // Local fallback in project root
-    path.join(process.cwd(), "fonts", "Roboto-Regular.ttf")
+    path.join(process.cwd(), "fonts", "Roboto-Regular.ttf"),
+    path.join(process.cwd(), "fonts", "DejaVuSans.ttf")
   ];
 
   for (const fontPath of potentialFonts) {
@@ -199,6 +200,7 @@ function findSystemUnicodeFont() {
 }
 
 // Compiles all active cards and mastered words into a styled PDF document
+// NO TOFU BOXES: Strips emojis from PDF section titles so they render cleanly.
 async function generateVocabularyPdf(userId, language, outputPath) {
   const data = await getAllUserVocabulary(userId, language);
   if (data.total === 0) return null;
@@ -213,7 +215,6 @@ async function generateVocabularyPdf(userId, language, outputPath) {
       doc.registerFont("CustomFont", unicodeFontPath);
       doc.font("CustomFont");
     } else {
-      // Fallback font
       doc.font("Helvetica");
     }
 
@@ -253,8 +254,9 @@ async function generateVocabularyPdf(userId, language, outputPath) {
       doc.moveDown(0.6);
     };
 
+    // Clean Section Headers (No Emojis to eliminate tofu "[]" boxes)
     if (data.active.length > 0) {
-      doc.fontSize(16).fillColor("#4338ca").text(`📚 Active Flashcards (${data.active.length})`);
+      doc.fontSize(16).fillColor("#4338ca").text(`Active Flashcards (${data.active.length})`);
       doc.moveDown(0.5);
       data.active.forEach((w, i) => renderWordItem(w, i));
       doc.moveDown(1);
@@ -262,7 +264,7 @@ async function generateVocabularyPdf(userId, language, outputPath) {
 
     if (data.mastered.length > 0) {
       if (doc.y > 650) doc.addPage();
-      doc.fontSize(16).fillColor("#047857").text(`🏆 Mastered Words (${data.mastered.length})`);
+      doc.fontSize(16).fillColor("#047857").text(`Mastered Words (${data.mastered.length})`);
       doc.moveDown(0.5);
       data.mastered.forEach((w, i) => renderWordItem(w, i));
     }
@@ -711,13 +713,16 @@ async function handleDrillAnswerSubmission(ctx, userId, drill, question, answerT
   if (Array.isArray(mistakes)) {
     for (const m of mistakes) {
       if (m.initial_form && m.meaning) {
+        const cleanWord = m.initial_form.trim();
+        if (cleanWord.length <= 1 || cleanWord.toLowerCase() === 'не') continue;
+
         await addFlashcard(userId, {
-          word: m.initial_form.trim(),
+          word: cleanWord,
           correction: m.meaning.trim(),
           context: m.explanation || m.sentence || "",
           language: drill.language,
-          initial_form: m.initial_form.trim(),
-          used_form: m.used_form?.trim() || m.initial_form.trim(),
+          initial_form: cleanWord,
+          used_form: m.used_form?.trim() || cleanWord,
           part_of_speech: m.part_of_speech?.trim() || "word",
           synonyms: m.synonyms?.trim() || "",
           explanation: m.explanation?.trim() || "",
@@ -883,7 +888,6 @@ bot.on("message:voice", async (ctx) => {
     const file = await ctx.getFile();
     const fileUrl = `https://api.telegram.org/file/bot${process.env.BOT_TOKEN}/${file.file_path}`;
     const res = await fetch(fileUrl);
-    if (!res.ok) throw new Error(`status ${res.status}`);
     const buffer = Buffer.from(await res.arrayBuffer());
 
     const transcribed = await transcribeAudio(buffer, "voice.ogg");
@@ -1072,7 +1076,7 @@ bot.command("help", async (ctx) => {
     "  /skills — train specific skills: 🎧 Listening, 🗣 Speaking, 📖 Reading, ✍️ Writing\n" +
     "  /test — retake the CEFR diagnostic placement test anytime\n" +
     "  /testhistory — view your diagnostic placement test history\n" +
-    "  /flashcards — open your saved base-form vocabulary deck\n" +
+    "  /flashcards — open your saved base-form vocabulary\n" +
     "  /pdf — download your full vocabulary notebook as PDF\n" +
     "  /roadmap — view your progress update\n" +
     "  /reset — start over\n" +
@@ -1205,6 +1209,9 @@ function startPolling() {
 }
 
 bot.catch((err) => console.error("Bot error:", err.error));
+
+
+
 // // index.js
 // import "dotenv/config";
 // import { Bot, InlineKeyboard, InputFile, webhookCallback } from "grammy";

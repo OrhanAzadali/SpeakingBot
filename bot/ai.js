@@ -20,17 +20,10 @@ const CHAT_MODELS = [
 ];
 const STT_MODELS = ["whisper-large-v3", "whisper-large-v3-turbo"];
 
-// gpt-oss models spend completion tokens on hidden chain-of-thought before
-// writing any visible content. With a low max_tokens, a request that needs
-// real reasoning can exhaust the budget on hidden reasoning, returning an empty
-// message.content. reasoning_effort:"low" keeps the model from over-spending
-// on reasoning for simple turns; other models ignore or omit this parameter.
 function reasoningParams(model) {
   return model.startsWith("openai/gpt-oss") ? { reasoning_effort: "low" } : {};
 }
 
-// Tries each model in order, falling back on an actual rate-limit (429) or transient
-// failure. Logs a warning and continues down the list, re-throwing only if all models fail.
 async function withModelFallback(models, callFn) {
   let lastErr;
   for (const model of models) {
@@ -58,7 +51,6 @@ export const LANGUAGES = {
   marathi: "Marathi", swahili: "Swahili", afrikaans: "Afrikaans", azerbaijani: "Azerbaijani"
 };
 
-// Best Edge TTS neural voice for each supported language
 const TTS_VOICES = {
   spanish: "es-ES-AlvaroNeural", english: "en-US-GuyNeural", french: "fr-FR-HenriNeural",
   german: "de-DE-ConradNeural", japanese: "ja-JP-KeitaNeural", italian: "it-IT-DiegoNeural",
@@ -76,28 +68,33 @@ const TTS_VOICES = {
   azerbaijani: "az-AZ-BabekNeural"
 };
 
-// Robust helper to extract clean JSON even if wrapped in markdown code fences
 function extractJsonObject(raw) {
   if (!raw) throw new Error("Empty response from AI");
   const match = raw.match(/\{[\s\S]*\}/);
   return match ? match[0] : raw;
 }
 
-// ── Strict Lemma & Linguistic Accuracy Rules ──────────────────────────────────
+// ── Strict Lemma & In-Context Morphological Adjustment Mandate ────────────────
 function linguisticAccuracyBlock(language) {
   return `LINGUISTIC ACCURACY & STRICT BASE LEMMA MANDATE:
 - Target language: ${language}.
-- ALWAYS use standard orthography of ${language}, including every diacritic and accent mark.
-- STRICT BASE LEMMA / INFINITIVE RULE (MANDATORY):
+- ALWAYS use standard orthography of ${language}, including all accents and diacritics.
+- STRICT BASE LEMMA / INFINITIVE RULE FOR DATABASE STORAGE:
   When extracting vocabulary for flashcards, "initial_form" MUST ALWAYS be the uninflected dictionary headword:
-  * Nouns: MUST be singular nominative (e.g. Russian: "вопрос", "дружба", "книга"; German: "Buch", "Freundschaft"; Azerbaijani: "ev", "kitab").
-  * Demonstratives/Pronouns: MUST be dictionary headword (e.g. Russian: "этот"; Azerbaijani: "bu", "o").
-  * Verbs: MUST be the bare infinitive (e.g. German: "lesen"; Russian: "читать"; Spanish: "tener"; Azerbaijani: "oxumaq").
-  * Adjectives: MUST be masculine singular nominative base form (e.g. German: "rot"; Russian: "красивый"; Azerbaijani: "qırmızı").
-  NEVER output an inflected, case-declined, or conjugated form in "initial_form". Put the inflected form inside "used_form" only.`;
+  * Nouns: MUST be singular nominative (e.g. Russian: "вопрос", "дружба", "горшок", "крыльцо", "крыша"; German: "Buch", "Freundschaft").
+  * Verbs: MUST be bare infinitive (e.g. Russian: "исправить", "читать"; German: "lesen"; Spanish: "tener").
+  * Adjectives: MUST be masculine singular nominative base form (e.g. Russian: "разный", "черепичный", "крашеный", "предыдущий").
+  * Pronouns: MUST be dictionary headword (e.g. Russian: "мой", "этот", "тот").
+  * NEVER save Latin transliterations (reject "BIL", "SHO", "TEM", "TOGO") — convert to native Cyrillic script or discard!
+  * NEVER save single-letter particles, prepositions ("о", "а", "не", "в") or proper person names as flashcards!
+- IN-CONTEXT MORPHOLOGICAL ADJUSTMENT RULE (FOR QUIZZES, QUESTIONS, AND DRILLS):
+  When using stored vocabulary words inside questions, example sentences, cloze tests, or drills:
+  * DO NOT blindly drop an uninflected lemma into a sentence!
+  * You MUST grammatically adjust, decline, and conjugate the word to match the sentence's syntax, tense, gender, number, and case!
+  * Example: If the base lemma in DB is "книга", but the sentence context requires accusative after a transitive verb, write: "Я читаю интересную <u>книгу</u>", NEVER the broken "Я читаю интересную <u>книга</u>"!`;
 }
 
-// ── Call 1: Spoken Conversation with Morphosyntactic & Grammar Deep Dives ────
+// ── Call 1: Spoken Conversation with Morphosyntactic Scaffolding ──────────────
 function buildConversationPrompt(language, level, mediatorLanguage = "english") {
   const isBeginner = level.toLowerCase().includes("beginner");
   const isIntermediate = level.toLowerCase().includes("intermediate");
@@ -121,11 +118,11 @@ Structure your breakdown cleanly:
 3. Base Form / Lemma:
    - Bare Infinitive (for verbs) or Nominative Singular with article (for nouns).
 4. Full Conjugation or Declension Paradigm:
-   - For Verbs: Complete person/number conjugation table (1st, 2nd, 3rd person singular and plural) in the relevant tense with translations for every single line.
+   - For Verbs: Complete person/number conjugation table (1st, 2nd, 3rd person singular and plural) in the relevant tense with translations for every line.
    - For Nouns: Gender, singular/plural, cases (Nominative, Genitive, Dative, Accusative) with articles and translations.
    - For Adjectives: Comparison degrees and case endings.
 5. Contextual Example Sentences:
-   Provide 2 everyday examples in ${language} with translations in ${explanationLang}.
+   Provide 2 everyday examples in ${language} with translations in ${explanationLang}. Words in sentences must be properly inflected!
 6. Golden Usage Rule & Practice Exercise:
    A 1-sentence memorable rule on how to use it, followed by an immediate actionable drill (e.g. "Упражнение: скажи «Ich heiße ...» несколько раз, меняя имя на своё!").
 `;
@@ -173,30 +170,33 @@ ${linguisticAccuracyBlock(language)}
 META-COMMUNICATION & HELP REQUEST HANDLING:
 - If the student wrote in ${mediatorLanguage} to ask for help, request translation, or state that they don't understand (e.g. "не понимаю", "я не понимаю тебя", "нет, на русском", "help", "i don't understand", "russich", "sprach russo", "объясни слова"):
   * DO NOT mark it as "✅ Perfect!" (it is not a valid ${language} sentence).
-  * DO NOT treat it as a broken attempt at ${language} and invent a grammar correction for it (do NOT correct "не понимаю" into "Ich verstehe nicht", and do NOT correct "russich" into "Russisch")!
-  * Set "correctionText" to a supportive acknowledgment in ${mediatorLanguage} - the second language the learner selected when started the bot (e.g. "ℹ️ Let's discuss it in ${mediatorLanguage}!").
+  * DO NOT treat it as a broken attempt at ${language} and invent a grammar correction for it.
+  * Set "correctionText" to a supportive acknowledgment in ${mediatorLanguage} (e.g. "ℹ️ Понятно, разбираем по-${mediatorLanguage}!").
   * Set "mistakes": [] (do NOT save flashcards for help cries).
 
-Carefully analyze the student's most recent message for actual ${language} grammar, vocabulary, conjugation, and spelling errors across the ENTIRE message.
+STRICT VOCABULARY FILTER RULES:
+- NEVER save transliteration slang ("BIL", "SHO", "TEM", "TOGO").
+- NEVER save single-letter particles, prepositions ("о", "а", "не", "в") or proper names ("Эрнана Кортеса").
+- "initial_form" MUST BE the pure uninflected dictionary lemma (singular nominative noun, bare infinitive verb, masculine singular adjective).
 
 Return your response strictly as a single JSON object:
 {
-  "correctionText": "✅ Perfect!" OR "📝 Correction: <corrected sentence> (<1-sentence explanation>)" OR "ℹ️ Let's discuss it in ${mediatorLanguage}!",
+  "correctionText": "✅ Perfect!" OR "📝 Correction: <corrected sentence> (<1-sentence explanation>)" OR "ℹ️ Понятно, разбираем по-${mediatorLanguage}!",
   "mistakes": [
     {
-      "initial_form": "Pure dictionary lemma/infinitive headword in ${language} native script (e.g. 'вопрос', 'Buch', 'qırmızı')",
+      "initial_form": "Pure dictionary lemma/infinitive headword in ${language} native script (e.g. 'вопрос', 'горшок', 'исправить', 'разный')",
       "used_form": "The inflected word exactly as it appeared in the sentence",
       "part_of_speech": "noun | verb | adjective | adverb | pronoun | phrase | preposition",
       "meaning": "Definition/translation of initial_form in ${isAdvanced ? language : mediatorLanguage} (NEVER the same word as initial_form!)",
       "synonyms": "Comma-separated synonyms in ${isAdvanced ? language : mediatorLanguage}",
       "explanation": "Short grammatical rule note in ${isAdvanced ? language : mediatorLanguage}",
-      "sentence": "Full corrected sentence with the word wrapped in <u>word</u>"
+      "sentence": "Full corrected sentence with the word wrapped in <u>word</u> (grammatically adjusted!)"
     }
   ]
 }`;
 }
 
-// ── Call 3: 4-Skill Drill Generator (Strict Skill Purity & Zero Circularity) ──
+// ── Call 3: 4-Skill Drill Generator (Strict Skill Purity & Grammatical Fitting) ─
 export async function generateSkillDrill(skill, targetLanguage, mediatorLanguage, level, drillType = "short") {
   const count = drillType === "huge" ? 10 : 5;
 
@@ -207,17 +207,18 @@ Mediator language for instructions: ${mediatorLanguage}.
 CRITICAL ANTI-CIRCULARITY & VALIDITY RULES:
 1. NEVER ask to translate a word from ${targetLanguage} into ${targetLanguage}!
    - BAD: "Выберите перевод слова «Buch» на немецкий язык" (CIRCULAR & FORBIDDEN).
-   - GOOD (In-Context Cloze): Present a sentence in ${targetLanguage} with a blank (____) and provide 4 ${targetLanguage} options to choose from.
+   - GOOD (In-Context Cloze): Present a sentence in ${targetLanguage} with a blank (____) where options are grammatically inflected to fit the sentence syntax perfectly.
    - GOOD (Translation): "Как переводится слово «[слово на ${mediatorLanguage}]» на ${targetLanguage}?" with 4 ${targetLanguage} options.
 2. ABSOLUTELY NO THIRD LANGUAGES:
    - Use ONLY ${targetLanguage} (for materials, passages, target phrases) and ${mediatorLanguage} (for instructions).
-   - Do NOT use English if neither ${targetLanguage} nor ${mediatorLanguage} is English!
+3. GRAMMATICAL ADJUSTMENT MANDATE:
+   - Any target word placed in a sentence gap must be grammatically adjusted and declined/conjugated for that sentence's syntax!
 
 CRITICAL SKILL PURITY MANDATE:
 - If skill is "listening":
   * EVERY SINGLE QUESTION (1 to ${count}) MUST test LISTENING COMPREHENSION of an audio passage.
   * "audio_script": Short spoken narrative/dialogue 100% in ${targetLanguage} (30-50 words) to be read via TTS audio.
-  * "prompt": Comprehension question in ${mediatorLanguage} asking about a concrete detail or fact from that audio passage.
+  * "prompt": Comprehension question in ${mediatorLanguage} asking about a concrete detail from that audio passage.
   * ABSOLUTELY FORBIDDEN: NEVER ask the student to write an email, compose an essay, or describe their weekend in a listening drill!
 - If skill is "reading":
   * EVERY QUESTION MUST have a "reading_passage" 100% in ${targetLanguage} (50-80 words) and a comprehension question in ${mediatorLanguage}.
@@ -269,17 +270,17 @@ Return ONLY JSON:
         {
           id: 1,
           type: skill === "speaking" ? "voice" : (skill === "listening" ? "open" : "choice"),
-          audio_script: skill === "listening" ? `Der Zug nach Berlin fährt heute von Gleis vier ab und hat zehn Minuten Verspätung.` : undefined,
-          reading_passage: skill === "reading" ? `Berlin ist die Hauptstadt von Deutschland. Die Stadt ist bekannt für ihre Museen und Geschichte.` : undefined,
+          audio_script: skill === "listening" ? `Поезд отправляется сегодня с четвёртого пути вовремя.` : undefined,
+          reading_passage: skill === "reading" ? `Москва — столица России, крупнейший культурный и исторический центр.` : undefined,
           prompt: skill === "listening"
-            ? `С какого пути отправляется поезд в Берлин согласно аудиозаписи?`
+            ? `С какого пути отправляется поезд согласно аудиозаписи?`
             : (skill === "speaking"
-              ? `Erzählen Sie kurz über Ihren Tag. (Отправьте голосовое сообщение)`
+              ? `Расскажите 2-3 предложениями о своём дне. (Отправьте голосовое сообщение)`
               : (skill === "writing"
-                ? `Schreiben Sie zwei Sätze über Ihre Pläne für morgen.`
-                : `Какая столица у Германии согласно тексту?`)),
-          options: (skill === "reading" || skill === "listening") ? ["A) Gleis 1", "B) Gleis 4", "C) Gleis 7", "D) Gleis 9"] : undefined,
-          correct_answer: "B) Gleis 4"
+                ? `Напишите два предложения о своих планах на завтра.`
+                : `Какой город назван столицей в тексте?`)),
+          options: (skill === "reading" || skill === "listening") ? ["A) С первого пути", "B) С четвёртого пути", "C) С седьмого пути", "D) С девятого пути"] : undefined,
+          correct_answer: "B) С четвёртого пути"
         }
       ]
     };
@@ -300,11 +301,11 @@ Analyze the student's input across ALL world languages (Arabic, Urdu, Mandarin, 
 1. "detected_language": Identify the language the student typed in.
 2. "is_target_language": true ONLY if the student used ${targetLanguage}. If they typed in ${mediatorLanguage} or any other language, false.
 3. "intent": Classify the student's core intent:
-   - "ADMIT_NO_KNOWLEDGE": The student is expressing that they do not know, cannot speak, do not understand, want to give up, or know nothing about ${targetLanguage} (e.g. "I don't know", "لا أعرف", "مجھے معلوم نہیں", "我不会", "չգիտեմ", "не знаю", "no sé", etc.).
-   - "ANSWER_IN_WRONG_LANGUAGE": The student understood the factual question and provided the factual answer, but wrote it in ${mediatorLanguage} or another language instead of ${targetLanguage} (e.g. wrote "red" or "красный" instead of ${targetLanguage}).
+   - "ADMIT_NO_KNOWLEDGE": The student is expressing that they do not know, cannot speak, do not understand, want to give up, or know nothing about ${targetLanguage} (e.g. "I don't know", "لا أعرف", "не знаю", "ne znayu", "не могу", "idk").
+   - "ANSWER_IN_WRONG_LANGUAGE": The student understood the factual question and provided the factual answer, but wrote it in ${mediatorLanguage} or another language instead of ${targetLanguage}.
    - "GENUINE_ATTEMPT": The student attempted to answer or produce ${targetLanguage}.
    - "UNRELATED_OR_EMPTY": Gibberish, greeting, empty response, or off-topic statement.
-4. "target_language_proficiency_demonstrated": true ONLY if the student demonstrated actual vocabulary, grammar, or syntax in ${targetLanguage}. If they only wrote in ${mediatorLanguage} or another language, this MUST be false!
+4. "target_language_proficiency_demonstrated": true ONLY if the student demonstrated actual vocabulary, grammar, or syntax in ${targetLanguage}.
 5. "correct_answer_in_target_language": Give the exact, natural correct answer in ${targetLanguage}.
 6. "explanation_in_mediator": Concise feedback written in ${mediatorLanguage} explaining the correct answer without robotic templates.
 
@@ -351,13 +352,11 @@ Return ONLY a JSON object:
 
 // ── Call 5: Universal Skill Drill Evaluator ──────────────────────────────────
 export async function evaluateSkillAnswer(skill, targetLanguage, mediatorLanguage, level, question, userAnswer, isVoice = false) {
-  // Step 1: AI detects language, semantic intent, and target language proficiency
   const analysis = await analyzeStudentResponse(targetLanguage, mediatorLanguage, question.prompt, userAnswer);
 
   let score = 0;
   let feedback = analysis.explanation_in_mediator;
 
-  // Step 2: Code decides the score based on AI semantic parameters
   switch (analysis.intent) {
     case "ADMIT_NO_KNOWLEDGE":
       score = 0;
@@ -387,7 +386,7 @@ export async function evaluateSkillAnswer(skill, targetLanguage, mediatorLanguag
   };
 }
 
-// ── Call 6: CEFR Placement Test Generator ─────────────────────────────────────
+// ── Call 6: CEFR Placement Test Generator (In-Context Cloze & Pure Grammar) ───
 export async function generateLevelTest(targetLanguage, mediatorLanguage = "english") {
   const prompt = `You are a certified psychometric CEFR language testing specialist.
 Create a diagnostic placement test to assess proficiency in ${targetLanguage}.
@@ -395,13 +394,14 @@ Instructions/prompts in ${mediatorLanguage}, testing items strictly in ${targetL
 
 STRICT CEFR METHODOLOGY & ANTI-CIRCULARITY RULES:
 1. NEVER ask: "Выберите перевод слова [TargetWord] на [TargetLanguage]". That is circular and completely invalid!
-2. FORMAT REQUIREMENTS FOR EACH CEFR LEVEL:
+2. All sentence cloze gaps (____) must test words declined/conjugated appropriately in context!
+3. FORMAT REQUIREMENTS FOR EACH CEFR LEVEL:
    - Q1 (A1-A2 Vocabulary & Everyday Context): In-Context Cloze sentence in ${targetLanguage} with a gap (____). The student must choose the semantically and grammatically fitting ${targetLanguage} word.
    - Q2 (B1 Grammar & Morphology): Sentence in ${targetLanguage} with a gap testing verb tense, agreement, or preposition case in ${targetLanguage}.
    - Q3 (B2 Syntax & Conjunctions): Sentence in ${targetLanguage} with a gap testing complex clause connectors, conjunctions, or idioms.
    - Q4 (B1-B2 Open Targeted Production - NO VARIANTS): Fill in the missing target word or grammatical form without multiple choice options.
    - Q5 (C1 Open Production - NO VARIANTS): Prompt asking for 1-2 original sentences in ${targetLanguage} giving an opinion or hypothesis.
-3. NO THIRD LANGUAGES: Use ONLY ${targetLanguage} and ${mediatorLanguage}.
+4. NO THIRD LANGUAGES: Use ONLY ${targetLanguage} and ${mediatorLanguage}.
 
 Return ONLY JSON:
 {
@@ -475,41 +475,41 @@ Return ONLY JSON:
           type: "choice",
           cefr_target: "A1-A2",
           skill: "Vocabulary",
-          prompt: `Выберите подходящее слово для завершения предложения:\n"Ich habe gestern ein interessantes _____ in der Bibliothek gelesen."`,
-          options: ["A) Buch", "B) Brot", "C) Tisch", "D) Auto"],
-          correct_option: "A) Buch"
+          prompt: `Выберите подходящее слово для завершения предложения:\n"Вчера я прочитал интересную _____ в библиотеке."`,
+          options: ["A) книгу", "B) хлеб", "C) стол", "D) машину"],
+          correct_option: "A) книгу"
         },
         {
           id: 2,
           type: "choice",
           cefr_target: "B1",
           skill: "Grammar",
-          prompt: `Выберите правильную форму глагола:\n"Wenn ich Zeit habe, _____ ich dich morgen anrufen."`,
-          options: ["A) werde", "B) wird", "C) werden", "D) wurde"],
-          correct_option: "A) werde"
+          prompt: `Выберите правильную форму глагола:\n"Если у меня будет время, я завтра тебе _____."`,
+          options: ["A) позвоню", "B) звонил", "C) звонить", "D) позвонили"],
+          correct_option: "A) позвоню"
         },
         {
           id: 3,
           type: "choice",
           cefr_target: "B2",
           skill: "Syntax",
-          prompt: `Выберите правильный союз:\n"Er ging zur Arbeit, _____ er sich nicht wohl fühlte."`,
-          options: ["A) weil", "B) obwohl", "C) dass", "D) damit"],
-          correct_option: "B) obwohl"
+          prompt: `Выберите правильный союз:\n"Он пошёл на работу, _____ чувствовал себя не очень хорошо."`,
+          options: ["A) потому что", "B) хотя", "C) чтобы", "D) если"],
+          correct_option: "B) хотя"
         },
         {
           id: 4,
           type: "open",
           cefr_target: "B1-B2",
           skill: "Morphology",
-          prompt: `Напишите форму прошедшего времени (Perfekt) глагола «machen» на немецком языке:`
+          prompt: `Напишите глагол «исправить» в форме прошедшего времени мужского рода:`
         },
         {
           id: 5,
           type: "open",
           cefr_target: "C1",
           skill: "Production",
-          prompt: `Напишите 1-2 предложения на немецком языке, выражающие ваше мнение о роли технологий:`
+          prompt: `Напишите 1-2 предложения, выражающие ваше мнение о роли технологий в образовании:`
         }
       ]
     };
@@ -530,7 +530,7 @@ UNIVERSAL EVALUATION MANDATE (APPLIES TO ANY WORLD LANGUAGE):
    - If the student states in ANY language (e.g. Arabic, Urdu, Russian, English, Chinese, Hindi, etc.) that they do not know, do not understand, or cannot answer, they MUST NOT receive vocabulary or syntax points in ${targetLanguage}!
 2. TARGET LANGUAGE PROFICIENCY ONLY:
    - Grade ONLY actual words, grammar, and structures produced in ${targetLanguage}.
-   - If a student answers using well-formed sentences in ${mediatorLanguage} (e.g. Russian, English, etc.) saying they don't know ${targetLanguage}, their score in ${targetLanguage} is strictly 0! DO NOT award points for sentences in another language.
+   - If a student answers using sentences in ${mediatorLanguage} saying they don't know ${targetLanguage}, their score in ${targetLanguage} is strictly 0! DO NOT award points for sentences in another language.
 3. SCORING BREAKDOWN (0 to 25 each):
    - vocabulary: Points for ${targetLanguage} words demonstrated.
    - grammar: Points for ${targetLanguage} morphology/verb forms.
@@ -708,14 +708,19 @@ export async function chat(userId, userMessage, history, language, level, langua
 
   for (const m of mistakes) {
     if (!m.initial_form || !m.meaning) continue;
+
+    // Anti-noise safeguard: skip single letter particles or standalone prepositions
+    const cleanWord = m.initial_form.trim();
+    if (cleanWord.length <= 1 || cleanWord.toLowerCase() === 'не') continue;
+
     try {
       await addFlashcard(userId, {
-        word: m.initial_form.trim(),
+        word: cleanWord,
         correction: m.meaning.trim(),
         context: m.explanation || m.sentence || "",
         language: languageKey,
-        initial_form: m.initial_form.trim(),
-        used_form: m.used_form?.trim() || m.initial_form.trim(),
+        initial_form: cleanWord,
+        used_form: m.used_form?.trim() || cleanWord,
         part_of_speech: m.part_of_speech?.trim() || "word",
         synonyms: m.synonyms?.trim() || "",
         explanation: m.explanation?.trim() || "",
@@ -827,7 +832,6 @@ export async function transcribeAudio(audioBuffer, filename = "audio.ogg") {
     })
   );
 }
-
 // // ai.js
 // import Groq, { toFile } from "groq-sdk";
 // import { addFlashcard, addHistory, getHistory, countUserMessages, saveRoadmap } from "./db.js";
