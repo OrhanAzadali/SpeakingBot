@@ -171,7 +171,7 @@ META-COMMUNICATION & HELP REQUEST HANDLING:
 - If the student wrote in ${mediatorLanguage} to ask for help, request translation, or state that they don't understand (e.g. "не понимаю", "я не понимаю тебя", "нет, на русском", "help", "i don't understand", "russich", "sprach russo", "объясни слова"):
   * DO NOT mark it as "✅ Perfect!" (it is not a valid ${language} sentence).
   * DO NOT treat it as a broken attempt at ${language} and invent a grammar correction for it.
-  * Set "correctionText" to a supportive acknowledgment in ${mediatorLanguage} (e.g. "ℹ️ Понятно, разбираем по-${mediatorLanguage}!").
+  * Set "correctionText" to a supportive acknowledgment in ${mediatorLanguage} (e.g. "ℹ️Let's discuss it in ${mediatorLanguage}!").
   * Set "mistakes": [] (do NOT save flashcards for help cries).
 
 STRICT VOCABULARY FILTER RULES:
@@ -181,7 +181,7 @@ STRICT VOCABULARY FILTER RULES:
 
 Return your response strictly as a single JSON object:
 {
-  "correctionText": "✅ Perfect!" OR "📝 Correction: <corrected sentence> (<1-sentence explanation>)" OR "ℹ️ Понятно, разбираем по-${mediatorLanguage}!",
+  "correctionText": "✅ Perfect!" OR "📝 Correction: <corrected sentence> (<1-sentence explanation>)" OR "ℹ️Let's discuss it in ${mediatorLanguage}!",
   "mistakes": [
     {
       "initial_form": "Pure dictionary lemma/infinitive headword in ${language} native script (e.g. 'вопрос', 'горшок', 'исправить', 'разный')",
