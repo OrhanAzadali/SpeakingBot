@@ -7,10 +7,10 @@ import { tmpdir } from "os";
 
 const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
 
-// Production chat models on Groq. Rate limits are tracked per model, so cycling
-// through distinct model families on a 429 accesses separate quota buckets rather
-// than retrying the exhausted one. We include high-throughput Llama models alongside
-// gpt-oss/qwen to ensure seamless fallback without unexpected model-deprecation failures.
+// Current production models per Groq's own deprecation docs (console.groq.com/docs/deprecations).
+// Rate limits are per-model, so cycling through distinct models on a 429 accesses
+// separate quota buckets rather than retrying the same one. We include high-throughput
+// Llama models alongside gpt-oss/qwen to ensure seamless fallback without model-not-found errors.
 const CHAT_MODELS = [
   "llama-3.3-70b-versatile",
   "llama-3.1-8b-instant",
@@ -21,17 +21,19 @@ const CHAT_MODELS = [
 const STT_MODELS = ["whisper-large-v3", "whisper-large-v3-turbo"];
 
 // gpt-oss models spend completion tokens on hidden chain-of-thought before
-// writing visible content. With a low max_tokens, a request needing reasoning
-// can exhaust the budget on hidden reasoning, returning an empty message.content.
-// reasoning_effort:"low" keeps the model from over-spending on reasoning for simple
-// conversational or evaluation turns; other models ignore or omit this parameter.
+// writing any visible content. With a low max_tokens, a request that needs
+// real reasoning (e.g. "tell me about Julius Caesar") can exhaust the whole
+// budget on that hidden reasoning, leaving message.content empty even though
+// the API call itself succeeded — this is what was breaking both the voice
+// reply and its text fallback. reasoning_effort:"low" keeps the model from
+// over-spending on reasoning for what's usually a simple conversational
+// turn; other models ignore or omit this parameter.
 function reasoningParams(model) {
   return model.startsWith("openai/gpt-oss") ? { reasoning_effort: "low" } : {};
 }
 
-// Tries each model in order. On 429 rate-limits or transient API errors, it logs
-// a warning and moves to the next model in CHAT_MODELS. Only re-throws if all
-// fallback options are exhausted.
+// Tries each model in order, falling back on an actual rate-limit (429) or transient
+// failure. Logs a warning and continues down the list, re-throwing only if all models fail.
 async function withModelFallback(models, callFn) {
   let lastErr;
   for (const model of models) {
@@ -39,7 +41,7 @@ async function withModelFallback(models, callFn) {
       return await callFn(model);
     } catch (err) {
       lastErr = err;
-      console.warn(`Model "${model}" failed (${err?.status || err?.message}). Cycling to next model...`);
+      console.warn(`Model "${model}" attempt failed (${err?.status || err?.message}). Cycling to next model...`);
       continue;
     }
   }
@@ -89,7 +91,7 @@ export const LANGUAGES = {
   azerbaijani: "Azerbaijani"
 };
 
-// Best Edge TTS neural voice for each supported language
+// Best Edge TTS voice for each language
 const TTS_VOICES = {
   spanish: "es-ES-AlvaroNeural",
   english: "en-US-GuyNeural",
@@ -133,52 +135,73 @@ const TTS_VOICES = {
   azerbaijani: "az-AZ-BabekNeural"
 };
 
-// Shared linguistic-accuracy block — ensures uniform orthography, base-form resolution,
-// and transliteration handling across conversation and analysis passes.
+// Shared linguistic-accuracy block — needed by both the conversation call
+// (spoken reply) and the analysis call (correction text/examples), so it's
+// kept in one place rather than duplicated with drift risk.
+// Now strictly enforces the dictionary lemma / infinitive rule for base-word storage.
 function linguisticAccuracyBlock(language) {
   return `LINGUISTIC ACCURACY (MANDATORY):
-- Always use the correct, standard orthography of ${language}, including every required diacritic, accent mark, or special character (á/é/í/ó/ú/ñ, ç/é/è/ê, ü/ö/ä/ß, ı/ş/ğ/ç, Cyrillic, tone marks, etc.). Never simplify or drop these to plain ASCII.
-- INITIAL / BASE FORM RESOLUTION: Whenever extracting or saving vocabulary, always resolve the word to its first-faced, infinitive, dictionary, or base form (e.g., verbs in infinitive like "correr" or "быть"; nouns in singular nominative like "libro" or "книга"). In addition, record the inflected word as used in the sentence, the grammatical role (noun, verb, etc.), and the full context sentence.
-- TRANSLITERATION HANDLING: If ${language}'s native writing system is non-Latin (Cyrillic, Arabic, Greek, Hebrew, Devanagari, Hangul, etc.) and the student types in Latin-letter transliteration, recognize it as valid input. Silently convert all target-language outputs (corrections, flashcards, base forms, example sentences) into ${language}'s native script.`;
+- Always use the correct, standard orthography of ${language}, including every required diacritic, accent mark, or special character (for example: á/é/í/ó/ú/ñ in Spanish, ç/é/è/ê in French, ü/ö/ä/ß in German, ı/ş/ğ/ç in Turkish, tone marks in Vietnamese, and so on for whichever language applies). Never simplify or drop these to plain ASCII — an omitted diacritic is a real spelling error and will also make the text-to-speech voice mispronounce the word.
+- STRICT LEMMA / INITIAL BASE-FORM RULE (CRITICAL):
+  When saving words as flashcards, you MUST resolve the word to its pure dictionary base/initial form:
+  * Nouns: MUST be singular nominative (e.g. Russian: not 'вопроса'/'вопросу', but 'вопрос'; not 'дружбы', but 'дружба'; not 'книгами', but 'книга').
+  * Pronouns/Demonstratives: MUST be dictionary lemma (e.g. Russian: not 'этого'/'этому', but 'этот' or 'это').
+  * Verbs: MUST be the bare infinitive (e.g. Spanish: not 'tengo'/'comí', but 'tener'/'comer'; Russian: not 'читал', but 'читать').
+  * Adjectives: MUST be masculine singular nominative base form (e.g. Russian: not 'красивую', but 'красивый').
+  NEVER output an inflected, declined, or conjugated form in the "initial_form" field.
+- Before finalizing any sentence, silently proofread it for grammatical correctness: verb conjugation, tense, gender and number agreement, correct word order, and natural article/preposition use. Only output a sentence once you are confident a native speaker would consider it correct and natural.
+- If you are uncertain whether a word, idiom, or grammatical construction is correct, do NOT guess — replace it with a simpler alternative you are fully confident is correct. A plain, simple, unambiguous sentence is always better than an impressive but potentially wrong one.
+- Avoid rare, archaic, overly regional, or ambiguous vocabulary that a text-to-speech engine or a learner could easily mispronounce or misread; prefer common, standard vocabulary appropriate for the student's level.
+- TRANSLITERATION HANDLING: if ${language}'s native writing system is not the Latin alphabet (e.g. Cyrillic for Russian/Ukrainian, Arabic script, Greek, Hebrew, Devanagari for Hindi/Marathi, Bengali, Tamil, Telugu, Thai, Chinese characters, Japanese kana/kanji, Hangul for Korean), the student may type using Latin-letter transliteration instead of the native script, because they lack a native-script keyboard. Recognize transliterated input exactly as if it had been typed in ${language}'s own script — never treat it as a foreign word, an English spelling mistake, or gibberish. Silently interpret which native-script word or phrase it represents (applying normal grammar/conjugation correction to that word), and then proceed as usual.
+- OUTPUT SCRIPT: no matter which script the student typed in, every single piece of ${language} text you produce anywhere in your reply — corrections, flashcard fields, example sentences — must be written in ${language}'s own native script. Never output a romanized/transliterated spelling as a "corrected" or saved form of a word; always convert it to native script first.`;
 }
 
-// Call 1: CONVERSATION — small, fast, produces the natural spoken reply only.
+// Call 1: CONVERSATION — small, fast, only produces the spoken reply.
 function buildConversationPrompt(language, level) {
   return `You are a friendly, encouraging, and voice-enabled ${language} language coach.
 You are passionate about helping students learn languages and speak with confidence.
 You CAN speak — your reply is automatically converted to audio and sent as a voice message.
-Never tell the user you cannot speak or that you are a text-only assistant.
+Never tell the user you cannot speak or that you are a text-only assistant. You are a speaking coach.
 The student's level is ${level}.
 
 ${linguisticAccuracyBlock(language)}
 
 Continue the conversation naturally in ${language} at ${level} level.
 Ask one simple, engaging follow-up question to keep the dialogue going.
+Be warm, patient, and encouraging — like a good tutor would be.
 Keep it concise (2-4 sentences) — you are not correcting grammar here, that is handled separately.
 Your reply is converted to speech and read aloud, so write it as plain natural sentences only: no Markdown (no asterisks, underscores, backticks, headers, or bullet lists), no emoji.`;
 }
 
-// Call 2: ANALYSIS — meticulous grammar correction + comprehensive multi-mistake extraction.
-// Captures EVERY mistake across the entire sentence, resolving each word to its base form,
+// Call 2: ANALYSIS — grammar correction + comprehensive multi-mistake extraction.
+// Captures EVERY mistake across the entire sentence, resolving each word to its pure lemma base form,
 // recording the inflected form, grammatical role, synonyms, explanation, and context sentence.
-function buildAnalysisPrompt(language, level) {
+// Employs the mediator language for Beginner/Intermediate learners, and 100% target language for Advanced.
+function buildAnalysisPrompt(language, level, mediatorLanguage = "english") {
+  const isAdvanced = level.toLowerCase().includes("advanced");
+  const explanationLangDirective = isAdvanced
+    ? `Since the student is ADVANCED, all fields ("meaning", "synonyms", "explanation") MUST be written 100% in ${language} (monolingual immersion explanation). Do NOT use any mediator language.`
+    : `Since the student is Beginner/Intermediate, write all explanations, meanings, and synonyms in the student's mediator language: ${mediatorLanguage.toUpperCase()}.`;
+
   return `You are a meticulous ${language} grammar analyst for a language-learning app. The student's level is ${level}. You do not converse with the student — you only analyze their most recent message.
 
+${explanationLangDirective}
 ${linguisticAccuracyBlock(language)}
 
 Carefully analyze the student's most recent message for grammar, vocabulary, and spelling errors across the ENTIRE message. Do not stop after the first mistake.
+A single message can contain several separate, unrelated mistakes (e.g. wrong verb conjugation AND wrong noun case), and every one of them must be captured.
 
 Return your response strictly as a single JSON object in this exact format:
 {
-  "correctionText": "✅ Perfect!" OR "📝 Correction: <corrected sentence> (<1-sentence explanation in English>)",
+  "correctionText": "✅ Perfect!" OR "📝 Correction: <corrected sentence> (<1-sentence explanation>)",
   "mistakes": [
     {
-      "initial_form": "Base/infinitive/dictionary form in ${language} native script (e.g. 'correr', 'быть', 'книга')",
+      "initial_form": "Pure dictionary/infinitive/lemma base form in ${language} native script (e.g. 'вопрос', 'дружба', 'этот', 'correr', 'книга')",
       "used_form": "The inflected word exactly as it appeared or should appear in context",
-      "part_of_speech": "noun | verb | adjective | adverb | phrase | preposition",
-      "meaning": "English translation/meaning of the initial base form",
-      "synonyms": "Comma-separated English synonyms or alternative translations",
-      "explanation": "Short grammatical explanation and rule note",
+      "part_of_speech": "noun | verb | adjective | adverb | pronoun | phrase | preposition",
+      "meaning": "Definition/meaning of the initial_form (in ${isAdvanced ? language : mediatorLanguage})",
+      "synonyms": "Comma-separated synonyms or variants (in ${isAdvanced ? language : mediatorLanguage})",
+      "explanation": "Short grammatical explanation and rule note (in ${isAdvanced ? language : mediatorLanguage})",
       "sentence": "Full corrected sentence with the word wrapped in <u>word</u>"
     }
   ]
@@ -190,34 +213,182 @@ Rules:
 - Extract EVERY distinct legitimate mistake across the entire input so none are omitted.`;
 }
 
-// Call 3: ROADMAP — periodic background check triggered every N user messages.
+// Call 3: AI DIAGNOSTIC LEVEL TEST GENERATOR (CEFR Placement)
+// Generates a 5-question test with both multiple choice (with variants) and open questions (without variants)
+export async function generateLevelTest(targetLanguage, mediatorLanguage = "english") {
+  const prompt = `You are a modern psychometric and CEFR language testing specialist.
+Create a thorough diagnostic placement test to accurately assess a student's proficiency in ${targetLanguage}.
+
+The test must be calibrated against modern CEFR parameters (Vocabulary range, Grammar/Morphology, Syntax, and Production).
+Write instructions and questions in the student's mediator language (${mediatorLanguage}), but the language items must test ${targetLanguage}.
+
+Generate EXACTLY 5 questions spanning from basic to advanced difficulty:
+- Q1 (A1-A2): Multiple Choice - Core Vocabulary & Word Choice (Variants A, B, C, D)
+- Q2 (B1): Multiple Choice - Grammar, Verb Tenses & Agreement (Variants A, B, C, D)
+- Q3 (B2): Multiple Choice - Complex Syntax, Idioms, Prepositions (Variants A, B, C, D)
+- Q4 (B1-B2): Open Question (NO VARIANTS) - Fill in the blank or targeted translation requiring correct morphology
+- Q5 (C1): Open Question (NO VARIANTS) - Free short answer production in ${targetLanguage} (e.g. give a 2-sentence opinion on a topic)
+
+Return ONLY a JSON object in this exact format:
+{
+  "questions": [
+    {
+      "id": 1,
+      "type": "choice",
+      "cefr_target": "A1-A2",
+      "skill": "Vocabulary",
+      "prompt": "Question text...",
+      "options": ["A) ...", "B) ...", "C) ...", "D) ..."],
+      "correct_option": "A) ..."
+    },
+    {
+      "id": 2,
+      "type": "choice",
+      "cefr_target": "B1",
+      "skill": "Grammar",
+      "prompt": "Question text...",
+      "options": ["A) ...", "B) ...", "C) ...", "D) ..."],
+      "correct_option": "B) ..."
+    },
+    {
+      "id": 3,
+      "type": "choice",
+      "cefr_target": "B2",
+      "skill": "Syntax",
+      "prompt": "Question text...",
+      "options": ["A) ...", "B) ...", "C) ...", "D) ..."],
+      "correct_option": "C) ..."
+    },
+    {
+      "id": 4,
+      "type": "open",
+      "cefr_target": "B1-B2",
+      "skill": "Morphology",
+      "prompt": "Question text (instruct the student to type their answer)..."
+    },
+    {
+      "id": 5,
+      "type": "open",
+      "cefr_target": "C1",
+      "skill": "Production",
+      "prompt": "Prompt text requiring 2-3 sentences in ${targetLanguage}..."
+    }
+  ]
+}`;
+
+  const response = await withModelFallback(CHAT_MODELS, (model) =>
+    groq.chat.completions.create({
+      model,
+      messages: [{ role: "user", content: prompt }],
+      temperature: 0.3,
+      max_tokens: 1200,
+      response_format: { type: "json_object" },
+      ...reasoningParams(model),
+    })
+  );
+
+  return JSON.parse(response.choices[0].message.content);
+}
+
+// Call 4: AI DIAGNOSTIC LEVEL TEST EVALUATOR
+// Evaluates student answers against CEFR benchmarks (Vocabulary, Grammar, Syntax, Production)
+export async function evaluateLevelTest(targetLanguage, mediatorLanguage, questions, userAnswers) {
+  const prompt = `You are a certified CEFR language examiner evaluating a student's diagnostic test in ${targetLanguage}.
+
+Test Questions & Student's Submitted Answers:
+${questions
+      .map((q, i) => `Question ${i + 1} (${q.skill}, ${q.cefr_target}):\nPrompt: ${q.prompt}\nStudent Answer: "${userAnswers[i] || "No answer"}"`)
+      .join("\n\n")}
+
+TASK:
+Analyze the answers against CEFR parameters:
+1. Vocabulary accuracy and breadth
+2. Grammar, tense agreement, and morphology
+3. Syntax and sentence cohesion
+4. Open natural production in ${targetLanguage}
+
+Map the student's overall level into one of the 3 coach categories:
+- "Beginner" (corresponds to A1-A2)
+- "Intermediate" (corresponds to B1-B2)
+- "Advanced" (corresponds to C1-C2)
+
+Respond ONLY with a JSON object in this exact structure:
+{
+  "detected_level": "Beginner | Intermediate | Advanced",
+  "cefr_grade": "A1 | A2 | B1 | B2 | C1 | C2",
+  "score": 85,
+  "breakdown": {
+    "vocabulary": "Score out of 25 & brief comment",
+    "grammar": "Score out of 25 & brief comment",
+    "syntax": "Score out of 25 & brief comment",
+    "production": "Score out of 25 & brief comment"
+  },
+  "recommendations": "2-3 actionable sentences in ${mediatorLanguage} outlining learning goals."
+}`;
+
+  const response = await withModelFallback(CHAT_MODELS, (model) =>
+    groq.chat.completions.create({
+      model,
+      messages: [{ role: "user", content: prompt }],
+      temperature: 0.1,
+      max_tokens: 600,
+      response_format: { type: "json_object" },
+      ...reasoningParams(model),
+    })
+  );
+
+  return JSON.parse(response.choices[0].message.content);
+}
+
+// Call 5: ROADMAP — periodic background check (triggered by code, not the
+// model, every N user messages — see maybeGenerateRoadmap). Reads recent
+// history from Supabase and produces a standalone progress update, sent as
+// its own text message instead of being embedded in the spoken reply.
 function buildRoadmapPrompt(language, level) {
   return `You are a structured ${language} learning coach producing a periodic progress update for a ${level}-level student, based on the recent conversation history provided to you.
 
-Track the student's weak areas (e.g., grammar mistakes, missing vocabulary domains, tense confusion, word order issues) and prioritize them in this update.
+You are not only a conversation partner — you are also a structured language tutor responsible for guiding the student through a progressive learning journey in ${language}.
+Track the student's weak areas (e.g., grammar mistakes, missing vocabulary domains, tense confusion, word order issues) as shown in the conversation, and prioritize them in this update.
 
-Format as a short message (under 120 words total) using this structure:
+Write a roadmap update with:
+- What the student has recently improved
+- What still needs work
+- The next 1-3 learning goals (very simple and actionable)
+- A suggested practice focus (e.g., "past tense narration", "daily conversation vocabulary", "question formation")
+
+Guidance for calibrating the update:
+- Always prioritize progressive difficulty: do not overwhelm the student, and only suggest increasing complexity if the history shows they're ready for it.
+- Recommend recycling previously learned vocabulary in new contexts to reinforce retention.
+- If the student has struggled repeatedly with a concept, suggest breaking it into smaller steps, an analogy, or a quick drill.
+- If the student is performing strongly, suggest slightly more advanced structures and encourage natural expression over repetition.
+- Do not invent progress you can't see evidence for in the provided history — if there isn't enough to say something concrete yet, keep that section brief and generic rather than fabricating detail.
+
+Format as a short message (under 130 words total) using this structure:
 📈 Progress update
 - Recently improved: ...
 - Still needs work: ...
 - Next goals: ...
 - Practice focus: ...
 
-Write it in English (meta-feedback about learning progress). This must feel like part of a continuous personalized curriculum.`;
+Write it in English (this is meta-feedback about learning progress, not part of the ${language} immersion conversation itself). This must feel like part of a continuous personalized curriculum, not a one-off note.`;
 }
 
-// Call 4: QUIZ ANSWER JUDGE — semantic comparison for grading typed quiz answers.
-// Replaces rigid character-distance checks. Evaluates core meaning and accepts synonyms,
-// paraphrases, and reasonable partial answers (e.g., "the rest" / "others" for "the rest, other ones").
+// Call 6: QUIZ ANSWER JUDGE — semantic comparison for grading typed quiz
+// answers. Replaces plain character-distance comparison, which had two
+// failure modes: it rejected valid answers phrased differently than the
+// stored string (synonyms, paraphrases, reordered words), and it could
+// accept a wrong answer that just happened to be a near-miss typo of the
+// *correct* answer's spelling rather than actually knowing the meaning.
+// An AI judge evaluates meaning instead of character overlap.
 function buildQuizJudgePrompt() {
   return `You are an expert language quiz judge grading a student's answer.
-The student was shown a word/phrase in their target language and asked to give its English meaning.
+A student was shown a word/phrase in their target language and asked to give its meaning.
 
 TASK:
-Judge whether the student's submitted answer conveys the correct core meaning compared to the accepted answer and known synonyms.
+Judge whether the student's answer conveys the correct core meaning.
 Accept:
-- Synonyms, paraphrases, and reasonable subsets of the definition (e.g., if the accepted meaning is "the rest, other ones", then "the rest", "rest", "others", "the other ones", "remaining" are ALL 100% CORRECT).
-- Minor typos and spelling slips that do not change the meaning.
+- Synonyms, paraphrases, and reasonable sub-meanings (e.g. if the accepted meaning is "the rest, other ones", then "the rest", "rest", "others", "the other ones", "remaining" are ALL 100% CORRECT).
+- Minor typos and spelling slips that do not change the core meaning.
 
 Respond with ONLY a JSON object:
 {
@@ -245,28 +416,42 @@ export async function checkSemanticAnswer(wordOrPhrase, submittedAnswer, correct
           }
         ],
         temperature: 0,
-        max_tokens: 250,
+        // NOTE: gpt-oss models spend completion tokens on hidden chain-of-thought
+        // before writing visible content. max_tokens must accommodate this hidden
+        // reasoning to prevent empty response fallbacks.
+        max_tokens: 300,
         response_format: { type: "json_object" },
-        ...reasoningParams(model)
+        ...reasoningParams(model),
       })
     );
 
     const raw = response.choices[0]?.message?.content?.trim();
-    const parsed = JSON.parse(raw);
+    const parsed = JSON.parse(extractJsonObject(raw));
     return {
       correct: Boolean(parsed.correct),
       isSynonym: Boolean(parsed.isSynonym),
       explanation: parsed.explanation || (parsed.correct ? "Correct!" : `Accepted: ${correctAnswer}`)
     };
   } catch (err) {
-    // Intelligent token fallback if Groq API encounters network issues
+    // Never let a Groq/API hiccup break quiz grading entirely — fall back to
+    // smart token matching so the feature degrades gracefully instead of erroring out.
     console.error("Semantic quiz check failed, falling back to smart token match:", err.message);
     return smartFallbackMatch(submitted, correctAnswer, synonyms);
   }
 }
 
-// Fallback matcher that splits multi-word definitions and synonyms to allow
-// subsets like "rest" or "others" when offline or degraded.
+// Defense in depth: even with response_format:"json_object", a model can
+// occasionally wrap its answer in ```json fences or add stray whitespace/
+// text around the object. Pulling out the first {...} span makes JSON.parse
+// robust to that instead of throwing and silently degrading to fuzzy match.
+function extractJsonObject(raw) {
+  if (!raw) throw new Error("Empty judge response");
+  const match = raw.match(/\{[\s\S]*\}/);
+  return match ? match[0] : raw;
+}
+
+// Fallback ONLY — used solely if the AI judge call throws (network/API outage).
+// Splits multi-word translations and synonyms to allow valid sub-answers like "rest" or "others".
 function smartFallbackMatch(submitted, correctAnswer, synonyms = "") {
   const normalize = (s) =>
     String(s || "")
@@ -290,13 +475,15 @@ function smartFallbackMatch(submitted, correctAnswer, synonyms = "") {
   return { correct: false, isSynonym: false, explanation: `Correct answer: ${correctAnswer}` };
 }
 
-export async function chat(userId, userMessage, history, language, level, languageKey) {
+export async function chat(userId, userMessage, history, language, level, languageKey, mediatorLanguage = "english") {
   const conversationMessages = [
     ...history.map((h) => ({ role: h.role, content: h.content })),
     { role: "user", content: userMessage },
   ];
 
-  // Conversation and analysis calls run in parallel to minimize overall latency
+  // The conversation and analysis calls are independent of each other's
+  // output, so they run in parallel — this keeps total latency close to a
+  // single call's, even though it's now two smaller, more focused requests.
   const [conversationResponse, analysisResponse] = await Promise.all([
     withModelFallback(CHAT_MODELS, (model) =>
       groq.chat.completions.create({
@@ -306,7 +493,7 @@ export async function chat(userId, userMessage, history, language, level, langua
           ...conversationMessages,
         ],
         temperature: 0.7,
-        max_tokens: 400,
+        max_tokens: 450,
         ...reasoningParams(model),
       })
     ),
@@ -314,17 +501,24 @@ export async function chat(userId, userMessage, history, language, level, langua
       groq.chat.completions.create({
         model,
         messages: [
-          { role: "system", content: buildAnalysisPrompt(language, level) },
-          ...conversationMessages.slice(-3),
+          { role: "system", content: buildAnalysisPrompt(language, level, mediatorLanguage) },
+          // The analyzer only needs to judge the latest message; a little
+          // trailing context is enough, it doesn't need the full history.
+          ...conversationMessages.slice(-4),
         ],
-        temperature: 0.2,
-        max_tokens: 600,
+        temperature: 0.1,
+        max_tokens: 650,
         response_format: { type: "json_object" },
         ...reasoningParams(model),
       })
     ),
   ]);
 
+  // Defense in depth: even with the reasoning tuning above, an unusually
+  // demanding request could still exhaust max_tokens on hidden reasoning and
+  // come back empty. Never let that reach Telegram or TTS as empty text —
+  // both reject it outright, which is exactly what caused the "Couldn't
+  // process voice" error with no useful text ever shown to the user.
   const rawReply = conversationResponse.choices[0].message.content?.trim();
   const reply = rawReply || "Sorry, could you rephrase that? I didn't quite catch it.";
 
@@ -339,12 +533,13 @@ export async function chat(userId, userMessage, history, language, level, langua
   const correction = analysisData.correctionText || "✅ Perfect!";
   const mistakes = Array.isArray(analysisData.mistakes) ? analysisData.mistakes : [];
 
-  // Iterate over every detected mistake in the sentence and persist to DB
+  // The model lists every mistake it found in the message, one per
+  // object in the mistakes array — not just the first one — so all of them need to be parsed and saved.
   for (const m of mistakes) {
     if (!m.initial_form || !m.meaning) continue;
     try {
       await addFlashcard(userId, {
-        word: m.initial_form.trim(),
+        word: m.initial_form.trim(), // Stored strictly in pure lemma / infinitive form
         correction: m.meaning.trim(),
         context: m.explanation || m.sentence || "",
         language: languageKey,
@@ -355,9 +550,9 @@ export async function chat(userId, userMessage, history, language, level, langua
         explanation: m.explanation?.trim() || "",
         sentence: m.sentence?.trim() || userMessage,
       });
-      console.log(`Flashcard saved: [${m.initial_form}] (${m.part_of_speech}) -> "${m.meaning}"`);
+      console.log(`Flashcard saved: [${m.initial_form}] (${m.part_of_speech}) -> "${m.meaning}" (language=${languageKey})`);
     } catch (err) {
-      console.error(`Flashcard DB insert failed for "${m.initial_form}":`, err.message);
+      console.error(`Flashcard: DB insert FAILED for "${m.initial_form}":`, err.message);
     }
   }
 
@@ -367,7 +562,10 @@ export async function chat(userId, userMessage, history, language, level, langua
   return { correction, reply };
 }
 
-// Generates personalized periodic roadmap update every 5th message
+// Fires only every 5th user message (checked via a cheap COUNT query, not
+// left to the model to self-judge). Reads recent history from Supabase,
+// generates a roadmap update, and persists it to user_progress. Returns null
+// on the other 4/5 messages so callers can skip sending anything.
 export async function maybeGenerateRoadmap(userId, language, level) {
   const userMessageCount = await countUserMessages(userId);
   if (userMessageCount === 0 || userMessageCount % 5 !== 0) return null;
@@ -383,33 +581,46 @@ export async function maybeGenerateRoadmap(userId, language, level) {
         ...recent.map((h) => ({ role: h.role, content: h.content })),
       ],
       temperature: 0.5,
-      max_tokens: 300,
+      max_tokens: 350,
       ...reasoningParams(model),
     })
   );
 
   const roadmap = response.choices[0].message.content?.trim();
+  // If this comes back empty, skip silently rather than throw — a missing
+  // progress update shouldn't surface as a full error on a message whose
+  // actual reply already sent successfully.
   if (!roadmap) return null;
 
   await saveRoadmap(userId, roadmap);
   return roadmap;
 }
 
-// Strips markdown syntax and emoji so TTS voice reads plain text naturally
+// Strips markdown syntax and emoji so the TTS engine doesn't read symbols
+// (asterisks, underscores, backticks, etc.) aloud. Relying on prompt
+// instructions alone isn't reliable — models slip back into markdown even
+// when told not to, so this is a deterministic safety net.
 function stripForSpeech(text) {
   return text
+    // Markdown links: [text](url) -> text
     .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
+    // Bold / italic markers
     .replace(/\*\*(.*?)\*\*/g, "$1")
     .replace(/__(.*?)__/g, "$1")
     .replace(/\*(.*?)\*/g, "$1")
     .replace(/_(.*?)_/g, "$1")
+    // Code blocks / inline code
     .replace(/```[\s\S]*?```/g, "")
     .replace(/`([^`]*)`/g, "$1")
+    // Headers, blockquotes, list markers
     .replace(/^#{1,6}\s*/gm, "")
     .replace(/^>\s?/gm, "")
     .replace(/^[\s]*[-*+]\s+/gm, "")
+    // Any leftover markdown symbols
     .replace(/[*_~`#]/g, "")
+    // Emoji (covers most common ranges used in the prompt/replies)
     .replace(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{2190}-\u{21FF}\u{2B00}-\u{2BFF}]/gu, "")
+    // Collapse whitespace left behind by the above
     .replace(/\n{2,}/g, ". ")
     .replace(/\n/g, " ")
     .replace(/\s{2,}/g, " ")
@@ -421,7 +632,10 @@ export async function textToSpeech(text, languageKey) {
   const folder = tmpdir();
   const spokenText = stripForSpeech(text);
 
-  if (!spokenText) return null;
+  if (!spokenText) {
+    console.warn("TTS skipped: nothing left to speak after stripping markdown/emoji.");
+    return null;
+  }
 
   try {
     const tts = new MsEdgeTTS();
@@ -441,7 +655,11 @@ export async function cleanupFile(filePath) {
 }
 
 export async function transcribeAudio(audioBuffer, filename = "audio.ogg") {
-  // toFile works from a plain Buffer everywhere, bypassing Node version quirks on host platforms
+  // toFile (from groq-sdk, same lineage as the OpenAI SDK) doesn't depend on
+  // the global Web File API — `new File(...)` requires Node 18.13+ AND a
+  // host that hasn't stripped/polyfilled it differently, which varies across
+  // hosting providers. toFile works from a plain Buffer everywhere, so this
+  // removes one whole category of "works locally, fails on Render" bugs.
   const file = await toFile(audioBuffer, filename, { type: "audio/ogg" });
   return withModelFallback(STT_MODELS, (model) =>
     groq.audio.transcriptions.create({
