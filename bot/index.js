@@ -583,7 +583,7 @@ async function handleDrillAnswerSubmission(ctx, userId, drill, question, answerT
   let feedback = "";
   let mistakes = [];
 
-  // FIX 1 & 2: Deterministic evaluation for Multiple-Choice buttons (no "too brief" / B) deductions)
+  // Deterministic evaluation for Multiple-Choice buttons
   if (question.type === "choice") {
     const expected = question.correct_answer || question.correct_option || "";
     const cleanChosen = cleanOptionPrefix(answerText);
@@ -604,7 +604,7 @@ async function handleDrillAnswerSubmission(ctx, userId, drill, question, answerT
       feedback = `❌ Incorrect. The correct option was: ${expected}`;
     }
   } else {
-    // FIX 3: Open / Spoken questions evaluated by AI with strict target-language enforcement
+    // Open / Spoken questions evaluated by AI with strict target-language enforcement
     const thinking = await bot.api.sendMessage(userId, "🔍 Analyzing your answer...");
 
     const evaluation = await evaluateSkillAnswer(
@@ -792,7 +792,12 @@ bot.on("message:voice", async (ctx) => {
       await ctx.reply(reply);
     }
 
-    const roadmap = await maybeGenerateRoadmap(userId, LANGUAGES[user.language], user.level);
+    const roadmap = await maybeGenerateRoadmap(
+      userId,
+      LANGUAGES[user.language],
+      user.level,
+      user.mediator_language || "english"
+    );
     if (roadmap) await ctx.reply(roadmap);
 
   } catch (err) {
@@ -876,7 +881,12 @@ bot.on("message:text", async (ctx) => {
       { parse_mode: "Markdown" }
     );
 
-    const roadmap = await maybeGenerateRoadmap(userId, LANGUAGES[user.language], user.level);
+    const roadmap = await maybeGenerateRoadmap(
+      userId,
+      LANGUAGES[user.language],
+      user.level,
+      user.mediator_language || "english"
+    );
     if (roadmap) await ctx.reply(roadmap);
 
   } catch (err) {
@@ -966,6 +976,7 @@ bot.command("help", async (ctx) => {
 });
 
 bot.command("roadmap", async (ctx) => {
+  const user = await getUser(ctx.from.id);
   const progress = await getRoadmap(ctx.from.id);
   if (!progress?.roadmap) {
     await ctx.reply("No progress update yet — keep chatting! One is generated every 5 messages.");
