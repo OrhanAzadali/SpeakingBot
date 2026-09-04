@@ -126,3 +126,26 @@
 -- Now strip the huge dead comment block at the end of the file
 
 -- Now clean up trailing blank lines and verify the file is syntactically sound
+
+-- P-JSON:
+-- {
+--   "name": "language-coach-bot",
+--   "version": "1.0.0",
+--   "type": "module",
+--   "scripts": {
+--     "start": "node index.js",
+--     "dev": "node --watch index.js"
+--   },
+--   "dependencies": {
+--     "cors": "^2.8.6",
+--     "dotenv": "^16.4.5",
+--     "express": "^5.2.1",
+--     "form-data": "^4.0.0",
+--     "grammy": "^1.21.1",
+--     "groq-sdk": "^0.3.3",
+--     "msedge-tts": "^2.0.5",
+--     "node-fetch": "^3.3.2",
+--     "pdfkit": "^0.16.0",
+--     "pg": "^8.21.0"
+--   }
+-- }
