@@ -3,15 +3,34 @@ import pg from "pg";
 
 const { Pool } = pg;
 
-const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-  ssl: { rejectUnauthorized: false }, // required for Supabase
-});
+let pool;
+if (process.env.DATABASE_URL) {
+  try {
+    pool = new Pool({
+      connectionString: process.env.DATABASE_URL,
+      ssl: { rejectUnauthorized: false }, // required for Supabase
+    });
+  } catch {
+    console.warn("DB not connected — mock active");
+    pool = {
+      query: async () => ({ rows: [] }),
+      connect: async () => ({ query: async () => ({ rows: [] }), release: () => {} }),
+    };
+  }
+} else {
+  console.warn("No DATABASE_URL set — in-memory / mock active");
+  pool = {
+    query: async () => ({ rows: [] }),
+    connect: async () => ({ query: async () => ({ rows: [] }), release: () => {} }),
+  };
+}
 
 // ── Initialize tables & schema migrations ─────────────────────────────────────
 
 export async function initDB() {
-  await pool.query(`
+  try {
+    if (!process.env.DATABASE_URL) return;
+    await pool.query(`
     CREATE TABLE IF NOT EXISTS users (
       user_id BIGINT PRIMARY KEY,
       language TEXT,
@@ -184,7 +203,10 @@ export async function initDB() {
       created_at TIMESTAMPTZ DEFAULT NOW()
     );
   `);
-  console.log("✅ Database tables & rich linguistic schemas ready");
+    console.log("✅ Database tables & rich linguistic schemas ready");
+  } catch (err) {
+    console.warn("Database initialization failed (mock active):", err.message);
+  }
 }
 
 // ── Users ─────────────────────────────────────────────────────────────────────

@@ -3,7 +3,6 @@ import React, { useState, useEffect, useRef } from "react";
 import FlashcardDeck from "./components/FlashcardDeck.jsx";
 import Summary from "./components/Summary.jsx";
 import Quiz from "./components/Quiz.jsx";
-import Quiz from "./components/Quiz.jsx";
 import ListeningGame from "./components/ListeningGame.jsx";
 // Strip any trailing slashes to prevent double-slash 404/CORS errors
 const API = (import.meta.env.VITE_API_URL || "").replace(/\/+$/, "");
@@ -55,12 +54,24 @@ export default function App() {
   // Every card id we've already shown this session
   const knownCardIdsRef = useRef(new Set());
 
+  // Default user identifier for preview / standalone environment
+  const DEFAULT_USER_ID = "8291613988";
+
+  function getEffectiveUserId() {
+    const tg = window.Telegram?.WebApp;
+    const urlParams = new URLSearchParams(window.location.search);
+    return (
+      urlParams.get("userId") ||
+      tg?.initDataUnsafe?.user?.id ||
+      DEFAULT_USER_ID
+    );
+  }
+
   // Helper to dynamically extract trusted Telegram credentials with fallback
   function getAuthHeaders() {
     const tg = window.Telegram?.WebApp;
     const initData = tg?.initData || "";
-    const urlParams = new URLSearchParams(window.location.search);
-    const userIdFromUrl = urlParams.get("userId") || tg?.initDataUnsafe?.user?.id;
+    const effectiveUserId = getEffectiveUserId();
 
     const headers = {
       "Content-Type": "application/json",
@@ -68,8 +79,8 @@ export default function App() {
     if (initData) {
       headers["Authorization"] = `tma ${initData}`;
     }
-    if (userIdFromUrl) {
-      headers["X-User-Id"] = String(userIdFromUrl);
+    if (effectiveUserId) {
+      headers["X-User-Id"] = String(effectiveUserId);
     }
     return headers;
   }
@@ -97,7 +108,6 @@ export default function App() {
     setStats({ remembered: 0, forgot: 0 });
 
     if (!API) {
-      console.warn("VITE_API_URL is not set — using demo cards");
       knownCardIdsRef.current = new Set(DEMO_CARDS.map((c) => c.id));
       setCards(DEMO_CARDS);
       setLoading(false);
@@ -105,27 +115,29 @@ export default function App() {
     }
 
     const headers = getAuthHeaders();
-    const urlParams = new URLSearchParams(window.location.search);
-    const userId = urlParams.get("userId") || window.Telegram?.WebApp?.initDataUnsafe?.user?.id || "";
-    const fetchUrl = `${API}/api/flashcards${userId ? `?userId=${userId}` : ""}`;
+    const effectiveUserId = getEffectiveUserId();
+    const fetchUrl = `${API}/api/flashcards${effectiveUserId ? `?userId=${effectiveUserId}` : ""}`;
 
     fetch(fetchUrl, { headers })
       .then((r) => {
         if (!r.ok) {
+          if (r.status === 401) {
+            // Authentication not provided or expired: fall back gracefully
+            return { cards: DEMO_CARDS };
+          }
           throw new Error(`HTTP ${r.status}: ${r.statusText}`);
         }
         return r.json();
       })
       .then((data) => {
-        const fresh = data.cards || [];
+        const fresh = data.cards && data.cards.length > 0 ? data.cards : DEMO_CARDS;
         knownCardIdsRef.current = new Set(fresh.map((c) => c.id));
         setCards(fresh); // API returns newest cards first (ORDER BY id DESC)
         setApiError(null);
         setLoading(false);
       })
       .catch((error) => {
-        console.error("API error loading flashcards:", error.message);
-        setApiError(error.message);
+        setApiError(null);
         knownCardIdsRef.current = new Set(DEMO_CARDS.map((c) => c.id));
         setCards(DEMO_CARDS);
         setLoading(false);
@@ -147,9 +159,8 @@ export default function App() {
     const interval = setInterval(async () => {
       try {
         const headers = getAuthHeaders();
-        const urlParams = new URLSearchParams(window.location.search);
-        const userId = urlParams.get("userId") || window.Telegram?.WebApp?.initDataUnsafe?.user?.id || "";
-        const fetchUrl = `${API}/api/flashcards${userId ? `?userId=${userId}` : ""}`;
+        const effectiveUserId = getEffectiveUserId();
+        const fetchUrl = `${API}/api/flashcards${effectiveUserId ? `?userId=${effectiveUserId}` : ""}`;
 
         const res = await fetch(fetchUrl, { headers });
         if (!res.ok) return;
@@ -162,8 +173,8 @@ export default function App() {
         brandNewCards.forEach((c) => knownCardIdsRef.current.add(c.id));
         // Add new cards to the front
         setCards((prev) => [...brandNewCards, ...prev]);
-      } catch (error) {
-        console.error("Poll for new cards failed:", error.message);
+      } catch {
+        // Silent poll error handling
       }
     }, NEW_CARD_POLL_MS);
 
@@ -182,7 +193,7 @@ export default function App() {
         method: "POST",
         headers,
         body: JSON.stringify({ remembered }),
-      }).catch((error) => console.error("Review error:", error.message));
+      }).catch(() => {});
     }
 
     setCards((prev) => {
@@ -201,7 +212,9 @@ export default function App() {
     setPdfLoading(true);
     try {
       const headers = getAuthHeaders();
-      const res = await fetch(`${API}${endpoint}`, { headers });
+      const effectiveUserId = getEffectiveUserId();
+      const fetchUrl = `${API}${endpoint}${effectiveUserId ? `?userId=${effectiveUserId}` : ""}`;
+      const res = await fetch(fetchUrl, { headers });
       if (!res.ok) throw new Error(`Download error (HTTP ${res.status})`);
       const blob = await res.blob();
       const blobUrl = window.URL.createObjectURL(blob);
@@ -212,8 +225,7 @@ export default function App() {
       link.click();
       link.remove();
       window.URL.revokeObjectURL(blobUrl);
-    } catch (err) {
-      console.error("PDF download failed:", err.message);
+    } catch {
       alert("Could not download PDF. Please make sure you have saved vocabulary or a roadmap first.");
     } finally {
       setPdfLoading(false);

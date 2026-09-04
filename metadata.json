@@ -1,0 +1,6 @@
+{
+  "name": "SpeakingBot Language Coach",
+  "description": "Interactive flashcard review, CEFR level testing, and language learning coach with smart quiz and listening practice",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
