@@ -20,7 +20,7 @@ import {
 } from "./db.js";
 import {
   chat, transcribeAudio, textToSpeech, cleanupFile, LANGUAGES,
-  maybeGenerateRoadmap, checkSemanticAnswer, generateLevelTest, evaluateLevelTest,
+  maybeGenerateRoadmap, generateRoadmap, cleanRoadmapText, checkSemanticAnswer, generateLevelTest, evaluateLevelTest,
   generateSkillDrill, evaluateSkillAnswer, generateGrammarGuide
 } from "./ai.js";
 
@@ -597,9 +597,9 @@ async function generateRoadmapPdf(userId, language, roadmapText, outputPath) {
       }
       if (doc.y > 720) doc.addPage();
 
-      if (line.startsWith("#") || line.startsWith("📈") || line.startsWith("🎯") || /^[1-6]\./.test(line)) {
+      if (line.startsWith("#") || line.startsWith("📈") || line.startsWith("🎯") || line.startsWith("🔍") || line.startsWith("🔄") || line.startsWith("🚀") || line.startsWith("🗓") || /^[1-6]\./.test(line)) {
         doc.moveDown(0.5);
-        const cleanHeading = line.replace(/^[#\s*📈🎯]+/g, "").trim();
+        const cleanHeading = line.replace(/^[#\s*📈🎯🔍🔄🚀🗓]+/g, "").replace(/\*\*(.*?)\*\*/g, "$1").trim();
         doc.fontSize(14).fillColor("#4338ca").text(cleanHeading);
         doc.moveDown(0.3);
       } else if (line.startsWith("-") || line.startsWith("•") || line.startsWith("*")) {
@@ -777,12 +777,24 @@ app.post("/api/vocabulary/send-pdf", requireTelegramAuth, async (req, res) => {
 
 app.get("/api/roadmap/pdf", requireTelegramAuth, async (req, res) => {
   const user = await getUser(req.telegramUser.id);
-  const progress = await getRoadmap(req.telegramUser.id);
-  if (!progress?.roadmap) return res.status(404).json({ error: "No roadmap available" });
+  let progress = await getRoadmap(req.telegramUser.id);
+  let roadmapText = progress?.roadmap;
+
+  if (!roadmapText || isCorruptedRoadmap(roadmapText)) {
+    roadmapText = await generateRoadmap(
+      req.telegramUser.id,
+      LANGUAGES[user?.language] || user?.language || "English",
+      user?.level || "Beginner",
+      user?.mediator_language || "english"
+    );
+  }
+
+  if (!roadmapText) return res.status(404).json({ error: "No roadmap available" });
 
   const tempPath = path.join(tmpdir(), `roadmap_web_${req.telegramUser.id}_${Date.now()}.pdf`);
   try {
-    const filePath = await generateRoadmapPdf(req.telegramUser.id, user?.language, progress.roadmap, tempPath);
+    const clean = cleanRoadmapText(roadmapText);
+    const filePath = await generateRoadmapPdf(req.telegramUser.id, user?.language, clean, tempPath);
     res.download(filePath, `My_${user?.language || "Language"}_Roadmap.pdf`, async () => {
       await cleanupFile(filePath);
     });
@@ -907,11 +919,35 @@ async function sendVocabularyPdfToUser(ctx, userId) {
   }
 }
 
+function isCorruptedRoadmap(text) {
+  if (!text || text.length < 80) return true;
+  const lower = text.toLowerCase();
+  return (
+    lower.includes("flashcard set") ||
+    lower.includes("front\tback") ||
+    lower.includes("<br>") ||
+    lower.includes("<u>") ||
+    text.endsWith("**б") ||
+    text.endsWith("**")
+  );
+}
+
 async function sendRoadmapPdfToUser(ctx, userId) {
   const user = await getUser(userId);
-  const progress = await getRoadmap(userId);
-  if (!progress?.roadmap) {
-    const noRoadmapMsg = "📭 No roadmap update saved yet. Keep chatting to generate one!";
+  let progress = await getRoadmap(userId);
+  let roadmapText = progress?.roadmap;
+
+  if (!roadmapText || isCorruptedRoadmap(roadmapText)) {
+    roadmapText = await generateRoadmap(
+      userId,
+      LANGUAGES[user?.language] || user?.language || "English",
+      user?.level || "Beginner",
+      user?.mediator_language || "english"
+    );
+  }
+
+  if (!roadmapText) {
+    const noRoadmapMsg = "📭 No roadmap available yet. Keep chatting to generate one!";
     if (ctx) await ctx.reply(noRoadmapMsg);
     else await bot.api.sendMessage(userId, noRoadmapMsg);
     return false;
@@ -924,7 +960,8 @@ async function sendRoadmapPdfToUser(ctx, userId) {
   const tempPath = path.join(tmpdir(), `roadmap_${userId}_${Date.now()}.pdf`);
 
   try {
-    const filePath = await generateRoadmapPdf(userId, user?.language, progress.roadmap, tempPath);
+    const clean = cleanRoadmapText(roadmapText);
+    const filePath = await generateRoadmapPdf(userId, user?.language, clean, tempPath);
     try {
       if (ctx) await ctx.api.deleteMessage(ctx.chat.id, thinking.message_id);
       else await bot.api.deleteMessage(userId, thinking.message_id);
@@ -1044,13 +1081,45 @@ bot.command(["roadmap_pdf", "roadmappdf"], async (ctx) => {
 
 bot.command("roadmap", async (ctx) => {
   const userId = ctx.from.id;
-  const progress = await getRoadmap(userId);
-  if (!progress?.roadmap) {
-    await ctx.reply("No progress update yet — keep chatting! One is generated every 5 messages.");
+  const user = await getUser(userId);
+  if (!user?.language) {
+    await ctx.reply("Please /start first to configure your target language.");
     return;
   }
-  const kb = new InlineKeyboard().text("📥 Download Roadmap as PDF", "download_roadmap_pdf");
-  await ctx.reply(progress.roadmap, { reply_markup: kb });
+
+  let progress = await getRoadmap(userId);
+  let roadmapText = progress?.roadmap;
+
+  // If missing or previously corrupted by old flashcard hallucinations, regenerate cleanly
+  if (!roadmapText || isCorruptedRoadmap(roadmapText)) {
+    const thinking = await ctx.reply("⏳ Generating your personalized Learning Roadmap...");
+    try {
+      roadmapText = await generateRoadmap(
+        userId,
+        LANGUAGES[user.language] || user.language,
+        user.level || "Beginner",
+        user.mediator_language || "english"
+      );
+      try {
+        await ctx.api.deleteMessage(ctx.chat.id, thinking.message_id);
+      } catch (_) { }
+    } catch (err) {
+      console.error("Roadmap generation error:", err);
+      try {
+        await ctx.api.deleteMessage(ctx.chat.id, thinking.message_id);
+      } catch (_) { }
+      await ctx.reply("❌ Error generating roadmap. Please try again.");
+      return;
+    }
+  }
+
+  const cleanText = cleanRoadmapText(roadmapText);
+  const kb = new InlineKeyboard()
+    .text("📥 Download Roadmap as PDF", "download_roadmap_pdf")
+    .row()
+    .text("🔄 Refresh Roadmap", "refresh_roadmap");
+
+  await sendSafeChunkedMessage(ctx, cleanText, { reply_markup: kb });
 });
 
 bot.command("flashcards", async (ctx) => {
@@ -1247,6 +1316,41 @@ bot.callbackQuery("start_placement_test", async (ctx) => {
   const userId = ctx.from.id;
   const user = await getUser(userId);
   await initiateLevelTest(ctx, user.language, user.mediator_language || "english");
+});
+
+
+bot.callbackQuery("refresh_roadmap", async (ctx) => {
+  await ctx.answerCallbackQuery({ text: "Regenerating roadmap..." });
+  const userId = ctx.from.id;
+  const user = await getUser(userId);
+  if (!user?.language) return;
+
+  const thinking = await ctx.reply("⏳ Updating your Learning Roadmap based on your latest practice...");
+  try {
+    const newRoadmap = await generateRoadmap(
+      userId,
+      LANGUAGES[user.language] || user.language,
+      user.level || "Beginner",
+      user.mediator_language || "english"
+    );
+    try {
+      await ctx.api.deleteMessage(ctx.chat.id, thinking.message_id);
+    } catch (_) { }
+
+    const cleanText = cleanRoadmapText(newRoadmap);
+    const kb = new InlineKeyboard()
+      .text("📥 Download Roadmap as PDF", "download_roadmap_pdf")
+      .row()
+      .text("🔄 Refresh Roadmap", "refresh_roadmap");
+
+    await sendSafeChunkedMessage(ctx, cleanText, { reply_markup: kb });
+  } catch (err) {
+    console.error("Roadmap refresh error:", err);
+    try {
+      await ctx.api.deleteMessage(ctx.chat.id, thinking.message_id);
+    } catch (_) { }
+    await ctx.reply("❌ Failed to refresh roadmap.");
+  }
 });
 
 async function initiateLevelTest(ctx, language, mediatorLanguage) {

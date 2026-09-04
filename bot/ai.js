@@ -853,10 +853,46 @@ export async function chat(userId, userMessage, history, language, level, langua
 }
 
 // ── Call 9: Pedagogically Comprehensive Roadmap Builder ──────────────────────
-function buildRoadmapPrompt(language, level, mediatorLanguage = "english") {
+// ── Call 9: Pedagogically Comprehensive Roadmap Builder ──────────────────────
+
+export function cleanRoadmapText(raw) {
+  if (!raw) return "";
+  return raw
+    // Strip raw HTML tags (e.g. <br>, <u>, <span>)
+    .replace(/<[^>]+>/g, "")
+    // Strip markdown bold/italic asterisks & underscores without dropping words
+    .replace(/\*\*(.*?)\*\*/g, "$1")
+    .replace(/\*(.*?)\*/g, "$1")
+    .replace(/__(.*?)__/g, "$1")
+    .replace(/_(.*?)_/g, "$1")
+    // Replace double dashes with clean em-dashes
+    .replace(/--+/g, " — ")
+    // Convert dash/plus/asterisk bullets to clean unicode bullets
+    .replace(/^[\s]*[-*+]\s+/gm, "• ")
+    // Remove isolated stray asterisks or backticks
+    .replace(/[`*]/g, "")
+    // Normalize excessive blank lines
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+function buildRoadmapPrompt(language, level, mediatorLanguage = "english", recentContext = "") {
+  const isAdvanced = level.toLowerCase().includes("advanced");
+  const outputLanguage = isAdvanced ? language : mediatorLanguage;
+
   return `You are a certified senior language acquisition curriculum specialist and CEFR diagnostic coach.
 Analyze the student's recent conversation and study history to create an in-depth, structured, and actionable Learning Roadmap.
-Write the entire roadmap in the student's mediator language: ${mediatorLanguage.toUpperCase()}.
+Language to write the entire roadmap in: ${outputLanguage.toUpperCase()}.
+
+CRITICAL SCOPE & ANTI-CORRUPTION MANDATE:
+- This is a formal LEARNING ROADMAP and 7-DAY STUDY PLAN, NOT a vocabulary flashcard deck!
+- NEVER output a flashcard set, never output "Front / Back" tables, and never output bare lemma lists!
+- NEVER output raw HTML tags like <br>, <u>, <b>, <span>, or <table>.
+- DO NOT use markdown punctuation noise like double asterisks (**), double dashes (--), or raw angle brackets (< >).
+- Use clear uppercase headings and clean bullet points ("•").
+- Complete all sections thoroughly without cutting off or truncating mid-sentence.
+
+${recentContext ? `STUDENT'S RECENT STUDY CONTEXT:\n${recentContext}\n` : ""}
 
 Structure the report into these rich pedagogical sections:
 
@@ -881,6 +917,43 @@ Structure the report into these rich pedagogical sections:
 Keep the tone encouraging, professional, and precise. Format with clean section headers and bullet points.`;
 }
 
+export async function generateRoadmap(userId, language, level, mediatorLanguage = "english") {
+  const recent = await getHistory(userId, 10);
+  const contextSnippet = recent
+    .map((h) => `${h.role === "user" ? "Student" : "Coach"}: ${h.content}`)
+    .join("\n")
+    .slice(0, 1500);
+
+  const isAdvanced = level.toLowerCase().includes("advanced");
+  const outputLanguage = isAdvanced ? language : mediatorLanguage;
+
+  const response = await withModelFallback(CHAT_MODELS, (model) =>
+    groq.chat.completions.create({
+      model,
+      messages: [
+        {
+          role: "system",
+          content: buildRoadmapPrompt(language, level, mediatorLanguage, contextSnippet),
+        },
+        {
+          role: "user",
+          content: `Please generate my complete, structured 6-section Learning Roadmap & 7-Day Study Plan for ${language} in ${outputLanguage}. Do not output flashcards, HTML tags, or markdown asterisks.`,
+        },
+      ],
+      temperature: 0.3,
+      max_tokens: 2500, // Generous budget ensures zero mid-sentence truncation
+      ...reasoningParams(model),
+    })
+  );
+
+  const raw = response.choices[0]?.message?.content?.trim();
+  if (!raw) return null;
+
+  const clean = cleanRoadmapText(raw);
+  await saveRoadmap(userId, clean);
+  return clean;
+}
+
 export async function maybeGenerateRoadmap(userId, language, level, mediatorLanguage = "english") {
   const userMessageCount = await countUserMessages(userId);
   if (userMessageCount === 0 || userMessageCount % 5 !== 0) return null;
@@ -888,24 +961,7 @@ export async function maybeGenerateRoadmap(userId, language, level, mediatorLang
   const recent = await getHistory(userId, 20);
   if (recent.length === 0) return null;
 
-  const response = await withModelFallback(CHAT_MODELS, (model) =>
-    groq.chat.completions.create({
-      model,
-      messages: [
-        { role: "system", content: buildRoadmapPrompt(language, level, mediatorLanguage) },
-        ...recent.map((h) => ({ role: h.role, content: h.content })),
-      ],
-      temperature: 0.4,
-      max_tokens: 850,
-      ...reasoningParams(model),
-    })
-  );
-
-  const roadmap = response.choices[0].message.content?.trim();
-  if (!roadmap) return null;
-
-  await saveRoadmap(userId, roadmap);
-  return roadmap;
+  return await generateRoadmap(userId, language, level, mediatorLanguage);
 }
 
 function stripForSpeech(text) {
