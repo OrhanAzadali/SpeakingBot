@@ -1330,6 +1330,14 @@ bot.on("message:text", async (ctx) => {
     return;
   }
 
+  // Grammar PDF intent check
+  if (lower.includes("pdf") || lower.includes("пдф")) {
+    if (lower.includes("грамматик") || lower.includes("правил") || lower.includes("ответ")) {
+      await sendGrammarPdfToUser(ctx, userId);
+      return;
+    }
+  }
+
   if (!(await enforceUsageLimit(ctx, userId))) return;
 
   const thinking = await ctx.reply("⏳ Thinking...");
@@ -1342,11 +1350,16 @@ bot.on("message:text", async (ctx) => {
       user.mediator_language || "english"
     );
 
+    // In bot.on("message:text"):
+    // 1. Show the quick correction on the thinking message:
     await ctx.api.editMessageText(
       ctx.chat.id, thinking.message_id,
-      `${correction}\n\n${reply}`,
+      correction,
       { parse_mode: "Markdown" }
     );
+
+    // 2. Safely deliver the detailed explanation (even if it's 5,000+ characters):
+    await sendSafeChunkedMessage(ctx, reply);
 
     const roadmap = await maybeGenerateRoadmap(
       userId,
@@ -1462,7 +1475,33 @@ function startPolling() {
     onStart: () => console.log("✅ Polling active!"),
   }).catch((err) => console.error("Polling error:", err.message));
 }
-
+async function sendSafeChunkedMessage(ctx, fullText, options = {}) {
+  const MAX_CHUNK = 4000;
+  if (fullText.length <= MAX_CHUNK) {
+    return [await ctx.reply(fullText, options)];
+  }
+  const chunks = [];
+  let remaining = fullText;
+  while (remaining.length > 0) {
+    if (remaining.length <= MAX_CHUNK) {
+      chunks.push(remaining);
+      break;
+    }
+    let splitIdx = remaining.lastIndexOf("\n\n", MAX_CHUNK);
+    if (splitIdx === -1) splitIdx = remaining.lastIndexOf("\n", MAX_CHUNK);
+    if (splitIdx === -1) splitIdx = remaining.lastIndexOf(". ", MAX_CHUNK);
+    if (splitIdx === -1 || splitIdx < 1000) splitIdx = MAX_CHUNK;
+    chunks.push(remaining.slice(0, splitIdx).trim());
+    remaining = remaining.slice(splitIdx).trim();
+  }
+  const sent = [];
+  for (let i = 0; i < chunks.length; i++) {
+    const isLast = i === chunks.length - 1;
+    const opts = isLast ? options : { ...options, reply_markup: undefined };
+    sent.push(await ctx.reply(chunks[i], opts));
+  }
+  return sent;
+}
 bot.catch((err) => console.error("Bot error:", err.error));
 
 // // index.js

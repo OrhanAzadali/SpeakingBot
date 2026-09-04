@@ -700,8 +700,8 @@ export async function chat(userId, userMessage, history, language, level, langua
           { role: "system", content: buildConversationPrompt(language, level, mediatorLanguage) },
           ...conversationMessages,
         ],
-        temperature: 0.7,
-        max_tokens: 450,
+        temperature: 0.6,
+        max_tokens: 3500, // <-- Set to 3500 so full tables & paradigms are never truncated
         ...reasoningParams(model),
       })
     ),

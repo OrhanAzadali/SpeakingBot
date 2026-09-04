@@ -14,14 +14,14 @@ if (process.env.DATABASE_URL) {
     console.warn("DB not connected — mock active");
     pool = {
       query: async () => ({ rows: [] }),
-      connect: async () => ({ query: async () => ({ rows: [] }), release: () => {} }),
+      connect: async () => ({ query: async () => ({ rows: [] }), release: () => { } }),
     };
   }
 } else {
   console.warn("No DATABASE_URL set — in-memory / mock active");
   pool = {
     query: async () => ({ rows: [] }),
-    connect: async () => ({ query: async () => ({ rows: [] }), release: () => {} }),
+    connect: async () => ({ query: async () => ({ rows: [] }), release: () => { } }),
   };
 }
 
@@ -202,6 +202,21 @@ export async function initDB() {
       scores JSONB DEFAULT '[]'::JSONB,
       created_at TIMESTAMPTZ DEFAULT NOW()
     );
+    CREATE TABLE IF NOT EXISTS grammar_topics (
+  id SERIAL PRIMARY KEY,
+  user_id BIGINT NOT NULL,
+  language TEXT NOT NULL,
+  title TEXT NOT NULL,
+  category TEXT DEFAULT 'General Grammar',
+  rule_summary TEXT,
+  explanation TEXT NOT NULL,
+  examples JSONB DEFAULT '[]'::JSONB,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_grammar_user_lang ON grammar_topics (user_id, language);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_unique_grammar_topic ON grammar_topics (user_id, language, title);
   `);
     console.log("✅ Database tables & rich linguistic schemas ready");
   } catch (err) {
@@ -765,6 +780,39 @@ export async function getAllUserVocabulary(userId, language = null) {
     total: activeRes.rows.length + learnedRes.rows.length,
   };
 }
+export async function saveGrammarTopic(userId, language, topicData) {
+  const { title, category = "General Grammar", rule_summary = "", explanation = "", examples = [] } = topicData;
+  if (!title || !explanation) return null;
+  const { rows } = await pool.query(`
+    INSERT INTO grammar_topics (user_id, language, title, category, rule_summary, explanation, examples, updated_at)
+    VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
+    ON CONFLICT (user_id, language, title) DO UPDATE SET
+      category = COALESCE(EXCLUDED.category, grammar_topics.category),
+      rule_summary = COALESCE(EXCLUDED.rule_summary, grammar_topics.rule_summary),
+      explanation = EXCLUDED.explanation,
+      examples = COALESCE(EXCLUDED.examples, grammar_topics.examples),
+      updated_at = NOW()
+    RETURNING *
+  `, [userId, language, title.trim(), category.trim(), rule_summary.trim(), explanation.trim(), JSON.stringify(examples)]);
+  return rows[0] ?? null;
+}
+
+export async function getGrammarTopics(userId, language) {
+  const { rows } = await pool.query(
+    "SELECT * FROM grammar_topics WHERE user_id = $1 AND language = $2 ORDER BY updated_at DESC, id DESC",
+    [userId, language]
+  );
+  return rows;
+}
+
+export async function getGrammarTopicById(id, userId) {
+  const { rows } = await pool.query(
+    "SELECT * FROM grammar_topics WHERE id = $1 AND user_id = $2",
+    [id, userId]
+  );
+  return rows[0] ?? null;
+}
+
 
 export default pool;
 
