@@ -1,3 +1,4 @@
 .vercel
 .env*
 .bot/db.json
+node_modules
