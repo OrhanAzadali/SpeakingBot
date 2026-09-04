@@ -19,7 +19,7 @@ export async function initDB() {
       state TEXT DEFAULT 'idle'
     );
 
-    -- Subscription / usage-tracking fields (safe to re-run: no-ops if already present)
+    -- Subscription / usage-tracking fields
     ALTER TABLE users ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'free';
     ALTER TABLE users ADD COLUMN IF NOT EXISTS daily_message_count INTEGER DEFAULT 0;
     ALTER TABLE users ADD COLUMN IF NOT EXISTS daily_reset_date DATE DEFAULT CURRENT_DATE;
@@ -46,8 +46,7 @@ export async function initDB() {
       interval INTEGER DEFAULT 1
     );
 
-    -- Extended linguistic columns to store pure dictionary/lemma base form, inflected used form,
-    -- grammatical role, synonyms, grammar explanation notes, and contextual example sentences
+    -- Extended linguistic columns for grammar, syntax, orthography, semantics, and phonetics
     ALTER TABLE flashcards ADD COLUMN IF NOT EXISTS language TEXT;
     ALTER TABLE flashcards ADD COLUMN IF NOT EXISTS correct_streak INTEGER DEFAULT 0;
     ALTER TABLE flashcards ADD COLUMN IF NOT EXISTS initial_form TEXT;
@@ -56,9 +55,12 @@ export async function initDB() {
     ALTER TABLE flashcards ADD COLUMN IF NOT EXISTS synonyms TEXT;
     ALTER TABLE flashcards ADD COLUMN IF NOT EXISTS explanation TEXT;
     ALTER TABLE flashcards ADD COLUMN IF NOT EXISTS sentence TEXT;
-    -- Rich Phonetic & Pronunciation Columns
     ALTER TABLE flashcards ADD COLUMN IF NOT EXISTS transcription TEXT;
     ALTER TABLE flashcards ADD COLUMN IF NOT EXISTS pronunciation_rule TEXT;
+    ALTER TABLE flashcards ADD COLUMN IF NOT EXISTS grammar_rule TEXT;
+    ALTER TABLE flashcards ADD COLUMN IF NOT EXISTS orthography_rule TEXT;
+    ALTER TABLE flashcards ADD COLUMN IF NOT EXISTS syntax_rule TEXT;
+    ALTER TABLE flashcards ADD COLUMN IF NOT EXISTS semantics_note TEXT;
 
     CREATE TABLE IF NOT EXISTS user_progress (
       user_id BIGINT PRIMARY KEY,
@@ -85,9 +87,12 @@ export async function initDB() {
     ALTER TABLE learned_words ADD COLUMN IF NOT EXISTS synonyms TEXT;
     ALTER TABLE learned_words ADD COLUMN IF NOT EXISTS explanation TEXT;
     ALTER TABLE learned_words ADD COLUMN IF NOT EXISTS sentence TEXT;
-    -- Rich Phonetic & Pronunciation Columns
     ALTER TABLE learned_words ADD COLUMN IF NOT EXISTS transcription TEXT;
     ALTER TABLE learned_words ADD COLUMN IF NOT EXISTS pronunciation_rule TEXT;
+    ALTER TABLE learned_words ADD COLUMN IF NOT EXISTS grammar_rule TEXT;
+    ALTER TABLE learned_words ADD COLUMN IF NOT EXISTS orthography_rule TEXT;
+    ALTER TABLE learned_words ADD COLUMN IF NOT EXISTS syntax_rule TEXT;
+    ALTER TABLE learned_words ADD COLUMN IF NOT EXISTS semantics_note TEXT;
 
     -- Diagnostic Level Tests history table.
     -- Stores CEFR evaluation breakdown and examiner notes.
@@ -103,7 +108,7 @@ export async function initDB() {
       created_at TIMESTAMPTZ DEFAULT NOW()
     );
 
-    -- State table for in-progress active diagnostic level tests (survives bot restarts)
+    -- State table for in-progress active diagnostic placement tests
     CREATE TABLE IF NOT EXISTS active_tests (
       user_id BIGINT PRIMARY KEY,
       language TEXT NOT NULL,
@@ -152,7 +157,7 @@ export async function initDB() {
       created_at TIMESTAMPTZ DEFAULT NOW()
     );
   `);
-  console.log("✅ Database tables & rich phonetic schemas ready");
+  console.log("✅ Database tables & rich linguistic schemas ready");
 }
 
 // ── Users ─────────────────────────────────────────────────────────────────────
@@ -464,10 +469,12 @@ export async function getRoadmap(userId) {
   return rows[0] ?? null;
 }
 
-// ── Flashcards (Guaranteed Lemma Output with Rich Phonetics & Grammar) ────────
+// ── Flashcards (Rich Linguistics: Grammar, Orthography, Syntax, Semantics) ───
 
 export async function addFlashcard(userId, cardData) {
-  let word, correction, context, language, initial_form, used_form, part_of_speech, synonyms, explanation, sentence, transcription, pronunciation_rule;
+  let word, correction, context, language, initial_form, used_form, part_of_speech,
+    synonyms, explanation, sentence, transcription, pronunciation_rule,
+    grammar_rule, orthography_rule, syntax_rule, semantics_note;
 
   if (typeof cardData === "object" && cardData !== null && !Array.isArray(cardData)) {
     ({
@@ -483,6 +490,10 @@ export async function addFlashcard(userId, cardData) {
       sentence = null,
       transcription = null,
       pronunciation_rule = null,
+      grammar_rule = null,
+      orthography_rule = null,
+      syntax_rule = null,
+      semantics_note = null,
     } = cardData);
   } else {
     word = arguments[1];
@@ -493,19 +504,18 @@ export async function addFlashcard(userId, cardData) {
 
   const baseForm = initial_form || word;
 
-  // Strict validation: Reject single-letter noise, particles, and circular flashcards
   const normWord = String(baseForm || "").toLowerCase().trim();
   const normCorr = String(correction || "").toLowerCase().trim();
   if (!normWord || !normCorr || normWord === normCorr) return;
-  if (normWord.length <= 1 || normWord === 'не' || normWord === 'о' || normWord === 'а') return;
+  if (normWord.length <= 1 || normWord === 'не' || normWord === 'о' || normWord === 'а' || normWord === 'в') return;
 
   await pool.query(`
     INSERT INTO flashcards (
       user_id, word, correction, context, language,
       initial_form, used_form, part_of_speech, synonyms, explanation, sentence,
-      transcription, pronunciation_rule
+      transcription, pronunciation_rule, grammar_rule, orthography_rule, syntax_rule, semantics_note
     )
-    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
   `, [
     userId,
     baseForm,
@@ -519,11 +529,14 @@ export async function addFlashcard(userId, cardData) {
     explanation,
     sentence,
     transcription,
-    pronunciation_rule
+    pronunciation_rule,
+    grammar_rule,
+    orthography_rule,
+    syntax_rule,
+    semantics_note
   ]);
 }
 
-// Strict match only. Returns rich linguistic attributes with lemma fallback
 export async function getFlashcardsByLanguage(userId, language) {
   const { rows } = await pool.query(`
     SELECT
@@ -532,7 +545,7 @@ export async function getFlashcardsByLanguage(userId, language) {
       correction, context, language,
       COALESCE(NULLIF(initial_form, ''), word) AS initial_form,
       used_form, part_of_speech, synonyms, explanation, sentence,
-      transcription, pronunciation_rule,
+      transcription, pronunciation_rule, grammar_rule, orthography_rule, syntax_rule, semantics_note,
       next_review, ease_factor, interval, correct_streak
     FROM flashcards
     WHERE user_id = $1 AND language = $2
@@ -549,7 +562,7 @@ export async function getFlashcardById(id, userId) {
       correction, context, language,
       COALESCE(NULLIF(initial_form, ''), word) AS initial_form,
       used_form, part_of_speech, synonyms, explanation, sentence,
-      transcription, pronunciation_rule,
+      transcription, pronunciation_rule, grammar_rule, orthography_rule, syntax_rule, semantics_note,
       next_review, ease_factor, interval, correct_streak
     FROM flashcards
     WHERE id = $1 AND user_id = $2
@@ -565,7 +578,7 @@ export async function getDueFlashcards(userId) {
       correction, context, language,
       COALESCE(NULLIF(initial_form, ''), word) AS initial_form,
       used_form, part_of_speech, synonyms, explanation, sentence,
-      transcription, pronunciation_rule,
+      transcription, pronunciation_rule, grammar_rule, orthography_rule, syntax_rule, semantics_note,
       next_review, ease_factor, interval, correct_streak
     FROM flashcards
     WHERE user_id = $1 AND next_review <= NOW()
@@ -621,8 +634,9 @@ export async function recordQuizResult(id, userId, correct) {
     await pool.query(
       `INSERT INTO learned_words (
         user_id, language, word, meaning, initial_form, used_form,
-        part_of_speech, synonyms, explanation, sentence, transcription, pronunciation_rule
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
+        part_of_speech, synonyms, explanation, sentence, transcription,
+        pronunciation_rule, grammar_rule, orthography_rule, syntax_rule, semantics_note
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)`,
       [
         userId,
         card.language,
@@ -635,7 +649,11 @@ export async function recordQuizResult(id, userId, correct) {
         card.explanation,
         card.sentence,
         card.transcription,
-        card.pronunciation_rule
+        card.pronunciation_rule,
+        card.grammar_rule,
+        card.orthography_rule,
+        card.syntax_rule,
+        card.semantics_note
       ]
     );
     await pool.query("DELETE FROM flashcards WHERE id = $1", [id]);

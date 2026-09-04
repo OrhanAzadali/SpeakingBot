@@ -2,15 +2,41 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ── Telegram WebApp Theme Bindings & Base Styles ────────────────────────── */
+
 body {
   background: var(--tg-theme-bg-color, #0f172a);
   color: var(--tg-theme-text-color, #f1f5f9);
-  font-family:
-    -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial,
-    sans-serif;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
   min-height: 100vh;
   margin: 0;
+  padding: 0;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  overflow-x: hidden;
 }
+
+/* ── Custom Scrollbar for Card Back & Overflow Panels ───────────────────── */
+
+::-webkit-scrollbar {
+  width: 5px;
+}
+
+::-webkit-scrollbar-track {
+  background: rgba(15, 23, 42, 0.6);
+  border-radius: 8px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(100, 116, 139, 0.5);
+  border-radius: 8px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(148, 163, 184, 0.8);
+}
+
+/* ── Flashcard Swipe Keyframe Animations ────────────────────────────────── */
 
 @keyframes slideRight {
   0% {
@@ -18,7 +44,7 @@ body {
     opacity: 1;
   }
   100% {
-    transform: translateX(120%) rotate(8deg);
+    transform: translateX(125%) rotate(10deg);
     opacity: 0;
   }
 }
@@ -29,7 +55,7 @@ body {
     opacity: 1;
   }
   100% {
-    transform: translateX(-120%) rotate(-8deg);
+    transform: translateX(-125%) rotate(-10deg);
     opacity: 0;
   }
 }
@@ -41,15 +67,3 @@ body {
 .animate-slide-left {
   animation: slideLeft 280ms ease-in forwards;
 }
-
-/* @tailwind base;
-@tailwind components;
-@tailwind utilities;
-
-body {
-  background: var(--tg-theme-bg-color, #0f172a);
-  color: var(--tg-theme-text-color, #f1f5f9);
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  min-height: 100vh;
-  margin: 0;
-} */

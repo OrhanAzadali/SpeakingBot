@@ -90,17 +90,16 @@ function linguisticAccuracyBlock(language) {
 - ALWAYS use standard orthography of ${language}, including every diacritic and accent mark.
 - STRICT BASE LEMMA / INFINITIVE RULE FOR DATABASE STORAGE:
   When extracting vocabulary for flashcards, "initial_form" MUST ALWAYS be the uninflected dictionary headword:
-  * Nouns: MUST be singular nominative (e.g. Russian: "вопрос", "дружба", "горшок", "крыльцо", "крыша"; German: "Buch", "Freundschaft"; Azerbaijani: "ev", "kitab").
-  * Demonstratives/Pronouns: MUST be dictionary headword (e.g. Russian: "этот"; Azerbaijani: "bu", "o").
-  * Verbs: MUST be the bare infinitive (e.g. Russian: "исправить", "читать"; German: "lesen"; Spanish: "tener"; Azerbaijani: "oxumaq").
-  * Adjectives: MUST be masculine singular nominative base form (e.g. Russian: "разный", "черепичный", "крашеный", "предыдущий"; German: "rot"; Azerbaijani: "qırmızı").
+  * Nouns: MUST be singular nominative (e.g. Russian: "вопрос", "дружба", "горшок", "крыша"; German: "Buch", "Freundschaft").
+  * Verbs: MUST be bare infinitive (e.g. Russian: "исправить", "читать"; German: "lesen"; Spanish: "tener").
+  * Adjectives: MUST be masculine singular nominative base form (e.g. Russian: "разный", "черепичный", "предыдущий").
+  * Pronouns: MUST be dictionary headword (e.g. Russian: "мой", "этот").
   * NEVER save Latin transliterations (reject "BIL", "SHO", "TEM", "TOGO") — convert to native script or discard!
-  * NEVER save single-letter particles, prepositions ("о", "а", "не", "в") or proper person names as flashcards!
-- IN-CONTEXT MORPHOLOGICAL ADJUSTMENT RULE (FOR QUIZZES, QUESTIONS, AND DRILLS):
+  * NEVER save single-letter particles, prepositions ("о", "а", "не", "в") or proper names as flashcards!
+- IN-CONTEXT MORPHOLOGICAL ADJUSTMENT RULE (FOR QUIZZES & DRILLS):
   When using stored vocabulary words inside questions, example sentences, cloze tests, or drills:
-  * DO NOT drop an uninflected lemma into a sentence if the grammar requires a declined/conjugated form!
-  * You MUST grammatically adjust, decline, and conjugate the word to match the sentence's syntax, tense, gender, number, and case!
-  * Example: If the base lemma in DB is "книга", but the sentence context requires accusative after a transitive verb, write: "Я читаю интересную <u>книгу</u>", NEVER the broken "Я читаю интересную <u>книга</u>"!`;
+  * DO NOT drop an uninflected lemma into a sentence where syntax requires a declined or conjugated form!
+  * You MUST grammatically adjust, decline, and conjugate the word to match the sentence's syntax, tense, gender, and case!`;
 }
 
 // ── Call 1: Spoken Conversation with Level-Aware Scaffolding ──────────────────
@@ -118,34 +117,28 @@ OR whenever introducing essential new verbs/nouns to Beginners/Intermediates:
 You MUST provide a structured, in-depth linguistic breakdown in ${explanationLang.toUpperCase()}:
 
 Structure your breakdown cleanly:
-1. Meaning & Part of Speech:
-   State the exact grammatical role (verb, noun, adjective, pronoun, etc.) and primary meaning.
-2. Pronunciation & Phonetics:
-   - IPA transcription (e.g. «ˈhaɪs.t»).
-   - Phonetic transcription/approximation in ${explanationLang} characters (e.g. «ха-ис-т»).
-   - Stress placement indicator and key phonetic rules (vowel reduction, silent letters, diphthongs).
-3. Base Form / Lemma:
-   - Bare Infinitive (for verbs) or Nominative Singular with article (for nouns).
-4. Full Conjugation or Declension Paradigm:
-   - For Verbs: Complete person/number conjugation table (1st, 2nd, 3rd person singular and plural) in the relevant tense with translations for every single line.
+1. Meaning & Part of Speech: Grammatical role and primary definition.
+2. Phonetics & Transcription: IPA transcription + phonetic approximation in ${explanationLang} characters + stress placement indicator.
+3. Pronunciation Rule: Specific phonetic rule (stress shifts, reductions, silent letters, diphthongs, umlauts).
+4. Base Form / Lemma: Bare Infinitive (for verbs) or Nominative Singular with article (for nouns).
+5. Full Conjugation or Declension Paradigm:
+   - For Verbs: Complete person/number conjugation table (1st, 2nd, 3rd person singular and plural) in the relevant tense with translations for every line.
    - For Nouns: Gender, singular/plural, cases (Nominative, Genitive, Dative, Accusative) with articles and translations.
-   - For Adjectives: Comparison degrees and case endings.
-5. Contextual Example Sentences:
-   Provide 2 everyday examples in ${language} with translations in ${explanationLang}. Words in sentences must be properly inflected!
-6. Golden Usage Rule & Practice Exercise:
-   A 1-sentence memorable rule on how to use it, followed by an immediate actionable drill (e.g. "Упражнение: скажи «Ich heiße ...» несколько раз, меняя имя на своё!").
+6. Syntax & Usage: Prepositional government, cases required, word order.
+7. Contextual Example Sentences: 2 natural examples in ${language} with translations in ${explanationLang}.
+8. Actionable Practice Exercise: 1 quick drill for immediate reinforcement.
 `;
 
   const scaffoldingDirective = isBeginner
     ? `BEGINNER SCAFFOLDING & MEDIATOR SUPPORT (MANDATORY):
 - The student is a complete BEGINNER. Their mediator language is ${mediatorLanguage.toUpperCase()}.
-- If the student expresses confusion (e.g. "не понимаю", "i don't understand", "помоги"), asks for translation, or requests help in ${mediatorLanguage} (e.g. "нет, на русском", "speak English", "russich", "sprach russo"):
-  1. NEVER stubbornly stay only in ${language}! NEVER say "I only speak ${language}" or "wir bleiben auf ${language}". That prevents beginners from making progress!
+- If the student expresses confusion (e.g. "не понимаю", "i don't understand", "помоги"), asks for translation, or requests help in ${mediatorLanguage} (e.g. "нет, на русском", "speak English", "russich"):
+  1. NEVER stubbornly stay only in ${language}! NEVER say "I only speak ${language}" or "wir bleiben auf ${language}".
   2. Use ${mediatorLanguage} to bridge the gap: explain what the phrase meant, translate it clearly, and give an easy template to reply.`
     : (isIntermediate
       ? `INTERMEDIATE SCAFFOLDING:
 - Conduct conversation primarily in ${language}.
-- When student asks for grammatical explanations or gets stuck, explain the grammar/conjugation in ${mediatorLanguage}, but keep conversational follow-ups in ${language}.`
+- When student asks for grammatical explanations, explain the grammar/conjugation in ${mediatorLanguage}, but keep conversational follow-ups in ${language}.`
       : `ADVANCED IMMERSION:
 - Conduct 100% of the conversation and all grammatical explanations in ${language}. Maintain full target-language immersion.`);
 
@@ -162,15 +155,15 @@ ${scaffoldingDirective}
 Keep conversational turns natural and supportive. Plain text only: no audio-unfriendly formatting.`;
 }
 
-// ── Call 2: Rich Grammar Analysis & Multi-Mistake Extraction ────────────────
+// ── Call 2: Rich Grammar, Syntax, Orthography & Semantics Analysis ────────────
 function buildAnalysisPrompt(language, level, mediatorLanguage = "english") {
   const isAdvanced = level.toLowerCase().includes("advanced");
 
   const explanationDirective = isAdvanced
-    ? `Since the student is ADVANCED, all fields ("meaning", "synonyms", "explanation", "pronunciation_rule") MUST be written 100% in ${language} (monolingual immersion). Do NOT use any mediator language.`
-    : `Since the student is ${level}, write all explanations, meanings, transcriptions, and pronunciation rules strictly in the student's mediator language: ${mediatorLanguage.toUpperCase()}. Do NOT introduce any third language, and NEVER copy the target word into the meaning field.`;
+    ? `Since the student is ADVANCED, all fields ("meaning", "synonyms", "explanation", "pronunciation_rule", "grammar_rule", "orthography_rule", "syntax_rule", "semantics_note") MUST be written 100% in ${language} (monolingual immersion). Do NOT use any mediator language.`
+    : `Since the student is ${level}, write all explanations, meanings, transcriptions, and linguistic rules strictly in the student's mediator language: ${mediatorLanguage.toUpperCase()}. Do NOT introduce any third language, and NEVER copy the target word into the meaning field.`;
 
-  return `You are a meticulous ${language} lexicographer and grammar analyst.
+  return `You are a master ${language} lexicographer, syntactician, and grammar analyst.
 Student level: ${level}.
 Mediator language: ${mediatorLanguage}.
 ${explanationDirective}
@@ -188,61 +181,76 @@ STRICT VOCABULARY FILTER RULES:
 - NEVER save single-letter particles, prepositions ("о", "а", "не", "в") or proper names ("Эрнана Кортеса").
 - "initial_form" MUST BE the pure uninflected dictionary lemma (singular nominative noun, bare infinitive verb, masculine singular adjective).
 
-RICH PHONETIC & GRAMMATICAL EXTRACTION:
-For each legitimate new word or corrected mistake, provide:
+EXTENDED LINGUISTIC EXTRACTION FOR DATABASE & PDF NOTEBOOK:
+For every legitimate new word or corrected error, extract:
 1. "transcription": IPA + phonetic reading in ${mediatorLanguage} with stress indicated (e.g. "[vɐˈpros] — ва-про́с").
-2. "pronunciation_rule": Key phonetic rule governing this word (stress placement, silent letters, vowel reduction, umlaut shifts, diphthongs).
-3. "explanation": Deep grammatical properties (gender, case government, irregular stem patterns, collocations).
+2. "pronunciation_rule": Specific phonetic rule (stress shifts, vowel reduction, silent letters, umlauts, diphthongs).
+3. "grammar_rule": Morphological properties (gender, declension/conjugation pattern, irregular stems, aspect).
+4. "orthography_rule": Spelling rule, letter combinations, capitalization, or diacritics.
+5. "syntax_rule": Case government, preposition requirements, and word order constraints.
+6. "semantics_note": Nuances, register, false friends, collocations, and contextual usage notes.
 
 Return your response strictly as a single JSON object:
 {
   "correctionText": "✅ Perfect!" OR "📝 Correction: <corrected sentence> (<1-sentence explanation>)" OR "ℹ️ Понятно, разбираем по-${mediatorLanguage}!",
   "mistakes": [
     {
-      "initial_form": "Pure dictionary lemma/infinitive headword in ${language} native script (e.g. 'вопрос', 'горшок', 'исправить', 'Buch')",
+      "initial_form": "Pure dictionary lemma/infinitive headword in ${language} native script (e.g. 'вопрос', 'Buch', 'qırmızı')",
       "used_form": "The inflected word exactly as it appeared in the sentence",
       "part_of_speech": "noun | verb | adjective | adverb | pronoun | phrase | preposition",
-      "transcription": "IPA + phonetic approximation with stress in ${isAdvanced ? language : mediatorLanguage}",
-      "pronunciation_rule": "Phonetic rule (stress, silent letters, reductions, diphthongs) in ${isAdvanced ? language : mediatorLanguage}",
-      "meaning": "Definition/translation in ${isAdvanced ? language : mediatorLanguage} (NEVER same as initial_form!)",
-      "synonyms": "Comma-separated synonyms in ${isAdvanced ? language : mediatorLanguage}",
-      "explanation": "Deep grammatical property, gender, case government, collocations in ${isAdvanced ? language : mediatorLanguage}",
+      "transcription": "IPA + phonetic approximation with stress",
+      "pronunciation_rule": "Phonetic rule (stress, silent letters, reductions, diphthongs)",
+      "grammar_rule": "Morphological pattern, gender, conjugation/declension",
+      "orthography_rule": "Spelling rules, capitalization, diacritics",
+      "syntax_rule": "Case government, preposition requirements, word order",
+      "semantics_note": "Collocations, nuances, register, false friends",
+      "meaning": "Definition/translation (NEVER same as initial_form!)",
+      "synonyms": "Comma-separated synonyms",
+      "explanation": "Summary note for quick review",
       "sentence": "Full corrected sentence with the word wrapped in <u>word</u> (grammatically adjusted!)"
     }
   ]
 }`;
 }
 
-// ── Call 3: 4-Skill Drill Generator (Strict Skill Purity & Grammatical Fitting) ─
+// ── Call 3: 4-Skill Drill Generator (Level-Aware Instructions & Skill Purity) ─
 export async function generateSkillDrill(skill, targetLanguage, mediatorLanguage, level, drillType = "short") {
   const count = drillType === "huge" ? 10 : 5;
+  const isAdvanced = level.toLowerCase().includes("advanced");
+  const isIntermediate = level.toLowerCase().includes("intermediate");
+
+  // Instruction Language Rule:
+  // Advanced -> 100% in targetLanguage.
+  // Intermediate -> Prompt in targetLanguage.
+  // Beginner -> Prompt in mediatorLanguage.
+  const promptLang = (isAdvanced || isIntermediate) ? targetLanguage : mediatorLanguage;
 
   const prompt = `You are an elite CEFR curriculum designer creating a ${drillType.toUpperCase()} ${skill.toUpperCase()} drill.
 Target language being tested: ${targetLanguage}.
-Mediator language for instructions: ${mediatorLanguage}.
+Student level: ${level}.
+Instruction/Prompt language: ${promptLang}.
 
-CRITICAL ANTI-CIRCULARITY & VALIDITY RULES:
+CRITICAL ANTI-CIRCULARITY & LEVEL-AWARE RULES:
 1. NEVER ask to translate a word from ${targetLanguage} into ${targetLanguage}!
-   - BAD: "Выберите перевод слова «Buch» на немецкий язык" (CIRCULAR & FORBIDDEN).
-   - GOOD (In-Context Cloze): Present a sentence in ${targetLanguage} with a blank (____) where options are grammatically inflected to fit the sentence syntax perfectly.
-   - GOOD (Translation): "Как переводится слово «[слово на ${mediatorLanguage}]» на ${targetLanguage}?" with 4 ${targetLanguage} options.
-2. ABSOLUTELY NO THIRD LANGUAGES:
-   - Use ONLY ${targetLanguage} (for materials, passages, target phrases) and ${mediatorLanguage} (for instructions).
-3. GRAMMATICAL ADJUSTMENT MANDATE:
-   - Any target word placed in a sentence gap must be grammatically adjusted and declined/conjugated for that sentence's syntax!
+2. INSTRUCTION LANGUAGE:
+   - For Advanced and Intermediate students, ALL question prompts MUST be written in ${targetLanguage}!
+   - For Beginner students, question prompts are written in ${mediatorLanguage}.
+3. ABSOLUTELY NO THIRD LANGUAGES (No English if neither target nor mediator is English).
+4. GRAMMATICAL ADJUSTMENT: Words inside cloze sentence gaps must be declined/conjugated to fit sentence syntax.
 
-CRITICAL SKILL PURITY MANDATE:
+SKILL PURITY MANDATE:
 - If skill is "listening":
-  * EVERY SINGLE QUESTION (1 to ${count}) MUST test LISTENING COMPREHENSION of an audio passage.
-  * "audio_script": Short spoken narrative/dialogue 100% in ${targetLanguage} (30-50 words) to be read via TTS audio.
-  * "prompt": Comprehension question in ${mediatorLanguage} asking about a concrete detail from that audio passage.
-  * ABSOLUTELY FORBIDDEN: NEVER ask the student to write an email, compose an essay, or describe their weekend in a listening drill!
+  * EVERY QUESTION MUST test LISTENING COMPREHENSION of an audio passage.
+  * "audio_script": Spoken narrative/dialogue 100% in ${targetLanguage} (30-50 words) to be read via TTS audio.
+  * "prompt": Comprehension question in ${promptLang} asking about a concrete detail from that audio.
+  * FORBIDDEN: Never ask to write an email or describe personal weekends in a listening drill!
 - If skill is "reading":
-  * EVERY QUESTION MUST have a "reading_passage" 100% in ${targetLanguage} (50-80 words) and a comprehension question in ${mediatorLanguage}.
+  * "reading_passage": 100% in ${targetLanguage} (50-80 words).
+  * "prompt": Comprehension question in ${promptLang}.
 - If skill is "speaking":
-  * Scenario in ${mediatorLanguage} requiring a voice message in ${targetLanguage}.
+  * Scenario in ${promptLang} requiring a voice message response in ${targetLanguage}.
 - If skill is "writing":
-  * Writing task (email, short paragraph, essay) in ${mediatorLanguage} requiring text production in ${targetLanguage}.
+  * Task instructions in ${promptLang} requiring written composition in ${targetLanguage}.
 
 Generate EXACTLY ${count} questions.
 Return ONLY JSON:
@@ -255,7 +263,7 @@ Return ONLY JSON:
       "type": "${skill === 'speaking' ? 'voice' : (skill === 'writing' ? 'open' : 'choice')}",
       ${skill === 'listening' ? `"audio_script": "Spoken text in ${targetLanguage}...",` : ""}
       ${skill === 'reading' ? `"reading_passage": "Text passage in ${targetLanguage}...",` : ""}
-      "prompt": "Comprehension question in ${mediatorLanguage}...",
+      "prompt": "Question text in ${promptLang}...",
       ${skill === 'listening' || skill === 'reading' ? `"options": ["A) ...", "B) ...", "C) ...", "D) ..."], "correct_answer": "A) ..."` : ""}
     }
   ]
@@ -287,17 +295,17 @@ Return ONLY JSON:
         {
           id: 1,
           type: skill === "speaking" ? "voice" : (skill === "listening" ? "open" : "choice"),
-          audio_script: skill === "listening" ? `Поезд отправляется сегодня с четвёртого пути вовремя.` : undefined,
-          reading_passage: skill === "reading" ? `Москва — столица России, крупнейший культурный и исторический центр.` : undefined,
+          audio_script: skill === "listening" ? `Guten Tag. Der nächste Zug nach Hamburg fährt um vierzehn Uhr ab.` : undefined,
+          reading_passage: skill === "reading" ? `Deutschland liegt in Mitteleuropa und besteht aus sechzehn Bundesländern.` : undefined,
           prompt: skill === "listening"
-            ? `С какого пути отправляется поезд согласно аудиозаписи?`
+            ? (isAdvanced || isIntermediate ? `Um wie viel Uhr fährt der nächste Zug nach Hamburg ab?` : `В какое время отправляется следующий поезд в Гамбург?`)
             : (skill === "speaking"
-              ? `Расскажите 2-3 предложениями о своём дне. (Отправьте голосовое сообщение)`
+              ? `Erzählen Sie kurz über Ihren Tag.`
               : (skill === "writing"
-                ? `Напишите два предложения о своих планах на завтра.`
-                : `Какой город назван столицей в тексте?`)),
-          options: (skill === "reading" || skill === "listening") ? ["A) С первого пути", "B) С четвёртого пути", "C) С седьмого пути", "D) С девятого пути"] : undefined,
-          correct_answer: "B) С четвёртого пути"
+                ? `Schreiben Sie zwei Sätze über Ihre Pläne für morgen.`
+                : (isAdvanced || isIntermediate ? `Aus wie vielen Bundesländern besteht Deutschland?` : `Из скольких федеральных земель состоит Германия согласно тексту?`))),
+          options: (skill === "reading" || skill === "listening") ? ["A) 12:00", "B) 14:00", "C) 16:00", "D) 18:00"] : undefined,
+          correct_answer: "B) 14:00"
         }
       ]
     };
@@ -308,7 +316,7 @@ Return ONLY JSON:
 export async function analyzeStudentResponse(targetLanguage, mediatorLanguage, promptQuestion, userAnswer) {
   const prompt = `You are a universal psycholinguistic analyst and CEFR examiner.
 A student was assigned a task in ${targetLanguage}.
-Instructions/Mediator language: ${mediatorLanguage}.
+Mediator language: ${mediatorLanguage}.
 
 Question/Task: "${promptQuestion}"
 Student's Actual Input: "${userAnswer}"
@@ -325,15 +333,18 @@ Analyze the student's input across ALL world languages (Arabic, Urdu, Mandarin, 
 4. "target_language_proficiency_demonstrated": true ONLY if the student demonstrated actual vocabulary, grammar, or syntax in ${targetLanguage}.
 5. "correct_answer_in_target_language": Give the exact, natural correct answer in ${targetLanguage}.
 6. "explanation_in_mediator": Concise feedback written in ${mediatorLanguage} explaining the correct answer without robotic templates.
-7. "extracted_mistakes": Extract any new vocabulary or mistakes:
+7. "extracted_mistakes": Extract rich linguistic attributes for any new words:
    - "initial_form": Pure uninflected dictionary lemma headword in ${targetLanguage}.
    - "part_of_speech": noun, verb, adjective, etc.
-   - "transcription": IPA + phonetic reading in ${mediatorLanguage}.
-   - "pronunciation_rule": Key phonetic rule.
+   - "transcription": IPA + phonetic reading.
+   - "pronunciation_rule": Phonetic rule.
+   - "grammar_rule": Morphological properties.
+   - "orthography_rule": Spelling rule.
+   - "syntax_rule": Case government and prepositions.
+   - "semantics_note": Nuance and collocations.
    - "meaning": Meaning in ${mediatorLanguage}.
-   - "explanation": Grammatical rule/property.
 
-Return ONLY a JSON object:
+Return ONLY JSON:
 {
   "detected_language": "...",
   "is_target_language": false,
@@ -351,7 +362,7 @@ Return ONLY a JSON object:
         model,
         messages: [{ role: "user", content: prompt }],
         temperature: 0.1,
-        max_tokens: 750,
+        max_tokens: 850,
         response_format: { type: "json_object" },
         ...reasoningParams(model),
       })
@@ -410,22 +421,18 @@ export async function evaluateSkillAnswer(skill, targetLanguage, mediatorLanguag
   };
 }
 
-// ── Call 6: CEFR Placement Test Generator (In-Context Cloze & Pure Grammar) ───
+// ── Call 6: CEFR Placement Test Generator (Level-Calibrated Language) ─────────
 export async function generateLevelTest(targetLanguage, mediatorLanguage = "english") {
   const prompt = `You are a certified psychometric CEFR language testing specialist.
 Create a diagnostic placement test to assess proficiency in ${targetLanguage}.
-Instructions/prompts in ${mediatorLanguage}, testing items strictly in ${targetLanguage}.
 
-STRICT CEFR METHODOLOGY & ANTI-CIRCULARITY RULES:
-1. NEVER ask: "Выберите перевод слова [TargetWord] на [TargetLanguage]". That is circular and completely invalid!
-2. All sentence cloze gaps (____) must test words declined/conjugated appropriately in context!
-3. FORMAT REQUIREMENTS FOR EACH CEFR LEVEL:
-   - Q1 (A1-A2 Vocabulary & Everyday Context): In-Context Cloze sentence in ${targetLanguage} with a gap (____). The student must choose the semantically and grammatically fitting ${targetLanguage} word.
-   - Q2 (B1 Grammar & Morphology): Sentence in ${targetLanguage} with a gap testing verb tense, agreement, or preposition case in ${targetLanguage}.
-   - Q3 (B2 Syntax & Conjunctions): Sentence in ${targetLanguage} with a gap testing complex clause connectors, conjunctions, or idioms.
-   - Q4 (B1-B2 Open Targeted Production - NO VARIANTS): Fill in the missing target word or grammatical form without multiple choice options.
-   - Q5 (C1 Open Production - NO VARIANTS): Prompt asking for 1-2 original sentences in ${targetLanguage} giving an opinion or hypothesis.
-4. NO THIRD LANGUAGES: Use ONLY ${targetLanguage} and ${mediatorLanguage}.
+DIRECTIONAL & CEFR METHODOLOGY:
+1. NEVER ask: "Выберите перевод слова [TargetWord] на [TargetLanguage]".
+2. INSTRUCTION LANGUAGE:
+   - For Q1-Q3 (A1 to B2), write instructions in ${mediatorLanguage}, testing items strictly in ${targetLanguage}.
+   - For Q4-Q5 (B2 to C1), question instructions must be written directly in ${targetLanguage}!
+3. All cloze gaps (____) must test words grammatically adjusted in context.
+4. NO THIRD LANGUAGES.
 
 Return ONLY JSON:
 {
@@ -462,14 +469,14 @@ Return ONLY JSON:
       "type": "open",
       "cefr_target": "B1-B2",
       "skill": "Morphology",
-      "prompt": "Targeted prompt in ${mediatorLanguage} requiring a specific ${targetLanguage} form..."
+      "prompt": "Prompt in ${targetLanguage} requiring a specific grammatical form..."
     },
     {
       "id": 5,
       "type": "open",
       "cefr_target": "C1",
       "skill": "Production",
-      "prompt": "Free production prompt in ${mediatorLanguage} asking for 1-2 sentences in ${targetLanguage}..."
+      "prompt": "Production prompt in ${targetLanguage} asking for 1-2 sentences..."
     }
   ]
 }`;
@@ -549,18 +556,14 @@ Mediator Language for report: ${mediatorLanguage}.
 Questions and Student Answers:
 ${questions.map((q, i) => `Q${i + 1} (${q.skill}):\nPrompt: ${q.prompt}\nStudent Answer: "${userAnswers[i] || "No answer"}"`).join("\n\n")}
 
-UNIVERSAL EVALUATION MANDATE (APPLIES TO ANY WORLD LANGUAGE):
+UNIVERSAL EVALUATION MANDATE:
 1. SEMANTIC INTENT CHECK:
-   - If the student states in ANY language (e.g. Arabic, Urdu, Russian, English, Chinese, Hindi, etc.) that they do not know, do not understand, or cannot answer, they MUST NOT receive vocabulary or syntax points in ${targetLanguage}!
+   - If the student states in ANY language that they do not know or cannot answer, they MUST NOT receive vocabulary or syntax points in ${targetLanguage}!
 2. TARGET LANGUAGE PROFICIENCY ONLY:
    - Grade ONLY actual words, grammar, and structures produced in ${targetLanguage}.
-   - If a student answers using sentences in ${mediatorLanguage} saying they don't know ${targetLanguage}, their score in ${targetLanguage} is strictly 0! DO NOT award points for sentences in another language.
+   - Sentences in ${mediatorLanguage} saying they don't know ${targetLanguage} are strictly worth 0 points!
 3. SCORING BREAKDOWN (0 to 25 each):
-   - vocabulary: Points for ${targetLanguage} words demonstrated.
-   - grammar: Points for ${targetLanguage} morphology/verb forms.
-   - syntax: Points for ${targetLanguage} sentence structure.
-   - production: Points for open ${targetLanguage} output.
-   - If no valid ${targetLanguage} was demonstrated across the answers, overall score MUST BE 0, and level MUST BE Beginner (A1).
+   - If no valid ${targetLanguage} was demonstrated, overall score MUST BE 0, and level MUST BE Beginner (A1).
 
 Return ONLY JSON:
 {
@@ -593,7 +596,6 @@ Return ONLY JSON:
     const raw = response.choices[0]?.message?.content?.trim();
     const parsed = JSON.parse(extractJsonObject(raw));
 
-    // Code Gate: If AI detected zero knowledge or no target language was demonstrated, code enforces 0/100
     if (parsed.admits_zero_knowledge || !parsed.target_language_demonstrated) {
       return {
         detected_level: "Beginner",
@@ -709,7 +711,7 @@ export async function chat(userId, userMessage, history, language, level, langua
           ...conversationMessages.slice(-4),
         ],
         temperature: 0.1,
-        max_tokens: 750,
+        max_tokens: 850,
         response_format: { type: "json_object" },
         ...reasoningParams(model),
       })
@@ -733,9 +735,8 @@ export async function chat(userId, userMessage, history, language, level, langua
   for (const m of mistakes) {
     if (!m.initial_form || !m.meaning) continue;
 
-    // Anti-noise safeguard: skip single letter particles or standalone prepositions
     const cleanWord = m.initial_form.trim();
-    if (cleanWord.length <= 1 || cleanWord.toLowerCase() === 'не' || cleanWord.toLowerCase() === 'о' || cleanWord.toLowerCase() === 'а') continue;
+    if (cleanWord.length <= 1 || cleanWord.toLowerCase() === 'не' || cleanWord.toLowerCase() === 'о' || cleanWord.toLowerCase() === 'а' || cleanWord.toLowerCase() === 'в') continue;
 
     try {
       await addFlashcard(userId, {
@@ -750,7 +751,11 @@ export async function chat(userId, userMessage, history, language, level, langua
         explanation: m.explanation?.trim() || "",
         sentence: m.sentence?.trim() || userMessage,
         transcription: m.transcription?.trim() || null,
-        pronunciation_rule: m.pronunciation_rule?.trim() || null
+        pronunciation_rule: m.pronunciation_rule?.trim() || null,
+        grammar_rule: m.grammar_rule?.trim() || null,
+        orthography_rule: m.orthography_rule?.trim() || null,
+        syntax_rule: m.syntax_rule?.trim() || null,
+        semantics_note: m.semantics_note?.trim() || null
       });
     } catch (err) {
       console.error(`Flashcard DB insert failed for "${m.initial_form}":`, err.message);
@@ -763,13 +768,13 @@ export async function chat(userId, userMessage, history, language, level, langua
   return { correction, reply };
 }
 
-// ── Call 9: Rich & Pedagogically Comprehensive Roadmap Builder ────────────────
+// ── Call 9: Pedagogically Comprehensive Roadmap Builder ──────────────────────
 function buildRoadmapPrompt(language, level, mediatorLanguage = "english") {
   return `You are a certified senior language acquisition curriculum specialist and CEFR diagnostic coach.
 Analyze the student's recent conversation and study history to create an in-depth, structured, and actionable Learning Roadmap.
 Write the entire roadmap in the student's mediator language: ${mediatorLanguage.toUpperCase()}.
 
-Structure the report into these clear, rich pedagogical sections:
+Structure the report into these rich pedagogical sections:
 
 1. 🎯 Current CEFR Standing & Trajectory:
    - Detailed assessment of current active capability in ${language} at ${level} level.
@@ -784,7 +789,7 @@ Structure the report into these clear, rich pedagogical sections:
    - 3-5 specific words, phrases, or collocations the student struggled with that must be actively reintroduced in upcoming sessions.
 
 5. 🚀 Actionable Milestone Goals (Next 1-2 Weeks):
-   - 3 high-impact, measurable objectives (e.g. "Master subordinate clauses with weil/obwohl", "Narrate past events using Perfekt without hesitation").
+   - 3 high-impact, measurable objectives.
 
 6. 🗓 7-Day Targeted Practice Regimen:
    - Daily micro-drills (Listening, Speaking, Grammar, Vocabulary) customized to fix the diagnosed weak spots.
