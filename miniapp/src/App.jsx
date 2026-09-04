@@ -3,7 +3,6 @@ import React, { useState, useEffect, useRef } from "react";
 import FlashcardDeck from "./components/FlashcardDeck.jsx";
 import Summary from "./components/Summary.jsx";
 import Quiz from "./components/Quiz.jsx";
-import Quiz from "./components/Quiz.jsx";
 import ListeningGame from "./components/ListeningGame.jsx";
 // Strip any trailing slashes to prevent double-slash 404/CORS errors
 const API = (import.meta.env.VITE_API_URL || "").replace(/\/+$/, "");
