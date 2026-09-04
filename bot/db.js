@@ -62,6 +62,10 @@ export async function initDB() {
     ALTER TABLE flashcards ADD COLUMN IF NOT EXISTS syntax_rule TEXT;
     ALTER TABLE flashcards ADD COLUMN IF NOT EXISTS semantics_note TEXT;
 
+    -- Deduplication index: stops duplicate identical cards for the same user and language
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_unique_flashcard 
+    ON flashcards (user_id, language, word);
+
     CREATE TABLE IF NOT EXISTS user_progress (
       user_id BIGINT PRIMARY KEY,
       roadmap TEXT,
@@ -69,9 +73,6 @@ export async function initDB() {
     );
 
     -- Permanent record of mastered words (3-in-a-row correct in Quiz mode).
-    -- Kept separately from flashcards, which only holds words still being
-    -- actively practiced — a mastered word is removed from flashcards but
-    -- preserved here instead of being deleted outright.
     CREATE TABLE IF NOT EXISTS learned_words (
       id SERIAL PRIMARY KEY,
       user_id BIGINT NOT NULL,
@@ -94,8 +95,10 @@ export async function initDB() {
     ALTER TABLE learned_words ADD COLUMN IF NOT EXISTS syntax_rule TEXT;
     ALTER TABLE learned_words ADD COLUMN IF NOT EXISTS semantics_note TEXT;
 
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_unique_learned_word 
+    ON learned_words (user_id, language, word);
+
     -- Diagnostic Level Tests history table.
-    -- Stores CEFR evaluation breakdown and examiner notes.
     -- Retains up to 150 tests per user; when it hits 151, the oldest 10 are deleted.
     CREATE TABLE IF NOT EXISTS level_tests (
       id SERIAL PRIMARY KEY,
@@ -469,7 +472,7 @@ export async function getRoadmap(userId) {
   return rows[0] ?? null;
 }
 
-// ── Flashcards (Rich Linguistics: Grammar, Orthography, Syntax, Semantics) ───
+// ── Flashcards (Deduplicating Upsert with Rich Linguistics) ───────────────────
 
 export async function addFlashcard(userId, cardData) {
   let word, correction, context, language, initial_form, used_form, part_of_speech,
@@ -509,6 +512,7 @@ export async function addFlashcard(userId, cardData) {
   if (!normWord || !normCorr || normWord === normCorr) return;
   if (normWord.length <= 1 || normWord === 'не' || normWord === 'о' || normWord === 'а' || normWord === 'в') return;
 
+  // Uses ON CONFLICT to refresh linguistic details instead of creating duplicates!
   await pool.query(`
     INSERT INTO flashcards (
       user_id, word, correction, context, language,
@@ -516,6 +520,19 @@ export async function addFlashcard(userId, cardData) {
       transcription, pronunciation_rule, grammar_rule, orthography_rule, syntax_rule, semantics_note
     )
     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
+    ON CONFLICT (user_id, language, word) DO UPDATE SET
+      correction = EXCLUDED.correction,
+      used_form = EXCLUDED.used_form,
+      part_of_speech = COALESCE(EXCLUDED.part_of_speech, flashcards.part_of_speech),
+      synonyms = COALESCE(EXCLUDED.synonyms, flashcards.synonyms),
+      explanation = COALESCE(EXCLUDED.explanation, flashcards.explanation),
+      sentence = COALESCE(EXCLUDED.sentence, flashcards.sentence),
+      transcription = COALESCE(EXCLUDED.transcription, flashcards.transcription),
+      pronunciation_rule = COALESCE(EXCLUDED.pronunciation_rule, flashcards.pronunciation_rule),
+      grammar_rule = COALESCE(EXCLUDED.grammar_rule, flashcards.grammar_rule),
+      orthography_rule = COALESCE(EXCLUDED.orthography_rule, flashcards.orthography_rule),
+      syntax_rule = COALESCE(EXCLUDED.syntax_rule, flashcards.syntax_rule),
+      semantics_note = COALESCE(EXCLUDED.semantics_note, flashcards.semantics_note)
   `, [
     userId,
     baseForm,
@@ -636,7 +653,10 @@ export async function recordQuizResult(id, userId, correct) {
         user_id, language, word, meaning, initial_form, used_form,
         part_of_speech, synonyms, explanation, sentence, transcription,
         pronunciation_rule, grammar_rule, orthography_rule, syntax_rule, semantics_note
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)`,
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+      ON CONFLICT (user_id, language, word) DO UPDATE SET
+        meaning = EXCLUDED.meaning,
+        learned_at = NOW()`,
       [
         userId,
         card.language,
@@ -701,7 +721,6 @@ export async function getAllUserVocabulary(userId, language = null) {
 }
 
 export default pool;
-
 // // db.js — PostgreSQL version (replaces lowdb)
 // import pg from "pg";
 

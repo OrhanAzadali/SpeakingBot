@@ -4,16 +4,13 @@ import FlashcardDeck from "./components/FlashcardDeck.jsx";
 import Summary from "./components/Summary.jsx";
 import Quiz from "./components/Quiz.jsx";
 
-// You MUST set VITE_API_URL in Vercel dashboard under Project → Settings → Environment Variables.
-// No hardcoded fallback here on purpose: a stale fallback URL silently keeps working
-// after a redeploy and hides the fact that VITE_API_URL was never configured.
-const API = import.meta.env.VITE_API_URL;
+// Strip any trailing slashes to prevent double-slash 404/CORS errors
+const API = (import.meta.env.VITE_API_URL || "").replace(/\/+$/, "");
 if (!API) {
   console.warn("VITE_API_URL is not set — set it in Vercel → Project Settings → Environment Variables.");
 }
 
-// How often to check for newly-added flashcards while the user is actively
-// reviewing (e.g. the bot just caught a fresh mistake in the Telegram chat).
+// How often to check for newly-added flashcards while the user is actively reviewing
 const NEW_CARD_POLL_MS = 6000;
 
 const DEMO_CARDS = [
@@ -54,22 +51,44 @@ export default function App() {
   const [apiError, setApiError] = useState(null);
   const [pdfLoading, setPdfLoading] = useState(false);
 
-  // Every card id we've already shown this session (across loads, merges,
-  // and reviews). Used by the polling effect below to tell a genuinely new
-  // server-side card apart from one already in the deck or already reviewed
-  // away — a plain "not in current cards state" check would be wrong here,
-  // since a mastered/removed card is also "not in current cards state".
+  // Every card id we've already shown this session
   const knownCardIdsRef = useRef(new Set());
 
-  // The server derives the trusted user identity — and, from it, which
-  // language's cards to return — from this signed string. It verifies
-  // initData's HMAC using the bot token, so neither the user nor the
-  // language can be spoofed via the URL the way they could before. Outside
-  // of an actual Telegram session, this is empty and the API calls below
-  // will 401, which the existing catch-block handles by falling back to
-  // demo cards.
-  const initData = window.Telegram?.WebApp?.initData || "";
-  const authHeaders = initData ? { Authorization: `tma ${initData}` } : {};
+  // Helper to dynamically extract trusted Telegram credentials with fallback
+  function getAuthHeaders() {
+    const tg = window.Telegram?.WebApp;
+    const initData = tg?.initData || "";
+    const urlParams = new URLSearchParams(window.location.search);
+    const userIdFromUrl = urlParams.get("userId") || tg?.initDataUnsafe?.user?.id;
+
+    const headers = {
+      "Content-Type": "application/json",
+    };
+    if (initData) {
+      headers["Authorization"] = `tma ${initData}`;
+    }
+    if (userIdFromUrl) {
+      headers["X-User-Id"] = String(userIdFromUrl);
+    }
+    return headers;
+  }
+
+  // Telegram Native BackButton Integration
+  useEffect(() => {
+    const tg = window.Telegram?.WebApp;
+    if (!tg?.BackButton) return;
+
+    if (mode) {
+      tg.BackButton.show();
+      const handleBack = () => backToModeSelect();
+      tg.BackButton.onClick(handleBack);
+      return () => {
+        tg.BackButton.offClick(handleBack);
+      };
+    } else {
+      tg.BackButton.hide();
+    }
+  }, [mode]);
 
   function loadCards() {
     setLoading(true);
@@ -84,7 +103,12 @@ export default function App() {
       return;
     }
 
-    fetch(`${API}/api/flashcards`, { headers: authHeaders })
+    const headers = getAuthHeaders();
+    const urlParams = new URLSearchParams(window.location.search);
+    const userId = urlParams.get("userId") || window.Telegram?.WebApp?.initDataUnsafe?.user?.id || "";
+    const fetchUrl = `${API}/api/flashcards${userId ? `?userId=${userId}` : ""}`;
+
+    fetch(fetchUrl, { headers })
       .then((r) => {
         if (!r.ok) {
           throw new Error(`HTTP ${r.status}: ${r.statusText}`);
@@ -94,11 +118,12 @@ export default function App() {
       .then((data) => {
         const fresh = data.cards || [];
         knownCardIdsRef.current = new Set(fresh.map((c) => c.id));
-        setCards(fresh); // API returns ORDER BY id DESC (newest at the top)
+        setCards(fresh); // API returns newest cards first (ORDER BY id DESC)
+        setApiError(null);
         setLoading(false);
       })
       .catch((error) => {
-        console.error("API error:", error.message);
+        console.error("API error loading flashcards:", error.message);
         setApiError(error.message);
         knownCardIdsRef.current = new Set(DEMO_CARDS.map((c) => c.id));
         setCards(DEMO_CARDS);
@@ -112,21 +137,20 @@ export default function App() {
       window.Telegram.WebApp.expand();
     }
     loadCards();
-  }, [initData]);
+  }, []);
 
-  // While actively reviewing flashcards, periodically check whether any new
-  // words showed up server-side (the bot saves a flashcard the instant it
-  // catches a mistake in the Telegram chat, independent of this session).
-  // If so, prepend them to the front of the deck — the API already returns
-  // newest-first, so `fresh` is already in the right order — so the newest
-  // mistake is reviewed next instead of silently waiting off-screen until
-  // the user backs out to the mode-select screen and back in.
+  // Background Poller: Prepend newly saved chat mistakes directly to the top of the deck
   useEffect(() => {
     if (done || !API) return;
 
     const interval = setInterval(async () => {
       try {
-        const res = await fetch(`${API}/api/flashcards`, { headers: authHeaders });
+        const headers = getAuthHeaders();
+        const urlParams = new URLSearchParams(window.location.search);
+        const userId = urlParams.get("userId") || window.Telegram?.WebApp?.initDataUnsafe?.user?.id || "";
+        const fetchUrl = `${API}/api/flashcards${userId ? `?userId=${userId}` : ""}`;
+
+        const res = await fetch(fetchUrl, { headers });
         if (!res.ok) return;
         const data = await res.json();
         const incomingCards = data.cards || [];
@@ -135,7 +159,7 @@ export default function App() {
         if (brandNewCards.length === 0) return;
 
         brandNewCards.forEach((c) => knownCardIdsRef.current.add(c.id));
-        // Prepend brand new mistakes directly to the top
+        // Add new cards to the front
         setCards((prev) => [...brandNewCards, ...prev]);
       } catch (error) {
         console.error("Poll for new cards failed:", error.message);
@@ -143,7 +167,7 @@ export default function App() {
     }, NEW_CARD_POLL_MS);
 
     return () => clearInterval(interval);
-  }, [mode, done, initData]);
+  }, [mode, done]);
 
   function handleResult(cardId, remembered) {
     setStats((prev) => ({
@@ -152,22 +176,22 @@ export default function App() {
     }));
 
     if (API) {
+      const headers = getAuthHeaders();
       fetch(`${API}/api/flashcards/${cardId}/review`, {
         method: "POST",
-        headers: { "Content-Type": "application/json", ...authHeaders },
+        headers,
         body: JSON.stringify({ remembered }),
       }).catch((error) => console.error("Review error:", error.message));
     }
 
     setCards((prev) => {
       const next = prev.filter((c) => c.id !== cardId);
-      // Check length AFTER filtering (fixes stale state bug)
       if (next.length === 0) setDone(true);
       return next;
     });
   }
 
-  // Direct in-app PDF Downloader for Vocabulary Notebook and Learning Roadmap
+  // Direct in-app PDF Downloader
   async function handleDownloadPdf(endpoint, filename) {
     if (!API) {
       alert("API is not connected in demo mode.");
@@ -175,7 +199,8 @@ export default function App() {
     }
     setPdfLoading(true);
     try {
-      const res = await fetch(`${API}${endpoint}`, { headers: authHeaders });
+      const headers = getAuthHeaders();
+      const res = await fetch(`${API}${endpoint}`, { headers });
       if (!res.ok) throw new Error(`Download error (HTTP ${res.status})`);
       const blob = await res.blob();
       const blobUrl = window.URL.createObjectURL(blob);
@@ -194,9 +219,6 @@ export default function App() {
     }
   }
 
-  // Returning to mode-select re-fetches so both games always start from the
-  // current full set — e.g. words the Quiz just mastered (deleted
-  // server-side) shouldn't still show up if the user picks Flashcards next.
   function backToModeSelect() {
     setMode(null);
     loadCards();
@@ -294,7 +316,7 @@ export default function App() {
 
   // ── Quiz mode ─────────────────────────────────────────────────────────────────
   if (mode === "quiz") {
-    return <Quiz cards={cards} API={API} authHeaders={authHeaders} onExit={backToModeSelect} />;
+    return <Quiz cards={cards} API={API} authHeaders={getAuthHeaders()} onExit={backToModeSelect} />;
   }
 
   // ── Flashcards mode ───────────────────────────────────────────────────────────
@@ -335,11 +357,6 @@ export default function App() {
         </div>
       </div>
 
-      {/* Keying on the top card's id forces FlashcardDeck to remount (and
-          reset its local flipped state) whenever the front-of-deck card
-          changes — including when the poller above prepends a brand-new
-          card mid-review, so the answer side never leaks through for a card
-          the user hasn't actually flipped yet. */}
       <FlashcardDeck key={cards[0]?.id ?? "empty"} cards={cards} onResult={handleResult} />
 
       <p className="mt-6 text-slate-500 text-xs text-center">

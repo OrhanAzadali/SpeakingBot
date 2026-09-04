@@ -76,7 +76,6 @@ const TTS_VOICES = {
   azerbaijani: "az-AZ-BabekNeural"
 };
 
-// Robust helper to extract clean JSON even if wrapped in markdown code fences
 function extractJsonObject(raw) {
   if (!raw) throw new Error("Empty response from AI");
   const match = raw.match(/\{[\s\S]*\}/);
@@ -102,7 +101,7 @@ function linguisticAccuracyBlock(language) {
   * You MUST grammatically adjust, decline, and conjugate the word to match the sentence's syntax, tense, gender, and case!`;
 }
 
-// ── Call 1: Spoken Conversation with Level-Aware Scaffolding ──────────────────
+// ── Call 1: Spoken Conversation with Audio/Text Separation for Beginners ──────
 function buildConversationPrompt(language, level, mediatorLanguage = "english") {
   const isBeginner = level.toLowerCase().includes("beginner");
   const isIntermediate = level.toLowerCase().includes("intermediate");
@@ -130,13 +129,20 @@ Structure your breakdown cleanly:
 `;
 
   const scaffoldingDirective = isBeginner
-    ? `BEGINNER SCAFFOLDING & MEDIATOR SUPPORT (MANDATORY):
+    ? `BEGINNER SCAFFOLDING & AUDIO SEPARATION MANDATE:
 - The student is a complete BEGINNER. Their mediator language is ${mediatorLanguage.toUpperCase()}.
 - If the student expresses confusion (e.g. "не понимаю", "i don't understand", "помоги"), asks for translation, or requests help in ${mediatorLanguage} (e.g. "нет, на русском", "speak English", "russich"):
   1. NEVER stubbornly stay only in ${language}! NEVER say "I only speak ${language}" or "wir bleiben auf ${language}".
-  2. Use ${mediatorLanguage} to bridge the gap: explain what the phrase meant, translate it clearly, and give an easy template to reply.`
+  2. Use ${mediatorLanguage} to bridge the gap: explain what the phrase meant, translate it clearly, and give an easy template to reply.
+- AUDIO/TEXT SEPARATION (CRITICAL):
+  To prevent the ${language} Text-to-Speech voice engine from mispronouncing ${mediatorLanguage} words, wrap the pure ${language} sentences to be read aloud inside [SPEECH]...[/SPEECH] tags!
+  Example format for Beginners:
+  [SPEECH]
+  Hallo! Wie heißt du?
+  [/SPEECH]
+  Без проблем, давай разберём по-русски! «Wie heißt du?» означает «Как тебя зовут?». Чтобы ответить, скажи: «Ich heiße ... [твоё имя]». Как зовут тебя?`
     : (isIntermediate
-      ? `INTERMEDIATE SCAFFOLDING:
+      ? `INTERMEDIATE IMMERSION:
 - Conduct conversation primarily in ${language}.
 - When student asks for grammatical explanations, explain the grammar/conjugation in ${mediatorLanguage}, but keep conversational follow-ups in ${language}.`
       : `ADVANCED IMMERSION:
@@ -152,7 +158,7 @@ ${grammarBreakdownEngine}
 
 ${scaffoldingDirective}
 
-Keep conversational turns natural and supportive. Plain text only: no audio-unfriendly formatting.`;
+Keep conversational turns natural and supportive. Plain text only: no markdown formatting that disrupts TTS.`;
 }
 
 // ── Call 2: Rich Grammar, Syntax, Orthography & Semantics Analysis ────────────
@@ -219,10 +225,6 @@ export async function generateSkillDrill(skill, targetLanguage, mediatorLanguage
   const isAdvanced = level.toLowerCase().includes("advanced");
   const isIntermediate = level.toLowerCase().includes("intermediate");
 
-  // Instruction Language Rule:
-  // Advanced -> 100% in targetLanguage.
-  // Intermediate -> Prompt in targetLanguage.
-  // Beginner -> Prompt in mediatorLanguage.
   const promptLang = (isAdvanced || isIntermediate) ? targetLanguage : mediatorLanguage;
 
   const prompt = `You are an elite CEFR curriculum designer creating a ${drillType.toUpperCase()} ${skill.toUpperCase()} drill.
@@ -719,7 +721,15 @@ export async function chat(userId, userMessage, history, language, level, langua
   ]);
 
   const rawReply = conversationResponse.choices[0].message.content?.trim();
-  const reply = rawReply || "Sorry, could you rephrase that? I didn't quite catch it.";
+  let reply = rawReply || "Sorry, could you rephrase that? I didn't quite catch it.";
+
+  // Separate spoken target language from written mediator explanation for clean TTS
+  let spokenReply = null;
+  const speechMatch = reply.match(/\[SPEECH\]([\s\S]*?)\[\/SPEECH\]/i);
+  if (speechMatch) {
+    spokenReply = speechMatch[1].trim();
+    reply = reply.replace(/\[SPEECH\][\s\S]*?\[\/SPEECH\]/i, "").trim();
+  }
 
   let analysisData = { correctionText: "✅ Perfect!", mistakes: [] };
   try {
@@ -765,7 +775,7 @@ export async function chat(userId, userMessage, history, language, level, langua
   await addHistory(userId, "user", userMessage);
   await addHistory(userId, "assistant", reply);
 
-  return { correction, reply };
+  return { correction, reply, spokenReply };
 }
 
 // ── Call 9: Pedagogically Comprehensive Roadmap Builder ──────────────────────
@@ -826,6 +836,7 @@ export async function maybeGenerateRoadmap(userId, language, level, mediatorLang
 
 function stripForSpeech(text) {
   return text
+    .replace(/\[SPEECH\][\s\S]*?\[\/SPEECH\]/gi, "")
     .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
     .replace(/\*\*(.*?)\*\*/g, "$1")
     .replace(/__(.*?)__/g, "$1")
@@ -878,7 +889,6 @@ export async function transcribeAudio(audioBuffer, filename = "audio.ogg") {
     })
   );
 }
-
 // // ai.js
 // import Groq, { toFile } from "groq-sdk";
 // import { addFlashcard, addHistory, getHistory, countUserMessages, saveRoadmap } from "./db.js";

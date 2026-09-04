@@ -1,6 +1,17 @@
 // FlashcardDeck.jsx
 import React, { useState } from "react";
 
+// Standard BCP 47 language codes for native in-browser Web Speech pronunciation
+const SPEECH_LANG_CODES = {
+  spanish: "es-ES", english: "en-US", french: "fr-FR", german: "de-DE",
+  japanese: "ja-JP", italian: "it-IT", portuguese: "pt-BR", russian: "ru-RU",
+  arabic: "ar-SA", chinese: "zh-CN", hindi: "hi-IN", korean: "ko-KR",
+  turkish: "tr-TR", dutch: "nl-NL", polish: "pl-PL", swedish: "sv-SE",
+  vietnamese: "vi-VN", indonesian: "id-ID", thai: "th-TH", filipino: "fil-PH",
+  ukrainian: "uk-UA", malay: "ms-MY", romanian: "ro-RO", greek: "el-GR",
+  czech: "cs-CZ", hungarian: "hu-HU", azerbaijani: "az-AZ"
+};
+
 export default function FlashcardDeck({ cards, onResult }) {
   const [flipped, setFlipped] = useState(false);
   const [animating, setAnimating] = useState(null);
@@ -22,6 +33,18 @@ export default function FlashcardDeck({ cards, onResult }) {
     }, 280);
   }
 
+  // Speaks the target word aloud using native browser speech synthesis
+  function playPronunciation(e, text, langKey) {
+    e.stopPropagation(); // Crucial: prevents card from flipping when clicking the speaker button
+    if (!window.speechSynthesis) return;
+
+    window.speechSynthesis.cancel();
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.lang = SPEECH_LANG_CODES[langKey?.toLowerCase()] || "en-US";
+    utterance.rate = 0.85; // Slightly slower for crisp pedagogical clarity
+    window.speechSynthesis.speak(utterance);
+  }
+
   // Pure dictionary lemma / base form display
   const displayWord = current.initial_form || current.word;
   const usedForm = current.used_form || current.word;
@@ -33,9 +56,9 @@ export default function FlashcardDeck({ cards, onResult }) {
         onClick={handleFlip}
         className={`relative w-full rounded-2xl cursor-pointer select-none transition-transform duration-200 active:scale-95 ${animating === "right" ? "animate-slide-right" : ""
           } ${animating === "left" ? "animate-slide-left" : ""}`}
-        style={{ minHeight: 340, boxShadow: "0 20px 60px rgba(0,0,0,0.4)" }}
+        style={{ minHeight: 350, boxShadow: "0 20px 60px rgba(0,0,0,0.4)" }}
       >
-        {/* FRONT: Base Lemma, Grammatical Role & Phonetic Transcription */}
+        {/* FRONT: Base Lemma, Audio Speaker Button, Role & Phonetics */}
         {!flipped && (
           <div className="absolute inset-0 flex flex-col items-center justify-center p-6 rounded-2xl bg-gradient-to-br from-indigo-600 to-purple-700 text-center">
             <div className="flex items-center gap-2 mb-2">
@@ -47,16 +70,27 @@ export default function FlashcardDeck({ cards, onResult }) {
               )}
             </div>
 
-            <p className="text-3xl font-bold text-white leading-snug">{displayWord}</p>
+            {/* Word Display with Native 🔊 Pronunciation Button */}
+            <div className="flex items-center justify-center gap-2.5 my-1">
+              <p className="text-3xl font-bold text-white leading-snug">{displayWord}</p>
+              <button
+                type="button"
+                onClick={(e) => playPronunciation(e, displayWord, current.language)}
+                className="p-2 rounded-full bg-indigo-500/30 hover:bg-indigo-500/50 active:scale-90 transition-all text-indigo-100 hover:text-white border border-indigo-300/30 shadow-sm"
+                title="Listen to pronunciation"
+              >
+                🔊
+              </button>
+            </div>
 
             {current.transcription && (
-              <p className="text-sm font-medium text-indigo-200 mt-2 bg-indigo-950/40 px-3 py-1 rounded-full border border-indigo-300/30">
+              <p className="text-xs font-medium text-indigo-200 mt-1.5 bg-indigo-950/40 px-3 py-1 rounded-full border border-indigo-300/30">
                 {current.transcription}
               </p>
             )}
 
             {hasDifferentUsedForm && (
-              <p className="text-xs text-indigo-200 mt-2">
+              <p className="text-xs text-indigo-200 mt-2.5">
                 Used in context as: <span className="underline font-semibold">{usedForm}</span>
               </p>
             )}
@@ -73,16 +107,26 @@ export default function FlashcardDeck({ cards, onResult }) {
             {/* Header: Meaning & POS */}
             <div className="flex items-center justify-between mb-1">
               <span className="text-xs uppercase tracking-widest text-slate-400">Meaning</span>
-              {current.part_of_speech && (
-                <span className="text-[11px] px-2 py-0.5 rounded-full bg-slate-700 text-slate-300 font-medium">
-                  {current.part_of_speech}
-                </span>
-              )}
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={(e) => playPronunciation(e, displayWord, current.language)}
+                  className="p-1 px-1.5 rounded-md bg-slate-700 hover:bg-slate-600 text-xs text-slate-200 active:scale-90 transition-all"
+                  title="Listen again"
+                >
+                  🔊 Listen
+                </button>
+                {current.part_of_speech && (
+                  <span className="text-[11px] px-2 py-0.5 rounded-full bg-slate-700 text-slate-300 font-medium">
+                    {current.part_of_speech}
+                  </span>
+                )}
+              </div>
             </div>
 
             <p className="text-xl font-bold text-green-400 mb-2">{current.correction}</p>
 
-            {/* Linguistic Details Container */}
+            {/* Extended Linguistic Attributes Container */}
             <div className="space-y-2 text-xs leading-relaxed">
               {current.transcription && (
                 <p className="text-indigo-300">
@@ -93,7 +137,7 @@ export default function FlashcardDeck({ cards, onResult }) {
               {current.pronunciation_rule && (
                 <div className="bg-slate-700/40 p-2 rounded-lg border border-slate-600/40">
                   <p className="text-slate-300">
-                    <span className="text-indigo-300 font-semibold">Pronunciation:</span> {current.pronunciation_rule}
+                    <span className="text-indigo-300 font-semibold">Pronunciation Rule:</span> {current.pronunciation_rule}
                   </p>
                 </div>
               )}
@@ -106,15 +150,15 @@ export default function FlashcardDeck({ cards, onResult }) {
                 </div>
               )}
 
-              {current.orthography_rule && (
+              {current.syntax_rule && (
                 <p className="text-slate-300">
-                  <span className="text-slate-400 font-semibold">Orthography:</span> {current.orthography_rule}
+                  <span className="text-slate-400 font-semibold">Syntax & Case Government:</span> {current.syntax_rule}
                 </p>
               )}
 
-              {current.syntax_rule && (
+              {current.orthography_rule && (
                 <p className="text-slate-300">
-                  <span className="text-slate-400 font-semibold">Syntax & Case:</span> {current.syntax_rule}
+                  <span className="text-slate-400 font-semibold">Orthography:</span> {current.orthography_rule}
                 </p>
               )}
 
@@ -127,6 +171,12 @@ export default function FlashcardDeck({ cards, onResult }) {
               {current.synonyms && (
                 <p className="text-indigo-300">
                   <span className="text-slate-400 font-semibold">Synonyms:</span> {current.synonyms}
+                </p>
+              )}
+
+              {current.explanation && !current.grammar_rule && (
+                <p className="text-slate-300">
+                  <span className="text-slate-400 font-semibold">Grammar Note:</span> {current.explanation}
                 </p>
               )}
 

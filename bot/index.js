@@ -407,6 +407,15 @@ bot.command("start", async (ctx) => {
   );
 });
 
+// Cancel / Exit active tests or drills anytime
+bot.command(["cancel", "exit", "stop"], async (ctx) => {
+  const userId = ctx.from.id;
+  await clearActiveTest(userId);
+  await clearActiveDrill(userId);
+  await upsertUser(userId, { state: "chatting" });
+  await ctx.reply("⏹ Drill/Test cancelled. You are back in regular conversation mode!");
+});
+
 bot.command(["pdf", "export"], async (ctx) => {
   await sendVocabularyPdfToUser(ctx, ctx.from.id);
 });
@@ -542,6 +551,7 @@ bot.command("help", async (ctx) => {
     "  /pdf — download full vocabulary notebook as PDF\n" +
     "  /roadmap — view your learning roadmap and study plan\n" +
     "  /roadmap_pdf — download your roadmap as an A4 PDF\n" +
+    "  /cancel — exit active drill or placement test anytime\n" +
     "  /reset — start over\n" +
     "  /upgrade — unlock unlimited messages\n\n" +
     "💬 Chat naturally via text or voice notes anytime!",
@@ -685,6 +695,7 @@ async function finishAndEvaluateTest(ctx, userId, test) {
   const statusMsg = await ctx.reply("🧠 Evaluating your answers against CEFR benchmarks with AI...");
 
   try {
+    // Deterministic pre-verification of choice questions to stop AI guesswork
     const normalizedAnswers = test.questions.map((q, i) => {
       const userAns = test.answers[i] || "";
       if (q.type === "choice") {
@@ -1122,7 +1133,7 @@ bot.on("message:voice", async (ctx) => {
     );
 
     const history = await getHistory(userId);
-    const { correction, reply } = await chat(
+    const { correction, reply, spokenReply } = await chat(
       userId, transcribed, history,
       LANGUAGES[user.language], user.level, user.language,
       user.mediator_language || "english"
@@ -1134,9 +1145,12 @@ bot.on("message:voice", async (ctx) => {
       { parse_mode: "Markdown" }
     );
 
-    const audioPath = await textToSpeech(reply, user.language);
+    // Audio synthesis speaks target-language portions cleanly so TTS voice does not distort mediator language
+    const audioPath = await textToSpeech(spokenReply || reply, user.language);
     if (audioPath) {
-      await ctx.replyWithVoice(new InputFile(audioPath));
+      await ctx.replyWithVoice(new InputFile(audioPath), {
+        caption: reply
+      });
       await cleanupFile(audioPath);
     } else {
       await ctx.reply(reply);
@@ -1163,7 +1177,7 @@ bot.on("message:voice", async (ctx) => {
 // ── Text Messages ─────────────────────────────────────────────────────────────
 
 bot.on("message:text", async (ctx) => {
-  // CRITICAL FIX: Slash commands are handled by bot.command() handlers above
+  // CRITICAL FIX: Slash commands are handled strictly by bot.command() handlers above
   if (ctx.message.text.startsWith("/")) return;
 
   const userId = ctx.from.id;
@@ -1312,6 +1326,7 @@ initDB().then(async () => {
       { command: "roadmap_pdf", description: "Download learning roadmap as PDF" },
       { command: "test", description: "Retake CEFR placement test" },
       { command: "testhistory", description: "View placement test results" },
+      { command: "cancel", description: "Exit active test or drill" },
       { command: "help", description: "How to use this bot" }
     ]);
     console.log("✅ Telegram command menu registered successfully");
