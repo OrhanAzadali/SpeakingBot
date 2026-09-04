@@ -102,25 +102,44 @@ export default function ListeningGame({ cards, API, authHeaders, onExit }) {
     try {
       let data;
       if (API) {
-        const res = await fetch(`${API}/api/flashcards/${current.id}/quiz`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json", ...authHeaders },
-          body: JSON.stringify({ answer }),
-        });
-        data = await res.json();
-      } else {
+        try {
+          const res = await fetch(`${API}/api/flashcards/${current.id}/quiz`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", ...authHeaders },
+            body: JSON.stringify({ answer }),
+          });
+          if (res.ok) {
+            const json = await res.json();
+            if (json && typeof json.correct === "boolean") {
+              data = json;
+            }
+          }
+        } catch {
+          // Network or parse issue, fall through to local evaluation
+        }
+      }
+
+      if (!data) {
         // Safe offline/demo fallback, mirrors Quiz.jsx
-        const isExact = answer.trim().toLowerCase() === current.correction.trim().toLowerCase();
+        const cleanA = (answer || "").trim().toLowerCase();
+        const cleanTarget = (current.correction || "").trim().toLowerCase();
+        const synonymsList = (current.synonyms || "").toLowerCase().split(",").map((s) => s.trim()).filter(Boolean);
+        const isExact = cleanA === cleanTarget;
+        const isSynonym = synonymsList.includes(cleanA);
+        const isCorrect = isExact || isSynonym;
+
         data = {
-          correct: isExact,
-          isSynonym: false,
-          correctAnswer: current.correction,
-          explanation: current.explanation || "Exact meaning match",
+          correct: isCorrect,
+          isSynonym: isSynonym && !isExact,
+          correctAnswer: current.correction || current.word,
+          explanation: current.explanation || (isCorrect ? "Exact meaning match" : `Expected "${current.correction}"`),
           partOfSpeech: current.part_of_speech || "word",
           transcription: current.transcription || "",
           pronunciation_rule: current.pronunciation_rule || "",
           synonyms: current.synonyms || "",
           sentence: current.sentence || current.context || "",
+          initialForm: current.initial_form || current.word,
+          usedForm: current.used_form || current.word,
           mastered: false,
         };
       }
