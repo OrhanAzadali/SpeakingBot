@@ -1,0 +1,336 @@
+// ListeningGame.jsx
+import React, { useEffect, useRef, useState } from "react";
+
+// Same BCP 47 map FlashcardDeck.jsx uses for native in-browser TTS
+const SPEECH_LANG_CODES = {
+  spanish: "es-ES", english: "en-US", french: "fr-FR", german: "de-DE",
+  japanese: "ja-JP", italian: "it-IT", portuguese: "pt-BR", russian: "ru-RU",
+  arabic: "ar-SA", chinese: "zh-CN", hindi: "hi-IN", korean: "ko-KR",
+  turkish: "tr-TR", dutch: "nl-NL", polish: "pl-PL", swedish: "sv-SE",
+  vietnamese: "vi-VN", indonesian: "id-ID", thai: "th-TH", filipino: "fil-PH",
+  ukrainian: "uk-UA", malay: "ms-MY", romanian: "ro-RO", greek: "el-GR",
+  czech: "cs-CZ", hungarian: "hu-HU", azerbaijani: "az-AZ",
+};
+
+function shuffle(arr) {
+  const a = [...arr];
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+
+export default function ListeningGame({ cards, API, authHeaders, onExit }) {
+  const [queue, setQueue] = useState(() => shuffle(cards));
+  const [current, setCurrent] = useState(null);
+  const [questionType, setQuestionType] = useState("type"); // "type" | "choice"
+  const [options, setOptions] = useState([]);
+  const [typedAnswer, setTypedAnswer] = useState("");
+  const [feedback, setFeedback] = useState(null);
+  const [submitting, setSubmitting] = useState(false);
+  const [masteredCount, setMasteredCount] = useState(0);
+  const [answeredCount, setAnsweredCount] = useState(0);
+  const [playCount, setPlayCount] = useState(0);
+  const hasAutoPlayedRef = useRef(false);
+
+  // Pick up brand-new words the background poller in App.jsx adds mid-session
+  useEffect(() => {
+    setQueue((prev) => {
+      const existingIds = new Set(prev.map((c) => c.id));
+      const freshCards = cards.filter((c) => !existingIds.has(c.id));
+      if (freshCards.length === 0) return prev;
+      return [...freshCards, ...prev]; // newest words first
+    });
+  }, [cards]);
+
+  // Pick the next question whenever the queue advances and nothing is being
+  // shown right now (no feedback panel up, no question in flight).
+  useEffect(() => {
+    if (feedback || current) return;
+    if (queue.length === 0) return;
+
+    const next = queue[0];
+
+    const distractorPool = cards
+      .filter((c) => c.id !== next.id)
+      .map((c) => c.correction)
+      .filter((text, i, arr) => text && arr.indexOf(text) === i);
+
+    const canOfferChoice = distractorPool.length >= 1;
+    const type = canOfferChoice && Math.random() < 0.5 ? "choice" : "type";
+
+    if (type === "choice") {
+      const distractors = shuffle(distractorPool).slice(0, 3);
+      setOptions(shuffle([next.correction, ...distractors]));
+    } else {
+      setOptions([]);
+    }
+
+    setQuestionType(type);
+    setCurrent(next);
+    setTypedAnswer("");
+    setPlayCount(0);
+    hasAutoPlayedRef.current = false;
+  }, [queue, feedback, current, cards]);
+
+  function speak(text, langKey) {
+    if (!window.speechSynthesis || !text) return;
+    window.speechSynthesis.cancel();
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.lang = SPEECH_LANG_CODES[langKey?.toLowerCase()] || "en-US";
+    utterance.rate = 0.85; // slower for pedagogical clarity, matches FlashcardDeck
+    window.speechSynthesis.speak(utterance);
+    setPlayCount((n) => n + 1);
+  }
+
+  // Auto-play the word once per question so the challenge starts immediately
+  // without an extra tap. Uses initial_form (the lemma) — same field the
+  // /quiz endpoint grades against — so what's heard always matches what's judged.
+  useEffect(() => {
+    if (!current || hasAutoPlayedRef.current) return;
+    hasAutoPlayedRef.current = true;
+    const displayWord = current.initial_form || current.word;
+    const t = setTimeout(() => speak(displayWord, current.language), 300);
+    return () => clearTimeout(t);
+  }, [current]);
+
+  async function submitAnswer(answer) {
+    if (submitting || !current) return;
+    setSubmitting(true);
+
+    try {
+      let data;
+      if (API) {
+        const res = await fetch(`${API}/api/flashcards/${current.id}/quiz`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", ...authHeaders },
+          body: JSON.stringify({ answer }),
+        });
+        data = await res.json();
+      } else {
+        // Safe offline/demo fallback, mirrors Quiz.jsx
+        const isExact = answer.trim().toLowerCase() === current.correction.trim().toLowerCase();
+        data = {
+          correct: isExact,
+          isSynonym: false,
+          correctAnswer: current.correction,
+          explanation: current.explanation || "Exact meaning match",
+          partOfSpeech: current.part_of_speech || "word",
+          transcription: current.transcription || "",
+          pronunciation_rule: current.pronunciation_rule || "",
+          synonyms: current.synonyms || "",
+          sentence: current.sentence || current.context || "",
+          mastered: false,
+        };
+      }
+
+      setAnsweredCount((n) => n + 1);
+      if (data.mastered) setMasteredCount((n) => n + 1);
+
+      setFeedback({
+        correct: data.correct,
+        isSynonym: data.isSynonym,
+        correctAnswer: data.correctAnswer || current.correction,
+        explanation: data.explanation || current.explanation,
+        partOfSpeech: data.partOfSpeech || current.part_of_speech,
+        transcription: data.transcription || current.transcription,
+        pronunciation_rule: data.pronunciation_rule || current.pronunciation_rule,
+        synonyms: data.synonyms || current.synonyms,
+        sentence: data.sentence || current.sentence,
+        initialForm: data.initialForm || current.initial_form || current.word,
+        usedForm: data.usedForm || current.used_form || current.word,
+        mastered: data.mastered,
+        userAnswer: answer,
+      });
+
+      setQueue((prev) => {
+        const rest = prev.slice(1);
+        return data.mastered ? rest : [...rest, current];
+      });
+    } catch (err) {
+      console.error("Listening game answer error:", err.message);
+      setQueue((prev) => [...prev.slice(1), current]);
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  function handleContinue() {
+    setFeedback(null);
+    setCurrent(null);
+  }
+
+  // ── Completion screen ──────────────────────────────────────────────────────
+  if (!current && !feedback && queue.length === 0) {
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center px-6 text-center">
+        <div className="text-6xl mb-6">🏆</div>
+        <h1 className="text-2xl font-bold text-white mb-2">All words mastered by ear!</h1>
+        <p className="text-slate-400 mb-8">
+          {masteredCount} word{masteredCount !== 1 ? "s" : ""} recognized correctly three times in a row.
+        </p>
+        <div className="w-full max-w-xs bg-slate-800 rounded-2xl p-6 mb-6" style={{ boxShadow: "0 20px 60px rgba(0,0,0,0.4)" }}>
+          <p className="text-3xl font-bold text-cyan-400">{answeredCount}</p>
+          <p className="text-slate-400 text-sm mt-1">Words listened to</p>
+        </div>
+        <button
+          onClick={onExit}
+          className="px-6 py-3 rounded-xl bg-cyan-600 text-white font-semibold hover:bg-cyan-500 active:scale-95 transition-all"
+        >
+          Back to games
+        </button>
+      </div>
+    );
+  }
+
+  // ── Feedback panel (reveals the word + full linguistic detail) ─────────────
+  if (feedback) {
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center px-4 py-8 text-center max-w-sm mx-auto">
+        <div className="text-5xl mb-3">{feedback.correct ? (feedback.isSynonym ? "💡" : "✅") : "❌"}</div>
+
+        <div className="flex items-center gap-2 justify-center mb-1">
+          <p className="text-slate-200 font-bold text-xl">{feedback.initialForm}</p>
+          {feedback.partOfSpeech && (
+            <span className="text-[11px] px-2 py-0.5 rounded-full bg-slate-700 text-slate-300 font-medium">
+              {feedback.partOfSpeech}
+            </span>
+          )}
+        </div>
+
+        {feedback.transcription && (
+          <p className="text-xs text-cyan-300 mb-2 font-medium">{feedback.transcription}</p>
+        )}
+
+        <h2 className={`text-lg font-bold mb-3 ${feedback.correct ? "text-green-400" : "text-red-400"}`}>
+          {feedback.correct ? (feedback.isSynonym ? "Synonym Accepted!" : "Correct!") : "Not quite"}
+        </h2>
+
+        <div className="w-full bg-slate-800/90 border border-slate-700 rounded-2xl p-4 text-left mb-4 shadow-lg text-xs leading-relaxed space-y-2">
+          <p className="text-slate-300">
+            <span className="text-slate-400 font-semibold">Accepted Meaning:</span>{" "}
+            <span className="text-white font-bold">{feedback.correctAnswer}</span>
+          </p>
+
+          {feedback.isSynonym && (
+            <p className="text-emerald-400 bg-emerald-950/40 p-2 rounded-lg border border-emerald-500/30">
+              ✨ <i>"{feedback.userAnswer}"</i> conveys the same core meaning.
+            </p>
+          )}
+
+          {feedback.pronunciation_rule && (
+            <p className="text-slate-300 bg-slate-700/40 p-2 rounded-lg border border-slate-600/40">
+              <span className="text-cyan-300 font-semibold">Pronunciation:</span> {feedback.pronunciation_rule}
+            </p>
+          )}
+
+          {feedback.synonyms && (
+            <p className="text-cyan-300">
+              <span className="text-slate-400 font-semibold">Synonyms:</span> {feedback.synonyms}
+            </p>
+          )}
+
+          {feedback.explanation && (
+            <p className="text-slate-300">
+              <span className="text-slate-400 font-semibold">Grammar Note:</span> {feedback.explanation}
+            </p>
+          )}
+
+          {feedback.sentence && (
+            <div className="pt-2 border-t border-slate-700">
+              <p className="text-[11px] text-slate-400 font-semibold mb-0.5">Example in context:</p>
+              <p className="text-slate-300 italic" dangerouslySetInnerHTML={{ __html: feedback.sentence }} />
+            </div>
+          )}
+        </div>
+
+        {feedback.mastered && (
+          <p className="text-cyan-400 font-semibold text-xs mb-3">🎉 Word mastered and archived to your learned vocabulary!</p>
+        )}
+
+        <button
+          onClick={handleContinue}
+          className="w-full py-3.5 rounded-xl bg-cyan-600 text-white font-semibold hover:bg-cyan-500 active:scale-95 transition-all text-sm"
+        >
+          Continue
+        </button>
+      </div>
+    );
+  }
+
+  // ── Question screen (no text — audio only until answered) ──────────────────
+  if (!current) return null;
+
+  const displayWord = current.initial_form || current.word;
+
+  return (
+    <div className="min-h-screen flex flex-col items-center justify-center px-4 py-8">
+      <div className="w-full max-w-sm mb-4 text-center">
+        <p className="text-slate-400 text-xs">{queue.length} word{queue.length !== 1 ? "s" : ""} left to master</p>
+      </div>
+
+      <div
+        className="w-full max-w-sm rounded-2xl p-7 mb-6 bg-gradient-to-br from-cyan-600 to-blue-700 text-center flex flex-col items-center"
+        style={{ boxShadow: "0 20px 60px rgba(0,0,0,0.4)" }}
+      >
+        <span className="text-xs uppercase tracking-widest text-cyan-200 mb-4">
+          Listen, then type or pick what it means
+        </span>
+
+        <button
+          type="button"
+          onClick={() => speak(displayWord, current.language)}
+          className="w-24 h-24 rounded-full bg-white/10 border-2 border-white/30 hover:bg-white/20 active:scale-90 transition-all flex items-center justify-center text-5xl"
+          title="Play the word"
+        >
+          🔊
+        </button>
+
+        <p className="mt-4 text-cyan-100 text-xs">
+          {playCount > 1 ? `Played ${playCount} times` : "Tap to replay"}
+        </p>
+      </div>
+
+      {questionType === "choice" ? (
+        <div className="w-full max-w-sm flex flex-col gap-3">
+          {options.map((opt, i) => (
+            <button
+              key={i}
+              disabled={submitting}
+              onClick={() => submitAnswer(opt)}
+              className="w-full py-3.5 rounded-xl bg-slate-800 border border-slate-700 text-white text-left px-4 hover:bg-slate-700 active:scale-95 transition-all disabled:opacity-50 text-sm"
+            >
+              {opt}
+            </button>
+          ))}
+        </div>
+      ) : (
+        <form
+          className="w-full max-w-sm flex flex-col gap-3"
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (typedAnswer.trim()) submitAnswer(typedAnswer.trim());
+          }}
+        >
+          <input
+            type="text"
+            value={typedAnswer}
+            onChange={(e) => setTypedAnswer(e.target.value)}
+            disabled={submitting}
+            autoFocus
+            placeholder="Type what you heard means in English..."
+            className="w-full py-3.5 px-4 rounded-xl bg-slate-800 border border-slate-700 text-white placeholder-slate-500 focus:outline-none focus:border-cyan-500 disabled:opacity-50 text-sm"
+          />
+          <button
+            type="submit"
+            disabled={submitting || !typedAnswer.trim()}
+            className="w-full py-3.5 rounded-xl bg-cyan-600 text-white font-semibold hover:bg-cyan-500 active:scale-95 transition-all disabled:opacity-50 text-sm"
+          >
+            {submitting ? "Judging Answer..." : "Submit"}
+          </button>
+        </form>
+      )}
+    </div>
+  );
+}

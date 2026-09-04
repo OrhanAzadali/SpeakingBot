@@ -3,7 +3,8 @@ import React, { useState, useEffect, useRef } from "react";
 import FlashcardDeck from "./components/FlashcardDeck.jsx";
 import Summary from "./components/Summary.jsx";
 import Quiz from "./components/Quiz.jsx";
-
+import Quiz from "./components/Quiz.jsx";
+import ListeningGame from "./components/ListeningGame.jsx";
 // Strip any trailing slashes to prevent double-slash 404/CORS errors
 const API = (import.meta.env.VITE_API_URL || "").replace(/\/+$/, "");
 if (!API) {
@@ -282,6 +283,15 @@ export default function App() {
             <div className="text-white font-semibold">Smart Quiz</div>
             <div className="text-indigo-100 text-xs mt-1">AI evaluates synonyms & meanings — 3 in a row masters the word</div>
           </button>
+          <button
+            onClick={() => setMode("listening")}
+            className="w-full py-5 px-4 rounded-2xl bg-gradient-to-br from-cyan-600 to-blue-700 hover:brightness-110 active:scale-95 transition-all text-left"
+            style={{ boxShadow: "0 20px 60px rgba(0,0,0,0.4)" }}
+          >
+            <div className="text-4xl mb-2">🎧</div>
+            <div className="text-white font-semibold">Listening</div>
+            <div className="text-cyan-100 text-xs mt-1">Hear the word first — type or pick what it means</div>
+          </button>
         </div>
 
         {/* PDF Materials Download Section */}
@@ -313,7 +323,10 @@ export default function App() {
       </div>
     );
   }
-
+  // ── Listening mode ────────────────────────────────────────────────────────────
+  if (mode === "listening") {
+    return <ListeningGame cards={cards} API={API} authHeaders={getAuthHeaders()} onExit={backToModeSelect} />;
+  }
   // ── Quiz mode ─────────────────────────────────────────────────────────────────
   if (mode === "quiz") {
     return <Quiz cards={cards} API={API} authHeaders={getAuthHeaders()} onExit={backToModeSelect} />;
@@ -362,6 +375,7 @@ export default function App() {
       <p className="mt-6 text-slate-500 text-xs text-center">
         Tap to reveal • ✅ remembered • ❌ forgot
       </p>
+
     </div>
   );
 }
