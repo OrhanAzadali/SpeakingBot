@@ -8,7 +8,7 @@ const pool = new Pool({
   ssl: { rejectUnauthorized: false }, // required for Supabase
 });
 
-// ── Initialize tables ─────────────────────────────────────────────────────────
+// ── Initialize tables & schema migrations ─────────────────────────────────────
 
 export async function initDB() {
   await pool.query(`
@@ -56,6 +56,9 @@ export async function initDB() {
     ALTER TABLE flashcards ADD COLUMN IF NOT EXISTS synonyms TEXT;
     ALTER TABLE flashcards ADD COLUMN IF NOT EXISTS explanation TEXT;
     ALTER TABLE flashcards ADD COLUMN IF NOT EXISTS sentence TEXT;
+    -- Rich Phonetic & Pronunciation Columns
+    ALTER TABLE flashcards ADD COLUMN IF NOT EXISTS transcription TEXT;
+    ALTER TABLE flashcards ADD COLUMN IF NOT EXISTS pronunciation_rule TEXT;
 
     CREATE TABLE IF NOT EXISTS user_progress (
       user_id BIGINT PRIMARY KEY,
@@ -82,6 +85,9 @@ export async function initDB() {
     ALTER TABLE learned_words ADD COLUMN IF NOT EXISTS synonyms TEXT;
     ALTER TABLE learned_words ADD COLUMN IF NOT EXISTS explanation TEXT;
     ALTER TABLE learned_words ADD COLUMN IF NOT EXISTS sentence TEXT;
+    -- Rich Phonetic & Pronunciation Columns
+    ALTER TABLE learned_words ADD COLUMN IF NOT EXISTS transcription TEXT;
+    ALTER TABLE learned_words ADD COLUMN IF NOT EXISTS pronunciation_rule TEXT;
 
     -- Diagnostic Level Tests history table.
     -- Stores CEFR evaluation breakdown and examiner notes.
@@ -146,7 +152,7 @@ export async function initDB() {
       created_at TIMESTAMPTZ DEFAULT NOW()
     );
   `);
-  console.log("✅ Database tables & 4-skill progress schemas ready");
+  console.log("✅ Database tables & rich phonetic schemas ready");
 }
 
 // ── Users ─────────────────────────────────────────────────────────────────────
@@ -229,13 +235,11 @@ export async function clearActiveDrill(userId) {
 }
 
 export async function completeDrillSession(userId, language, skill, drillType, totalQuestions, finalScore, feedback) {
-  // 1. Record in historical drill progress
   await pool.query(`
     INSERT INTO skill_progress (user_id, language, skill, drill_type, total_questions, score, feedback)
     VALUES ($1, $2, $3, $4, $5, $6, $7)
   `, [userId, language, skill, drillType, totalQuestions, finalScore, feedback]);
 
-  // 2. Update user skill profile (running average and drill count)
   await pool.query(`
     INSERT INTO user_skills (user_id, language, skill, score, drills_completed, updated_at)
     VALUES ($1, $2, $3, $4, 1, NOW())
@@ -460,20 +464,10 @@ export async function getRoadmap(userId) {
   return rows[0] ?? null;
 }
 
-// ── Flashcards (Guaranteed Lemma Output via COALESCE) ─────────────────────────
+// ── Flashcards (Guaranteed Lemma Output with Rich Phonetics & Grammar) ────────
 
 export async function addFlashcard(userId, cardData) {
-  let word, correction, context, language, initial_form, used_form, part_of_speech, synonyms, explanation, sentence;
-
-  // Add inside addFlashcard() in db.js:
-  const normWord = String(baseForm || "").toLowerCase().trim();
-  const normCorrection = String(correction || "").toLowerCase().trim();
-
-  // Reject circular cards (e.g. word: "Buch", correction: "Buch")
-  if (normWord === normCorrection || normWord.replace(/[^\p{L}]/gu, '') === normCorrection.replace(/[^\p{L}]/gu, '')) {
-    console.warn(`Skipped circular flashcard: "${baseForm}" -> "${correction}"`);
-    return;
-  }
+  let word, correction, context, language, initial_form, used_form, part_of_speech, synonyms, explanation, sentence, transcription, pronunciation_rule;
 
   if (typeof cardData === "object" && cardData !== null && !Array.isArray(cardData)) {
     ({
@@ -487,6 +481,8 @@ export async function addFlashcard(userId, cardData) {
       synonyms = null,
       explanation = null,
       sentence = null,
+      transcription = null,
+      pronunciation_rule = null,
     } = cardData);
   } else {
     word = arguments[1];
@@ -497,12 +493,19 @@ export async function addFlashcard(userId, cardData) {
 
   const baseForm = initial_form || word;
 
+  // Strict validation: Reject single-letter noise, particles, and circular flashcards
+  const normWord = String(baseForm || "").toLowerCase().trim();
+  const normCorr = String(correction || "").toLowerCase().trim();
+  if (!normWord || !normCorr || normWord === normCorr) return;
+  if (normWord.length <= 1 || normWord === 'не' || normWord === 'о' || normWord === 'а') return;
+
   await pool.query(`
     INSERT INTO flashcards (
       user_id, word, correction, context, language,
-      initial_form, used_form, part_of_speech, synonyms, explanation, sentence
+      initial_form, used_form, part_of_speech, synonyms, explanation, sentence,
+      transcription, pronunciation_rule
     )
-    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
   `, [
     userId,
     baseForm,
@@ -514,10 +517,13 @@ export async function addFlashcard(userId, cardData) {
     part_of_speech,
     synonyms,
     explanation,
-    sentence
+    sentence,
+    transcription,
+    pronunciation_rule
   ]);
 }
 
+// Strict match only. Returns rich linguistic attributes with lemma fallback
 export async function getFlashcardsByLanguage(userId, language) {
   const { rows } = await pool.query(`
     SELECT
@@ -526,6 +532,7 @@ export async function getFlashcardsByLanguage(userId, language) {
       correction, context, language,
       COALESCE(NULLIF(initial_form, ''), word) AS initial_form,
       used_form, part_of_speech, synonyms, explanation, sentence,
+      transcription, pronunciation_rule,
       next_review, ease_factor, interval, correct_streak
     FROM flashcards
     WHERE user_id = $1 AND language = $2
@@ -542,6 +549,7 @@ export async function getFlashcardById(id, userId) {
       correction, context, language,
       COALESCE(NULLIF(initial_form, ''), word) AS initial_form,
       used_form, part_of_speech, synonyms, explanation, sentence,
+      transcription, pronunciation_rule,
       next_review, ease_factor, interval, correct_streak
     FROM flashcards
     WHERE id = $1 AND user_id = $2
@@ -557,6 +565,7 @@ export async function getDueFlashcards(userId) {
       correction, context, language,
       COALESCE(NULLIF(initial_form, ''), word) AS initial_form,
       used_form, part_of_speech, synonyms, explanation, sentence,
+      transcription, pronunciation_rule,
       next_review, ease_factor, interval, correct_streak
     FROM flashcards
     WHERE user_id = $1 AND next_review <= NOW()
@@ -612,8 +621,8 @@ export async function recordQuizResult(id, userId, correct) {
     await pool.query(
       `INSERT INTO learned_words (
         user_id, language, word, meaning, initial_form, used_form,
-        part_of_speech, synonyms, explanation, sentence
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+        part_of_speech, synonyms, explanation, sentence, transcription, pronunciation_rule
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
       [
         userId,
         card.language,
@@ -625,6 +634,8 @@ export async function recordQuizResult(id, userId, correct) {
         card.synonyms,
         card.explanation,
         card.sentence,
+        card.transcription,
+        card.pronunciation_rule
       ]
     );
     await pool.query("DELETE FROM flashcards WHERE id = $1", [id]);

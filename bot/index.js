@@ -27,7 +27,7 @@ const bot = new Bot(process.env.BOT_TOKEN);
 const MINIAPP_URL = process.env.MINIAPP_URL;
 
 // Free-tier daily message cap and Premium pricing. All configurable via env vars.
-const FREE_DAILY_LIMIT = parseInt(process.env.FREE_DAILY_LIMIT || "150", 10);
+const FREE_DAILY_LIMIT = parseInt(process.env.FREE_DAILY_LIMIT || "100", 10);
 const PREMIUM_PRICE_STARS = parseInt(process.env.PREMIUM_PRICE_STARS || "150", 10);
 const PREMIUM_DURATION_DAYS = parseInt(process.env.PREMIUM_DURATION_DAYS || "30", 10);
 
@@ -157,7 +157,7 @@ app.post("/api/flashcards/:id/quiz", requireTelegramAuth, async (req, res) => {
   });
 });
 
-// Mini App Direct PDF Download Endpoint
+// Mini App Direct PDF Download Endpoint (Vocabulary Notebook)
 app.get("/api/vocabulary/pdf", requireTelegramAuth, async (req, res) => {
   const user = await getUser(req.telegramUser.id);
   if (!user?.language) return res.status(400).json({ error: "No language selected" });
@@ -176,19 +176,32 @@ app.get("/api/vocabulary/pdf", requireTelegramAuth, async (req, res) => {
   }
 });
 
-// ── Crash-Proof PDF Engine ───────────────────────────────────────────────────
-// Detects available Unicode fonts on the hosting system (Linux / Render / Mac / Windows)
-// so that Russian (Cyrillic), Greek, German, or non-Latin alphabets NEVER crash PDFKit.
+// Mini App Direct PDF Download Endpoint (Learning Roadmap)
+app.get("/api/roadmap/pdf", requireTelegramAuth, async (req, res) => {
+  const user = await getUser(req.telegramUser.id);
+  const progress = await getRoadmap(req.telegramUser.id);
+  if (!progress?.roadmap) return res.status(404).json({ error: "No roadmap available" });
+
+  const tempPath = path.join(tmpdir(), `roadmap_web_${req.telegramUser.id}_${Date.now()}.pdf`);
+  try {
+    const filePath = await generateRoadmapPdf(req.telegramUser.id, user?.language, progress.roadmap, tempPath);
+    res.download(filePath, `My_${user?.language || "Language"}_Roadmap.pdf`, async () => {
+      await cleanupFile(filePath);
+    });
+  } catch (err) {
+    console.error("Web Roadmap PDF error:", err);
+    res.status(500).json({ error: "Failed to generate Roadmap PDF" });
+  }
+});
+
+// ── Crash-Proof PDF Unicode Font Locator ─────────────────────────────────────
 function findSystemUnicodeFont() {
   const potentialFonts = [
-    // Debian / Ubuntu / Render standard paths
     "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
     "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
     "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
     "/usr/share/fonts/truetype/freefont/FreeSans.ttf",
-    // Windows paths
     "C:\\Windows\\Fonts\\arial.ttf",
-    // Local fallback in project root
     path.join(process.cwd(), "fonts", "Roboto-Regular.ttf"),
     path.join(process.cwd(), "fonts", "DejaVuSans.ttf")
   ];
@@ -199,8 +212,7 @@ function findSystemUnicodeFont() {
   return null;
 }
 
-// Compiles all active cards and mastered words into a styled PDF document
-// NO TOFU BOXES: Strips emojis from PDF section titles so they render cleanly.
+// ── PDF 1: Rich Vocabulary Notebook Generator ─────────────────────────────────
 async function generateVocabularyPdf(userId, language, outputPath) {
   const data = await getAllUserVocabulary(userId, language);
   if (data.total === 0) return null;
@@ -218,19 +230,18 @@ async function generateVocabularyPdf(userId, language, outputPath) {
       doc.font("Helvetica");
     }
 
-    // Title
-    doc.fontSize(22).text("Personal Vocabulary Notebook", { align: "center" });
+    doc.fontSize(22).fillColor("#0f172a").text("Personal Vocabulary Notebook", { align: "center" });
     doc.moveDown(0.3);
 
     const langName = language ? (LANGUAGES[language] || language) : "All";
-    doc.fontSize(11).text(
-      `Language: ${langName} | Total Words: ${data.total} | Generated: ${new Date().toLocaleDateString()}`,
+    doc.fontSize(11).fillColor("#64748b").text(
+      `Target Language: ${langName} | Total Mastered & Active Words: ${data.total} | Date: ${new Date().toLocaleDateString()}`,
       { align: "center" }
     );
     doc.moveDown(1.5);
 
     const renderWordItem = (item, index) => {
-      if (doc.y > 720) doc.addPage();
+      if (doc.y > 690) doc.addPage();
 
       const wordTitle = `${index + 1}. ${item.display_word || item.initial_form || item.word}`;
       const posTag = item.part_of_speech ? ` [${item.part_of_speech}]` : "";
@@ -238,23 +249,30 @@ async function generateVocabularyPdf(userId, language, outputPath) {
       doc.fontSize(13).fillColor("#1e293b").text(`${wordTitle}${posTag}`, { continued: true });
       doc.fontSize(12).fillColor("#15803d").text(` — ${item.correction}`);
 
+      if (item.transcription) {
+        doc.fontSize(10).fillColor("#6366f1").text(`   • Phonetics: ${item.transcription}`);
+      }
+
+      if (item.pronunciation_rule) {
+        doc.fontSize(10).fillColor("#475569").text(`   • Pronunciation Rule: ${item.pronunciation_rule}`);
+      }
+
       if (item.synonyms) {
         doc.fontSize(10).fillColor("#475569").text(`   • Synonyms: ${item.synonyms}`);
       }
 
       if (item.explanation) {
-        doc.fontSize(10).fillColor("#475569").text(`   • Note: ${item.explanation}`);
+        doc.fontSize(10).fillColor("#475569").text(`   • Grammar Note: ${item.explanation}`);
       }
 
       if (item.sentence) {
         const cleanSentence = item.sentence.replace(/<\/?u>/g, "");
-        doc.fontSize(10).fillColor("#334155").text(`   • Example: "${cleanSentence}"`);
+        doc.fontSize(10).fillColor("#334155").text(`   • Context Example: "${cleanSentence}"`);
       }
 
-      doc.moveDown(0.6);
+      doc.moveDown(0.7);
     };
 
-    // Clean Section Headers (No Emojis to eliminate tofu "[]" boxes)
     if (data.active.length > 0) {
       doc.fontSize(16).fillColor("#4338ca").text(`Active Flashcards (${data.active.length})`);
       doc.moveDown(0.5);
@@ -268,6 +286,67 @@ async function generateVocabularyPdf(userId, language, outputPath) {
       doc.moveDown(0.5);
       data.mastered.forEach((w, i) => renderWordItem(w, i));
     }
+
+    doc.end();
+    writeStream.on("finish", () => resolve(outputPath));
+    writeStream.on("error", reject);
+  });
+}
+
+// ── PDF 2: Rich Learning Roadmap Generator ────────────────────────────────────
+async function generateRoadmapPdf(userId, language, roadmapText, outputPath) {
+  if (!roadmapText) return null;
+
+  return new Promise((resolve, reject) => {
+    const doc = new PDFDocument({ size: "A4", margin: 40 });
+    const writeStream = fs.createWriteStream(outputPath);
+    doc.pipe(writeStream);
+
+    const unicodeFontPath = findSystemUnicodeFont();
+    if (unicodeFontPath) {
+      doc.registerFont("CustomFont", unicodeFontPath);
+      doc.font("CustomFont");
+    } else {
+      doc.font("Helvetica");
+    }
+
+    doc.fontSize(22).fillColor("#1e1b4b").text("Personal Learning Roadmap & Study Plan", { align: "center" });
+    doc.moveDown(0.3);
+
+    const langName = language ? (LANGUAGES[language] || language) : "Target Language";
+    doc.fontSize(11).fillColor("#64748b").text(
+      `Curriculum Track: ${langName} | Generated: ${new Date().toLocaleDateString()}`,
+      { align: "center" }
+    );
+    doc.moveDown(1.5);
+
+    const lines = roadmapText.split("\n");
+    for (const rawLine of lines) {
+      const line = rawLine.trim();
+      if (!line) {
+        doc.moveDown(0.4);
+        continue;
+      }
+
+      if (doc.y > 720) doc.addPage();
+
+      if (line.startsWith("#") || line.startsWith("📈") || line.startsWith("🎯") || /^[1-6]\./.test(line)) {
+        doc.moveDown(0.5);
+        const cleanHeading = line.replace(/^[#\s*📈🎯]+/g, "").trim();
+        doc.fontSize(14).fillColor("#4338ca").text(cleanHeading);
+        doc.moveDown(0.3);
+      } else if (line.startsWith("-") || line.startsWith("•") || line.startsWith("*")) {
+        const cleanBullet = line.replace(/^[-•*]\s*/, "").replace(/\*\*(.*?)\*\*/g, "$1").trim();
+        doc.fontSize(10.5).fillColor("#334155").text(`  •  ${cleanBullet}`, { lineGap: 3 });
+      } else {
+        const cleanText = line.replace(/\*\*(.*?)\*\*/g, "$1").trim();
+        doc.fontSize(11).fillColor("#1e293b").text(cleanText, { lineGap: 3 });
+      }
+    }
+
+    doc.moveDown(2);
+    if (doc.y > 700) doc.addPage();
+    doc.fontSize(9).fillColor("#94a3b8").text("Generated by Language Immersion Coach • Keep up consistent daily practice!", { align: "center" });
 
     doc.end();
     writeStream.on("finish", () => resolve(outputPath));
@@ -471,7 +550,6 @@ async function finishAndEvaluateTest(ctx, userId, test) {
   const statusMsg = await ctx.reply("🧠 Evaluating your answers against CEFR benchmarks with AI...");
 
   try {
-    // Deterministic pre-verification of choice questions to stop AI guesswork
     const normalizedAnswers = test.questions.map((q, i) => {
       const userAns = test.answers[i] || "";
       if (q.type === "choice") {
@@ -543,7 +621,8 @@ bot.command(["skills", "train"], async (ctx) => {
     .text("📖 Reading", "train_reading")
     .text("✍️ Writing", "train_writing")
     .row()
-    .text("📥 Download PDF Notebook", "download_pdf_direct");
+    .text("📥 Vocabulary PDF", "download_pdf_direct")
+    .text("📈 Roadmap PDF", "download_roadmap_pdf");
 
   const msg =
     `🎯 *Skill Mastery Dashboard (${LANGUAGES[user.language]}):*\n\n` +
@@ -552,7 +631,7 @@ bot.command(["skills", "train"], async (ctx) => {
     `📖 *Reading:* ${overview.reading.score}% (${overview.reading.drills_completed} drills)\n` +
     `✍️ *Writing:* ${overview.writing.score}% (${overview.writing.drills_completed} drills)\n\n` +
     `💡 *AI Recommendation:* Focus on *${weakestSkill.toUpperCase()}* next to balance your skills!\n\n` +
-    `Select a skill to train or download your vocabulary notebook:`;
+    `Select a skill below or download your PDF materials:`;
 
   await ctx.reply(msg, { parse_mode: "Markdown", reply_markup: kb });
 });
@@ -687,7 +766,6 @@ async function handleDrillAnswerSubmission(ctx, userId, drill, question, answerT
       feedback = `❌ Неправильно. Правильный ответ: ${expected}`;
     }
   } else {
-    // Open/spoken answers evaluated by universal AI intent classifier
     const thinking = await bot.api.sendMessage(userId, "🔍 Анализирую ответ...");
 
     const evaluation = await evaluateSkillAnswer(
@@ -709,12 +787,12 @@ async function handleDrillAnswerSubmission(ctx, userId, drill, question, answerT
     } catch (_) { }
   }
 
-  // Save extracted vocabulary strictly into the base-form flashcards table
+  // Save extracted rich vocabulary into flashcards database
   if (Array.isArray(mistakes)) {
     for (const m of mistakes) {
       if (m.initial_form && m.meaning) {
         const cleanWord = m.initial_form.trim();
-        if (cleanWord.length <= 1 || cleanWord.toLowerCase() === 'не') continue;
+        if (cleanWord.length <= 1 || cleanWord.toLowerCase() === 'не' || cleanWord.toLowerCase() === 'о' || cleanWord.toLowerCase() === 'а') continue;
 
         await addFlashcard(userId, {
           word: cleanWord,
@@ -727,6 +805,8 @@ async function handleDrillAnswerSubmission(ctx, userId, drill, question, answerT
           synonyms: m.synonyms?.trim() || "",
           explanation: m.explanation?.trim() || "",
           sentence: m.sentence?.trim() || answerText,
+          transcription: m.transcription?.trim() || null,
+          pronunciation_rule: m.pronunciation_rule?.trim() || null
         });
       }
     }
@@ -770,12 +850,13 @@ async function finishSkillDrillSession(ctx, userId, drill) {
     .row()
     .text("📊 View Skill Dashboard", "view_skills_dashboard")
     .row()
-    .text("📥 Download PDF Notebook", "download_pdf_direct");
+    .text("📥 Vocabulary PDF", "download_pdf_direct")
+    .text("📈 Roadmap PDF", "download_roadmap_pdf");
 
   const summary =
     `🎉 *${drill.skill.toUpperCase()} DRILL COMPLETE!*\n\n` +
     `📊 *Session Score:* ${averageScore}/100\n` +
-    `📚 *Vocabulary Extracted:* All new words have been saved to your base-form flashcards deck.\n\n` +
+    `📚 *Vocabulary Extracted:* All new words, transcriptions, and pronunciation rules have been saved to your deck.\n\n` +
     (averageScore >= 80
       ? `🌟 *Excellent work!* Your ${drill.skill} is well trained (${averageScore}%). We recommend moving to *${nextRecommended.toUpperCase()}* next to maintain balanced progress!`
       : `💪 Good effort! Keep practicing your ${drill.skill} or switch to *${nextRecommended.toUpperCase()}*.`);
@@ -796,7 +877,8 @@ bot.callbackQuery("view_skills_dashboard", async (ctx) => {
     .text("📖 Reading", "train_reading")
     .text("✍️ Writing", "train_writing")
     .row()
-    .text("📥 Download PDF Notebook", "download_pdf_direct");
+    .text("📥 Vocabulary PDF", "download_pdf_direct")
+    .text("📈 Roadmap PDF", "download_roadmap_pdf");
 
   await ctx.reply(
     `🎯 *Skill Dashboard (${LANGUAGES[user.language]}):*\n\n` +
@@ -804,16 +886,21 @@ bot.callbackQuery("view_skills_dashboard", async (ctx) => {
     `🗣 *Speaking:* ${overview.speaking.score}%\n` +
     `📖 *Reading:* ${overview.reading.score}%\n` +
     `✍️ *Writing:* ${overview.writing.score}%\n\n` +
-    `Choose a skill to train or download your vocabulary notebook:`,
+    `Choose a skill to train or download your PDF materials:`,
     { parse_mode: "Markdown", reply_markup: kb }
   );
 });
 
-// ── Direct PDF Download Button Handler ────────────────────────────────────────
+// ── Direct PDF Download Button Handlers ───────────────────────────────────────
 
 bot.callbackQuery("download_pdf_direct", async (ctx) => {
-  await ctx.answerCallbackQuery({ text: "Generating your PDF..." });
+  await ctx.answerCallbackQuery({ text: "Compiling your Vocabulary PDF..." });
   await sendVocabularyPdfToUser(ctx, ctx.from.id);
+});
+
+bot.callbackQuery("download_roadmap_pdf", async (ctx) => {
+  await ctx.answerCallbackQuery({ text: "Compiling your Roadmap PDF..." });
+  await sendRoadmapPdfToUser(ctx, ctx.from.id);
 });
 
 async function sendVocabularyPdfToUser(ctx, userId) {
@@ -823,7 +910,7 @@ async function sendVocabularyPdfToUser(ctx, userId) {
     return;
   }
 
-  const thinking = await ctx.reply("⏳ *Compiling your PDF vocabulary notebook...*", { parse_mode: "Markdown" });
+  const thinking = await ctx.reply("⏳ *Compiling your rich PDF vocabulary notebook...*", { parse_mode: "Markdown" });
   const tempPath = path.join(tmpdir(), `vocabulary_${userId}_${Date.now()}.pdf`);
 
   try {
@@ -839,14 +926,49 @@ async function sendVocabularyPdfToUser(ctx, userId) {
 
     const docName = `My_${user.language}_Vocabulary.pdf`;
     await ctx.replyWithDocument(new InputFile(filePath, docName), {
-      caption: `📖 *Here is your complete vocabulary PDF notebook!*\n\nIncludes base forms, parts of speech, translations, synonyms, explanations, and context sentences.`,
+      caption: `📖 *Here is your complete vocabulary PDF notebook!*\n\nIncludes base lemmas, phonetics/IPA, pronunciation rules, grammar explanations, synonyms, and contextual sentences.`,
       parse_mode: "Markdown"
     });
 
     await cleanupFile(filePath);
   } catch (err) {
     console.error("PDF export error:", err);
-    await ctx.reply("❌ Error generating PDF. Please make sure you have saved vocabulary and try again.");
+    await ctx.reply("❌ Error generating PDF. Please try again.");
+  }
+}
+
+async function sendRoadmapPdfToUser(ctx, userId) {
+  const user = await getUser(userId);
+  const progress = await getRoadmap(userId);
+  if (!progress?.roadmap) {
+    await ctx.reply("📭 No roadmap update saved yet. Keep chatting to generate one, or send /roadmap first!");
+    return;
+  }
+
+  const thinking = await ctx.reply("⏳ *Compiling your personal Roadmap PDF...*", { parse_mode: "Markdown" });
+  const tempPath = path.join(tmpdir(), `roadmap_${userId}_${Date.now()}.pdf`);
+
+  try {
+    const filePath = await generateRoadmapPdf(userId, user?.language, progress.roadmap, tempPath);
+    try {
+      await ctx.api.deleteMessage(ctx.chat.id, thinking.message_id);
+    } catch (_) { }
+
+    if (!filePath) {
+      await ctx.reply("❌ Error creating Roadmap PDF.");
+      return;
+    }
+
+    const docName = `My_${user?.language || "Language"}_Learning_Roadmap.pdf`;
+    await ctx.replyWithDocument(new InputFile(filePath, docName), {
+      caption: `📈 *Here is your Personal Learning Roadmap PDF!*\n\nIncludes CEFR standing, diagnosed weak areas, vocabulary recycling plan, and your 7-day study schedule.`,
+      parse_mode: "Markdown"
+    });
+
+    await cleanupFile(filePath);
+  } catch (err) {
+    console.error("Roadmap PDF export error:", err);
+    await ctx.reply("❌ Error generating Roadmap PDF. Please try again.");
   }
 }
 
@@ -990,6 +1112,11 @@ bot.on("message:text", async (ctx) => {
     return;
   }
 
+  if (lower.includes("roadmap pdf") || lower.includes("план pdf") || lower.includes("план пдф")) {
+    await sendRoadmapPdfToUser(ctx, userId);
+    return;
+  }
+
   if (lower.includes("pdf") || lower.includes("пдф") || lower.includes("скачать словарь")) {
     await sendVocabularyPdfToUser(ctx, userId);
     return;
@@ -1036,6 +1163,24 @@ bot.command(["pdf", "export"], async (ctx) => {
   await sendVocabularyPdfToUser(ctx, ctx.from.id);
 });
 
+bot.command(["roadmap_pdf", "roadmappdf"], async (ctx) => {
+  await sendRoadmapPdfToUser(ctx, ctx.from.id);
+});
+
+bot.command("roadmap", async (ctx) => {
+  const userId = ctx.from.id;
+  const progress = await getRoadmap(userId);
+  if (!progress?.roadmap) {
+    await ctx.reply("No progress update yet — keep chatting! One is generated every 5 messages.");
+    return;
+  }
+
+  const kb = new InlineKeyboard()
+    .text("📥 Download Roadmap as PDF", "download_roadmap_pdf");
+
+  await ctx.reply(progress.roadmap, { reply_markup: kb });
+});
+
 bot.command("flashcards", async (ctx) => {
   const userId = ctx.from.id;
   const user = await getUser(userId);
@@ -1076,24 +1221,15 @@ bot.command("help", async (ctx) => {
     "  /skills — train specific skills: 🎧 Listening, 🗣 Speaking, 📖 Reading, ✍️ Writing\n" +
     "  /test — retake the CEFR diagnostic placement test anytime\n" +
     "  /testhistory — view your diagnostic placement test history\n" +
-    "  /flashcards — open your saved base-form vocabulary\n" +
-    "  /pdf — download your full vocabulary notebook as PDF\n" +
-    "  /roadmap — view your progress update\n" +
+    "  /flashcards — open your saved base-form vocabulary deck\n" +
+    "  /pdf — download full vocabulary notebook as PDF\n" +
+    "  /roadmap — view your learning roadmap and study plan\n" +
+    "  /roadmap_pdf — download your roadmap as an A4 PDF\n" +
     "  /reset — start over\n" +
     "  /upgrade — unlock unlimited messages\n\n" +
     "💬 Chat naturally via text or voice notes anytime!",
     { parse_mode: "Markdown" }
   );
-});
-
-bot.command("roadmap", async (ctx) => {
-  const user = await getUser(ctx.from.id);
-  const progress = await getRoadmap(ctx.from.id);
-  if (!progress?.roadmap) {
-    await ctx.reply("No progress update yet — keep chatting! One is generated every 5 messages.");
-    return;
-  }
-  await ctx.reply(progress.roadmap);
 });
 
 bot.command("upgrade", async (ctx) => {
@@ -1165,16 +1301,16 @@ const PORT = process.env.PORT || 3000;
 initDB().then(async () => {
   app.listen(PORT, () => console.log(`API running on port ${PORT}`));
 
-  // Register command list with Telegram menu button
   try {
     await bot.api.setMyCommands([
       { command: "start", description: "Choose language, mediator & level test" },
       { command: "skills", description: "Train Listening, Speaking, Reading, Writing" },
       { command: "flashcards", description: "Open saved vocabulary cards" },
       { command: "pdf", description: "Download vocabulary notebook as PDF" },
+      { command: "roadmap", description: "View learning roadmap & study plan" },
+      { command: "roadmap_pdf", description: "Download learning roadmap as PDF" },
       { command: "test", description: "Retake CEFR placement test" },
       { command: "testhistory", description: "View placement test results" },
-      { command: "roadmap", description: "View latest progress update" },
       { command: "help", description: "How to use this bot" }
     ]);
     console.log("✅ Telegram command menu registered successfully");

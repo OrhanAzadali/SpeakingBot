@@ -19,25 +19,29 @@ const NEW_CARD_POLL_MS = 6000;
 const DEMO_CARDS = [
   {
     id: 1,
-    word: "остальные",
+    word: "остальной",
     initial_form: "остальной",
     used_form: "остальные",
     part_of_speech: "pronoun / adjective",
-    correction: "the rest, other ones",
-    synonyms: "rest, others, remaining ones",
+    transcription: "[əstɐlʲˈnoj] — а-сталʲ-но́й",
+    pronunciation_rule: "Первая «о» редуцируется в [ə], вторая «о» в [ɐ], ударение на третий слог.",
+    correction: "the rest, remaining ones",
+    synonyms: "rest, others, remaining",
     explanation: "Refers to remaining people or items from a set group.",
     sentence: "Где <u>остальные</u> студенты?",
   },
   {
     id: 2,
-    word: "tengo hambre",
+    word: "tener hambre",
     initial_form: "tener hambre",
     used_form: "tengo hambre",
-    part_of_speech: "idiomatic phrase",
+    part_of_speech: "idiomatic verb phrase",
+    transcription: "[teˈneɾ ˈambɾe] — тэ-нэ́р а́мб-рэ",
+    pronunciation_rule: "Буква «h» в слове «hambre» немая и никогда не произносится.",
     correction: "to be hungry",
     synonyms: "famished, starving",
     explanation: "Spanish expresses hunger with 'tener' (to have) instead of 'to be'.",
-    sentence: "Después de correr <u>tengo hambre</u>.",
+    sentence: "После пробежки я голоден: <u>tengo hambre</u>.",
   }
 ];
 
@@ -48,13 +52,22 @@ export default function App() {
   const [done, setDone] = useState(false);
   const [stats, setStats] = useState({ remembered: 0, forgot: 0 });
   const [apiError, setApiError] = useState(null);
+  const [pdfLoading, setPdfLoading] = useState(false);
 
-  // Every card id we've already seen this session. Used by the poller to tell
-  // genuinely new server-side cards apart from cards already loaded or reviewed.
+  // Every card id we've already shown this session (across loads, merges,
+  // and reviews). Used by the polling effect below to tell a genuinely new
+  // server-side card apart from one already in the deck or already reviewed
+  // away — a plain "not in current cards state" check would be wrong here,
+  // since a mastered/removed card is also "not in current cards state".
   const knownCardIdsRef = useRef(new Set());
 
-  // Telegram initData verification string. Inside Telegram, this is verified on the
-  // server with the bot token so neither the user nor language can be spoofed.
+  // The server derives the trusted user identity — and, from it, which
+  // language's cards to return — from this signed string. It verifies
+  // initData's HMAC using the bot token, so neither the user nor the
+  // language can be spoofed via the URL the way they could before. Outside
+  // of an actual Telegram session, this is empty and the API calls below
+  // will 401, which the existing catch-block handles by falling back to
+  // demo cards.
   const initData = window.Telegram?.WebApp?.initData || "";
   const authHeaders = initData ? { Authorization: `tma ${initData}` } : {};
 
@@ -73,7 +86,9 @@ export default function App() {
 
     fetch(`${API}/api/flashcards`, { headers: authHeaders })
       .then((r) => {
-        if (!r.ok) throw new Error(`HTTP ${r.status}: ${r.statusText}`);
+        if (!r.ok) {
+          throw new Error(`HTTP ${r.status}: ${r.statusText}`);
+        }
         return r.json();
       })
       .then((data) => {
@@ -99,8 +114,13 @@ export default function App() {
     loadCards();
   }, [initData]);
 
-  // Polling: immediately prepends brand-new cards to the front of the deck/queue
-  // so newly made mistakes are reviewed next instead of waiting until a restart.
+  // While actively reviewing flashcards, periodically check whether any new
+  // words showed up server-side (the bot saves a flashcard the instant it
+  // catches a mistake in the Telegram chat, independent of this session).
+  // If so, prepend them to the front of the deck — the API already returns
+  // newest-first, so `fresh` is already in the right order — so the newest
+  // mistake is reviewed next instead of silently waiting off-screen until
+  // the user backs out to the mode-select screen and back in.
   useEffect(() => {
     if (done || !API) return;
 
@@ -141,12 +161,42 @@ export default function App() {
 
     setCards((prev) => {
       const next = prev.filter((c) => c.id !== cardId);
+      // Check length AFTER filtering (fixes stale state bug)
       if (next.length === 0) setDone(true);
       return next;
     });
   }
 
-  // Returning to mode select re-fetches so both games always start from the current full set
+  // Direct in-app PDF Downloader for Vocabulary Notebook and Learning Roadmap
+  async function handleDownloadPdf(endpoint, filename) {
+    if (!API) {
+      alert("API is not connected in demo mode.");
+      return;
+    }
+    setPdfLoading(true);
+    try {
+      const res = await fetch(`${API}${endpoint}`, { headers: authHeaders });
+      if (!res.ok) throw new Error(`Download error (HTTP ${res.status})`);
+      const blob = await res.blob();
+      const blobUrl = window.URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = blobUrl;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(blobUrl);
+    } catch (err) {
+      console.error("PDF download failed:", err.message);
+      alert("Could not download PDF. Please make sure you have saved vocabulary or a roadmap first.");
+    } finally {
+      setPdfLoading(false);
+    }
+  }
+
+  // Returning to mode-select re-fetches so both games always start from the
+  // current full set — e.g. words the Quiz just mastered (deleted
+  // server-side) shouldn't still show up if the user picks Flashcards next.
   function backToModeSelect() {
     setMode(null);
     loadCards();
@@ -170,17 +220,26 @@ export default function App() {
         <div className="min-h-screen flex flex-col items-center justify-center px-6 text-center">
           <div className="text-6xl mb-6">🎉</div>
           <h1 className="text-2xl font-bold text-white mb-2">No words to practice yet!</h1>
-          <p className="text-slate-400 text-sm">Keep chatting with the bot — any mistakes get saved here automatically in base form.</p>
+          <p className="text-slate-400 text-sm mb-6">Keep chatting with the bot — any mistakes get saved here automatically in base form.</p>
+          <button
+            onClick={() => handleDownloadPdf("/api/roadmap/pdf", "My_Learning_Roadmap.pdf")}
+            disabled={pdfLoading}
+            className="py-3 px-5 rounded-xl bg-slate-800 border border-slate-700 text-slate-300 text-sm font-medium hover:bg-slate-700 active:scale-95 transition-all flex items-center gap-2"
+          >
+            <span>📈</span> {pdfLoading ? "Preparing PDF..." : "Download Learning Roadmap PDF"}
+          </button>
         </div>
       );
     }
 
     return (
-      <div className="min-h-screen flex flex-col items-center justify-center px-6 text-center">
+      <div className="min-h-screen flex flex-col items-center justify-center px-6 text-center py-8">
         <h1 className="text-2xl font-bold text-white mb-1">Choose a game</h1>
-        <p className="text-slate-400 mb-8 text-sm">
+        <p className="text-slate-400 mb-6 text-sm">
           {cards.length} word{cards.length !== 1 ? "s" : ""} ready to practice
         </p>
+
+        {/* Game Mode Cards */}
         <div className="w-full max-w-xs flex flex-col gap-4">
           <button
             onClick={() => setMode("flashcards")}
@@ -189,8 +248,9 @@ export default function App() {
           >
             <div className="text-4xl mb-2">📚</div>
             <div className="text-white font-semibold">Flashcards</div>
-            <div className="text-slate-400 text-xs mt-1">Review initial forms, grammar notes, and sentence examples</div>
+            <div className="text-slate-400 text-xs mt-1">Review base lemmas, phonetics, grammar notes, and sentences</div>
           </button>
+
           <button
             onClick={() => setMode("quiz")}
             className="w-full py-5 px-4 rounded-2xl bg-gradient-to-br from-indigo-600 to-purple-700 hover:brightness-110 active:scale-95 transition-all text-left"
@@ -201,6 +261,30 @@ export default function App() {
             <div className="text-indigo-100 text-xs mt-1">AI evaluates synonyms & meanings — 3 in a row masters the word</div>
           </button>
         </div>
+
+        {/* PDF Materials Download Section */}
+        <div className="w-full max-w-xs flex flex-col gap-2.5 mt-6 pt-5 border-t border-slate-800">
+          <p className="text-[11px] uppercase tracking-wider text-slate-500 font-semibold text-center mb-1">
+            Downloadable PDF Materials
+          </p>
+
+          <button
+            onClick={() => handleDownloadPdf("/api/vocabulary/pdf", "My_Vocabulary_Notebook.pdf")}
+            disabled={pdfLoading}
+            className="w-full py-3 px-4 rounded-xl bg-slate-800/80 border border-slate-700 text-slate-200 text-xs font-medium hover:bg-slate-700 active:scale-95 transition-all flex items-center justify-center gap-2 disabled:opacity-50"
+          >
+            <span>📥</span> {pdfLoading ? "Compiling..." : "Download Vocabulary Notebook (PDF)"}
+          </button>
+
+          <button
+            onClick={() => handleDownloadPdf("/api/roadmap/pdf", "My_Learning_Roadmap.pdf")}
+            disabled={pdfLoading}
+            className="w-full py-3 px-4 rounded-xl bg-slate-800/80 border border-slate-700 text-slate-200 text-xs font-medium hover:bg-slate-700 active:scale-95 transition-all flex items-center justify-center gap-2 disabled:opacity-50"
+          >
+            <span>📈</span> {pdfLoading ? "Compiling..." : "Download Learning Roadmap (PDF)"}
+          </button>
+        </div>
+
         {apiError && (
           <p className="text-center text-yellow-500 text-xs mt-6">⚠️ Using demo cards (API: {apiError})</p>
         )}
@@ -233,6 +317,11 @@ export default function App() {
         <p className="text-center text-slate-400 text-xs">
           {cards.length} card{cards.length !== 1 ? "s" : ""} remaining
         </p>
+        {apiError && (
+          <p className="text-center text-yellow-500 text-xs mt-1">
+            ⚠️ Using demo cards (API: {apiError})
+          </p>
+        )}
         <div className="mt-3 h-1.5 bg-slate-700 rounded-full overflow-hidden">
           <div
             className="h-full bg-indigo-500 rounded-full transition-all duration-500"
@@ -246,8 +335,11 @@ export default function App() {
         </div>
       </div>
 
-      {/* Keying on the top card's id forces FlashcardDeck to remount and reset
-          its flipped state whenever front-of-deck changes */}
+      {/* Keying on the top card's id forces FlashcardDeck to remount (and
+          reset its local flipped state) whenever the front-of-deck card
+          changes — including when the poller above prepends a brand-new
+          card mid-review, so the answer side never leaks through for a card
+          the user hasn't actually flipped yet. */}
       <FlashcardDeck key={cards[0]?.id ?? "empty"} cards={cards} onResult={handleResult} />
 
       <p className="mt-6 text-slate-500 text-xs text-center">

@@ -20,10 +20,17 @@ const CHAT_MODELS = [
 ];
 const STT_MODELS = ["whisper-large-v3", "whisper-large-v3-turbo"];
 
+// gpt-oss models spend completion tokens on hidden chain-of-thought before
+// writing any visible content. With a low max_tokens, a request that needs
+// real reasoning can exhaust the budget on hidden reasoning, returning an empty
+// message.content. reasoning_effort:"low" keeps the model from over-spending
+// on reasoning for simple turns; other models ignore or omit this parameter.
 function reasoningParams(model) {
   return model.startsWith("openai/gpt-oss") ? { reasoning_effort: "low" } : {};
 }
 
+// Tries each model in order, falling back on an actual rate-limit (429) or transient
+// failure. Logs a warning and continues down the list, re-throwing only if all models fail.
 async function withModelFallback(models, callFn) {
   let lastErr;
   for (const model of models) {
@@ -51,6 +58,7 @@ export const LANGUAGES = {
   marathi: "Marathi", swahili: "Swahili", afrikaans: "Afrikaans", azerbaijani: "Azerbaijani"
 };
 
+// Best Edge TTS neural voice for each supported language
 const TTS_VOICES = {
   spanish: "es-ES-AlvaroNeural", english: "en-US-GuyNeural", french: "fr-FR-HenriNeural",
   german: "de-DE-ConradNeural", japanese: "ja-JP-KeitaNeural", italian: "it-IT-DiegoNeural",
@@ -68,33 +76,34 @@ const TTS_VOICES = {
   azerbaijani: "az-AZ-BabekNeural"
 };
 
+// Robust helper to extract clean JSON even if wrapped in markdown code fences
 function extractJsonObject(raw) {
   if (!raw) throw new Error("Empty response from AI");
   const match = raw.match(/\{[\s\S]*\}/);
   return match ? match[0] : raw;
 }
 
-// ── Strict Lemma & In-Context Morphological Adjustment Mandate ────────────────
+// ── Strict Lemma & Linguistic Accuracy Rules ──────────────────────────────────
 function linguisticAccuracyBlock(language) {
   return `LINGUISTIC ACCURACY & STRICT BASE LEMMA MANDATE:
 - Target language: ${language}.
-- ALWAYS use standard orthography of ${language}, including all accents and diacritics.
+- ALWAYS use standard orthography of ${language}, including every diacritic and accent mark.
 - STRICT BASE LEMMA / INFINITIVE RULE FOR DATABASE STORAGE:
   When extracting vocabulary for flashcards, "initial_form" MUST ALWAYS be the uninflected dictionary headword:
-  * Nouns: MUST be singular nominative (e.g. Russian: "вопрос", "дружба", "горшок", "крыльцо", "крыша"; German: "Buch", "Freundschaft").
-  * Verbs: MUST be bare infinitive (e.g. Russian: "исправить", "читать"; German: "lesen"; Spanish: "tener").
-  * Adjectives: MUST be masculine singular nominative base form (e.g. Russian: "разный", "черепичный", "крашеный", "предыдущий").
-  * Pronouns: MUST be dictionary headword (e.g. Russian: "мой", "этот", "тот").
-  * NEVER save Latin transliterations (reject "BIL", "SHO", "TEM", "TOGO") — convert to native Cyrillic script or discard!
+  * Nouns: MUST be singular nominative (e.g. Russian: "вопрос", "дружба", "горшок", "крыльцо", "крыша"; German: "Buch", "Freundschaft"; Azerbaijani: "ev", "kitab").
+  * Demonstratives/Pronouns: MUST be dictionary headword (e.g. Russian: "этот"; Azerbaijani: "bu", "o").
+  * Verbs: MUST be the bare infinitive (e.g. Russian: "исправить", "читать"; German: "lesen"; Spanish: "tener"; Azerbaijani: "oxumaq").
+  * Adjectives: MUST be masculine singular nominative base form (e.g. Russian: "разный", "черепичный", "крашеный", "предыдущий"; German: "rot"; Azerbaijani: "qırmızı").
+  * NEVER save Latin transliterations (reject "BIL", "SHO", "TEM", "TOGO") — convert to native script or discard!
   * NEVER save single-letter particles, prepositions ("о", "а", "не", "в") or proper person names as flashcards!
 - IN-CONTEXT MORPHOLOGICAL ADJUSTMENT RULE (FOR QUIZZES, QUESTIONS, AND DRILLS):
   When using stored vocabulary words inside questions, example sentences, cloze tests, or drills:
-  * DO NOT blindly drop an uninflected lemma into a sentence!
+  * DO NOT drop an uninflected lemma into a sentence if the grammar requires a declined/conjugated form!
   * You MUST grammatically adjust, decline, and conjugate the word to match the sentence's syntax, tense, gender, number, and case!
   * Example: If the base lemma in DB is "книга", but the sentence context requires accusative after a transitive verb, write: "Я читаю интересную <u>книгу</u>", NEVER the broken "Я читаю интересную <u>книга</u>"!`;
 }
 
-// ── Call 1: Spoken Conversation with Morphosyntactic Scaffolding ──────────────
+// ── Call 1: Spoken Conversation with Level-Aware Scaffolding ──────────────────
 function buildConversationPrompt(language, level, mediatorLanguage = "english") {
   const isBeginner = level.toLowerCase().includes("beginner");
   const isIntermediate = level.toLowerCase().includes("intermediate");
@@ -114,11 +123,11 @@ Structure your breakdown cleanly:
 2. Pronunciation & Phonetics:
    - IPA transcription (e.g. «ˈhaɪs.t»).
    - Phonetic transcription/approximation in ${explanationLang} characters (e.g. «ха-ис-т»).
-   - Stress placement indicator.
+   - Stress placement indicator and key phonetic rules (vowel reduction, silent letters, diphthongs).
 3. Base Form / Lemma:
    - Bare Infinitive (for verbs) or Nominative Singular with article (for nouns).
 4. Full Conjugation or Declension Paradigm:
-   - For Verbs: Complete person/number conjugation table (1st, 2nd, 3rd person singular and plural) in the relevant tense with translations for every line.
+   - For Verbs: Complete person/number conjugation table (1st, 2nd, 3rd person singular and plural) in the relevant tense with translations for every single line.
    - For Nouns: Gender, singular/plural, cases (Nominative, Genitive, Dative, Accusative) with articles and translations.
    - For Adjectives: Comparison degrees and case endings.
 5. Contextual Example Sentences:
@@ -130,8 +139,8 @@ Structure your breakdown cleanly:
   const scaffoldingDirective = isBeginner
     ? `BEGINNER SCAFFOLDING & MEDIATOR SUPPORT (MANDATORY):
 - The student is a complete BEGINNER. Their mediator language is ${mediatorLanguage.toUpperCase()}.
-- If the student expresses confusion (e.g. "не понимаю", "i don't understand", "помоги"), asks for translation, or requests help in ${mediatorLanguage} (e.g. "нет, на русском", "speak English", "russich"):
-  1. NEVER stubbornly stay only in ${language}! NEVER say "I only speak ${language}" or "wir bleiben auf ${language}".
+- If the student expresses confusion (e.g. "не понимаю", "i don't understand", "помоги"), asks for translation, or requests help in ${mediatorLanguage} (e.g. "нет, на русском", "speak English", "russich", "sprach russo"):
+  1. NEVER stubbornly stay only in ${language}! NEVER say "I only speak ${language}" or "wir bleiben auf ${language}". That prevents beginners from making progress!
   2. Use ${mediatorLanguage} to bridge the gap: explain what the phrase meant, translate it clearly, and give an easy template to reply.`
     : (isIntermediate
       ? `INTERMEDIATE SCAFFOLDING:
@@ -153,15 +162,15 @@ ${scaffoldingDirective}
 Keep conversational turns natural and supportive. Plain text only: no audio-unfriendly formatting.`;
 }
 
-// ── Call 2: Grammar Analysis & Multi-Mistake Extraction ───────────────────────
+// ── Call 2: Rich Grammar Analysis & Multi-Mistake Extraction ────────────────
 function buildAnalysisPrompt(language, level, mediatorLanguage = "english") {
   const isAdvanced = level.toLowerCase().includes("advanced");
 
   const explanationDirective = isAdvanced
-    ? `Since the student is ADVANCED, all fields ("meaning", "synonyms", "explanation") MUST be written 100% in ${language} (monolingual immersion). Do NOT use any mediator language.`
-    : `Since the student is ${level}, write all explanations, meanings, and synonyms strictly in the student's mediator language: ${mediatorLanguage.toUpperCase()}. Do NOT introduce any third language, and NEVER copy the target word into the meaning field.`;
+    ? `Since the student is ADVANCED, all fields ("meaning", "synonyms", "explanation", "pronunciation_rule") MUST be written 100% in ${language} (monolingual immersion). Do NOT use any mediator language.`
+    : `Since the student is ${level}, write all explanations, meanings, transcriptions, and pronunciation rules strictly in the student's mediator language: ${mediatorLanguage.toUpperCase()}. Do NOT introduce any third language, and NEVER copy the target word into the meaning field.`;
 
-  return `You are a meticulous ${language} grammar and vocabulary analyst.
+  return `You are a meticulous ${language} lexicographer and grammar analyst.
 Student level: ${level}.
 Mediator language: ${mediatorLanguage}.
 ${explanationDirective}
@@ -171,7 +180,7 @@ META-COMMUNICATION & HELP REQUEST HANDLING:
 - If the student wrote in ${mediatorLanguage} to ask for help, request translation, or state that they don't understand (e.g. "не понимаю", "я не понимаю тебя", "нет, на русском", "help", "i don't understand", "russich", "sprach russo", "объясни слова"):
   * DO NOT mark it as "✅ Perfect!" (it is not a valid ${language} sentence).
   * DO NOT treat it as a broken attempt at ${language} and invent a grammar correction for it.
-  * Set "correctionText" to a supportive acknowledgment in ${mediatorLanguage} (e.g. "ℹ️Let's discuss it in ${mediatorLanguage}!").
+  * Set "correctionText" to a supportive acknowledgment in ${mediatorLanguage} (e.g. "ℹ️ Понятно, разбираем по-${mediatorLanguage}!").
   * Set "mistakes": [] (do NOT save flashcards for help cries).
 
 STRICT VOCABULARY FILTER RULES:
@@ -179,17 +188,25 @@ STRICT VOCABULARY FILTER RULES:
 - NEVER save single-letter particles, prepositions ("о", "а", "не", "в") or proper names ("Эрнана Кортеса").
 - "initial_form" MUST BE the pure uninflected dictionary lemma (singular nominative noun, bare infinitive verb, masculine singular adjective).
 
+RICH PHONETIC & GRAMMATICAL EXTRACTION:
+For each legitimate new word or corrected mistake, provide:
+1. "transcription": IPA + phonetic reading in ${mediatorLanguage} with stress indicated (e.g. "[vɐˈpros] — ва-про́с").
+2. "pronunciation_rule": Key phonetic rule governing this word (stress placement, silent letters, vowel reduction, umlaut shifts, diphthongs).
+3. "explanation": Deep grammatical properties (gender, case government, irregular stem patterns, collocations).
+
 Return your response strictly as a single JSON object:
 {
-  "correctionText": "✅ Perfect!" OR "📝 Correction: <corrected sentence> (<1-sentence explanation>)" OR "ℹ️Let's discuss it in ${mediatorLanguage}!",
+  "correctionText": "✅ Perfect!" OR "📝 Correction: <corrected sentence> (<1-sentence explanation>)" OR "ℹ️ Понятно, разбираем по-${mediatorLanguage}!",
   "mistakes": [
     {
-      "initial_form": "Pure dictionary lemma/infinitive headword in ${language} native script (e.g. 'вопрос', 'горшок', 'исправить', 'разный')",
+      "initial_form": "Pure dictionary lemma/infinitive headword in ${language} native script (e.g. 'вопрос', 'горшок', 'исправить', 'Buch')",
       "used_form": "The inflected word exactly as it appeared in the sentence",
       "part_of_speech": "noun | verb | adjective | adverb | pronoun | phrase | preposition",
-      "meaning": "Definition/translation of initial_form in ${isAdvanced ? language : mediatorLanguage} (NEVER the same word as initial_form!)",
+      "transcription": "IPA + phonetic approximation with stress in ${isAdvanced ? language : mediatorLanguage}",
+      "pronunciation_rule": "Phonetic rule (stress, silent letters, reductions, diphthongs) in ${isAdvanced ? language : mediatorLanguage}",
+      "meaning": "Definition/translation in ${isAdvanced ? language : mediatorLanguage} (NEVER same as initial_form!)",
       "synonyms": "Comma-separated synonyms in ${isAdvanced ? language : mediatorLanguage}",
-      "explanation": "Short grammatical rule note in ${isAdvanced ? language : mediatorLanguage}",
+      "explanation": "Deep grammatical property, gender, case government, collocations in ${isAdvanced ? language : mediatorLanguage}",
       "sentence": "Full corrected sentence with the word wrapped in <u>word</u> (grammatically adjusted!)"
     }
   ]
@@ -308,6 +325,13 @@ Analyze the student's input across ALL world languages (Arabic, Urdu, Mandarin, 
 4. "target_language_proficiency_demonstrated": true ONLY if the student demonstrated actual vocabulary, grammar, or syntax in ${targetLanguage}.
 5. "correct_answer_in_target_language": Give the exact, natural correct answer in ${targetLanguage}.
 6. "explanation_in_mediator": Concise feedback written in ${mediatorLanguage} explaining the correct answer without robotic templates.
+7. "extracted_mistakes": Extract any new vocabulary or mistakes:
+   - "initial_form": Pure uninflected dictionary lemma headword in ${targetLanguage}.
+   - "part_of_speech": noun, verb, adjective, etc.
+   - "transcription": IPA + phonetic reading in ${mediatorLanguage}.
+   - "pronunciation_rule": Key phonetic rule.
+   - "meaning": Meaning in ${mediatorLanguage}.
+   - "explanation": Grammatical rule/property.
 
 Return ONLY a JSON object:
 {
@@ -327,7 +351,7 @@ Return ONLY a JSON object:
         model,
         messages: [{ role: "user", content: prompt }],
         temperature: 0.1,
-        max_tokens: 650,
+        max_tokens: 750,
         response_format: { type: "json_object" },
         ...reasoningParams(model),
       })
@@ -685,7 +709,7 @@ export async function chat(userId, userMessage, history, language, level, langua
           ...conversationMessages.slice(-4),
         ],
         temperature: 0.1,
-        max_tokens: 650,
+        max_tokens: 750,
         response_format: { type: "json_object" },
         ...reasoningParams(model),
       })
@@ -711,7 +735,7 @@ export async function chat(userId, userMessage, history, language, level, langua
 
     // Anti-noise safeguard: skip single letter particles or standalone prepositions
     const cleanWord = m.initial_form.trim();
-    if (cleanWord.length <= 1 || cleanWord.toLowerCase() === 'не') continue;
+    if (cleanWord.length <= 1 || cleanWord.toLowerCase() === 'не' || cleanWord.toLowerCase() === 'о' || cleanWord.toLowerCase() === 'а') continue;
 
     try {
       await addFlashcard(userId, {
@@ -725,6 +749,8 @@ export async function chat(userId, userMessage, history, language, level, langua
         synonyms: m.synonyms?.trim() || "",
         explanation: m.explanation?.trim() || "",
         sentence: m.sentence?.trim() || userMessage,
+        transcription: m.transcription?.trim() || null,
+        pronunciation_rule: m.pronunciation_rule?.trim() || null
       });
     } catch (err) {
       console.error(`Flashcard DB insert failed for "${m.initial_form}":`, err.message);
@@ -737,18 +763,33 @@ export async function chat(userId, userMessage, history, language, level, langua
   return { correction, reply };
 }
 
-// ── Call 9: Progress Roadmap Builder ──────────────────────────────────────────
+// ── Call 9: Rich & Pedagogically Comprehensive Roadmap Builder ────────────────
 function buildRoadmapPrompt(language, level, mediatorLanguage = "english") {
-  return `You are a structured ${language} coach producing a progress update for a ${level}-level student.
-Write the progress report entirely in the student's mediator language: ${mediatorLanguage.toUpperCase()} (so beginners and intermediate students can easily read and understand their goals!).
+  return `You are a certified senior language acquisition curriculum specialist and CEFR diagnostic coach.
+Analyze the student's recent conversation and study history to create an in-depth, structured, and actionable Learning Roadmap.
+Write the entire roadmap in the student's mediator language: ${mediatorLanguage.toUpperCase()}.
 
-Format as:
-📈 Progress update
-- Recently improved: ...
-- Still needs work: ...
-- Next goals: ...
-- Practice focus: ...
-Keep it under 120 words.`;
+Structure the report into these clear, rich pedagogical sections:
+
+1. 🎯 Current CEFR Standing & Trajectory:
+   - Detailed assessment of current active capability in ${language} at ${level} level.
+
+2. 📈 Recently Demonstrated Strengths:
+   - What specific structures, vocabulary domains, and speech patterns the student used successfully.
+
+3. 🔍 Diagnostics & Weak Areas Under Repair:
+   - Concrete breakdown of recurring grammar slips, missing vocabulary, tense confusion, or syntax/word order issues observed.
+
+4. 🔄 Active Vocabulary to Recycle:
+   - 3-5 specific words, phrases, or collocations the student struggled with that must be actively reintroduced in upcoming sessions.
+
+5. 🚀 Actionable Milestone Goals (Next 1-2 Weeks):
+   - 3 high-impact, measurable objectives (e.g. "Master subordinate clauses with weil/obwohl", "Narrate past events using Perfekt without hesitation").
+
+6. 🗓 7-Day Targeted Practice Regimen:
+   - Daily micro-drills (Listening, Speaking, Grammar, Vocabulary) customized to fix the diagnosed weak spots.
+
+Keep the tone encouraging, professional, and precise. Format with clean section headers and bullet points.`;
 }
 
 export async function maybeGenerateRoadmap(userId, language, level, mediatorLanguage = "english") {
@@ -765,8 +806,8 @@ export async function maybeGenerateRoadmap(userId, language, level, mediatorLang
         { role: "system", content: buildRoadmapPrompt(language, level, mediatorLanguage) },
         ...recent.map((h) => ({ role: h.role, content: h.content })),
       ],
-      temperature: 0.5,
-      max_tokens: 350,
+      temperature: 0.4,
+      max_tokens: 850,
       ...reasoningParams(model),
     })
   );
@@ -832,6 +873,7 @@ export async function transcribeAudio(audioBuffer, filename = "audio.ogg") {
     })
   );
 }
+
 // // ai.js
 // import Groq, { toFile } from "groq-sdk";
 // import { addFlashcard, addHistory, getHistory, countUserMessages, saveRoadmap } from "./db.js";
