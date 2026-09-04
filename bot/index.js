@@ -244,37 +244,18 @@ app.get("/api/roadmap/pdf", requireTelegramAuth, async (req, res) => {
 // ── Crash-Proof PDF Unicode Font Locator ─────────────────────────────────────
 function findSystemUnicodeFont() {
   const potentialFonts = [
-    // Bundled in node_modules via `npm install dejavu-fonts-ttf` — this is
-    // checked FIRST and is the one guaranteed to exist on every host
-    // (Render, Railway, Docker, your own machine) regardless of what OS
-    // packages happen to be installed. DejaVu Sans covers Cyrillic, Greek,
-    // Vietnamese, and most Latin-extended scripts. Without this (or an
-    // equivalent bundled font), PDFs for non-Latin languages silently
-    // fall back to Helvetica and render as blank boxes — no error thrown.
-    path.join(process.cwd(), "node_modules", "dejavu-fonts-ttf", "ttf", "DejaVuSans.ttf"),
-    path.join(process.cwd(), "bot", "node_modules", "dejavu-fonts-ttf", "ttf", "DejaVuSans.ttf"),
-    // Your own bundled copy, if you add one to bot/fonts/ manually.
-    path.join(process.cwd(), "fonts", "DejaVuSans.ttf"),
-    path.join(process.cwd(), "fonts", "Roboto-Regular.ttf"),
-    // OS-level fallbacks — present on some Docker base images, absent on
-    // most minimal Node buildpacks (so don't rely on these alone).
     "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
     "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
     "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
     "/usr/share/fonts/truetype/freefont/FreeSans.ttf",
     "C:\\Windows\\Fonts\\arial.ttf",
+    path.join(process.cwd(), "fonts", "Roboto-Regular.ttf"),
+    path.join(process.cwd(), "fonts", "DejaVuSans.ttf")
   ];
 
   for (const fontPath of potentialFonts) {
     if (fs.existsSync(fontPath)) return fontPath;
   }
-  // No usable font found anywhere — log loudly instead of silently
-  // shipping garbled/blank PDFs for non-Latin scripts.
-  console.warn(
-    "⚠️ No Unicode-capable font found for PDF export. Non-Latin text " +
-    "(Cyrillic, Arabic, CJK, etc.) will render as blank boxes. " +
-    "Run `npm install dejavu-fonts-ttf` in your bot folder to fix this."
-  );
   return null;
 }
 

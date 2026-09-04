@@ -62,6 +62,21 @@ export async function initDB() {
     ALTER TABLE flashcards ADD COLUMN IF NOT EXISTS syntax_rule TEXT;
     ALTER TABLE flashcards ADD COLUMN IF NOT EXISTS semantics_note TEXT;
 
+    -- Deduplicate existing rows BEFORE creating the unique index below.
+    -- CREATE UNIQUE INDEX fails outright if any pre-existing rows already
+    -- violate the constraint (exactly what was crashing startup) — this
+    -- keeps, per (user_id, language, word), whichever duplicate has the most
+    -- quiz progress (correct_streak), tie-broken by the most recent row.
+    DELETE FROM flashcards a
+    USING flashcards b
+    WHERE a.user_id = b.user_id
+      AND a.language = b.language
+      AND a.word = b.word
+      AND (
+        a.correct_streak < b.correct_streak
+        OR (a.correct_streak = b.correct_streak AND a.id < b.id)
+      );
+
     -- Deduplication index: stops duplicate identical cards for the same user and language
     CREATE UNIQUE INDEX IF NOT EXISTS idx_unique_flashcard 
     ON flashcards (user_id, language, word);
@@ -94,6 +109,15 @@ export async function initDB() {
     ALTER TABLE learned_words ADD COLUMN IF NOT EXISTS orthography_rule TEXT;
     ALTER TABLE learned_words ADD COLUMN IF NOT EXISTS syntax_rule TEXT;
     ALTER TABLE learned_words ADD COLUMN IF NOT EXISTS semantics_note TEXT;
+
+    -- Same preventive deduplication for learned_words, so this index doesn't
+    -- hit the identical crash the moment the flashcards index above succeeds.
+    DELETE FROM learned_words a
+    USING learned_words b
+    WHERE a.user_id = b.user_id
+      AND a.language = b.language
+      AND a.word = b.word
+      AND a.id < b.id;
 
     CREATE UNIQUE INDEX IF NOT EXISTS idx_unique_learned_word 
     ON learned_words (user_id, language, word);
@@ -721,6 +745,8 @@ export async function getAllUserVocabulary(userId, language = null) {
 }
 
 export default pool;
+
+
 // // db.js — PostgreSQL version (replaces lowdb)
 // import pg from "pg";
 
