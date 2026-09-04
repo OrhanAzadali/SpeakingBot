@@ -4,14 +4,10 @@ import FlashcardDeck from "./components/FlashcardDeck.jsx";
 import Summary from "./components/Summary.jsx";
 import Quiz from "./components/Quiz.jsx";
 import ListeningGame from "./components/ListeningGame.jsx";
-// Strip any trailing slashes to prevent double-slash 404/CORS errors
-const API = (import.meta.env.VITE_API_URL || "").replace(/\/+$/, "");
-if (!API) {
-  console.warn("VITE_API_URL is not set — set it in Vercel → Project Settings → Environment Variables.");
-}
+import ListeningMatch from "./components/ListeningMatch.jsx";
+import SpeakingGame from "./components/SpeakingGame.jsx";
 
-// How often to check for newly-added flashcards while the user is actively reviewing
-const NEW_CARD_POLL_MS = 6000;
+const API = (import.meta.env.VITE_API_URL || "").replace(/\/+$/, "");
 
 const DEMO_CARDS = [
   {
@@ -26,6 +22,7 @@ const DEMO_CARDS = [
     synonyms: "rest, others, remaining",
     explanation: "Refers to remaining people or items from a set group.",
     sentence: "Где <u>остальные</u> студенты?",
+    language: "russian"
   },
   {
     id: 2,
@@ -39,68 +36,35 @@ const DEMO_CARDS = [
     synonyms: "famished, starving",
     explanation: "Spanish expresses hunger with 'tener' (to have) instead of 'to be'.",
     sentence: "После пробежки я голоден: <u>tengo hambre</u>.",
+    language: "spanish"
   }
 ];
 
 export default function App() {
   const [cards, setCards] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [mode, setMode] = useState(null); // null | "flashcards" | "quiz"
+  const [mode, setMode] = useState(null); // null | "flashcards" | "quiz" | "listening" | "match" | "speaking"
   const [done, setDone] = useState(false);
   const [stats, setStats] = useState({ remembered: 0, forgot: 0 });
-  const [apiError, setApiError] = useState(null);
   const [pdfLoading, setPdfLoading] = useState(false);
 
-  // Every card id we've already shown this session
   const knownCardIdsRef = useRef(new Set());
-
-  // Default user identifier for preview / standalone environment
   const DEFAULT_USER_ID = "8291613988";
 
   function getEffectiveUserId() {
     const tg = window.Telegram?.WebApp;
     const urlParams = new URLSearchParams(window.location.search);
-    return (
-      urlParams.get("userId") ||
-      tg?.initDataUnsafe?.user?.id ||
-      DEFAULT_USER_ID
-    );
+    return urlParams.get("userId") || tg?.initDataUnsafe?.user?.id || DEFAULT_USER_ID;
   }
 
-  // Helper to dynamically extract trusted Telegram credentials with fallback
   function getAuthHeaders() {
     const tg = window.Telegram?.WebApp;
-    const initData = tg?.initData || "";
     const effectiveUserId = getEffectiveUserId();
-
-    const headers = {
-      "Content-Type": "application/json",
-    };
-    if (initData) {
-      headers["Authorization"] = `tma ${initData}`;
-    }
-    if (effectiveUserId) {
-      headers["X-User-Id"] = String(effectiveUserId);
-    }
+    const headers = { "Content-Type": "application/json" };
+    if (tg?.initData) headers["Authorization"] = `tma ${tg.initData}`;
+    if (effectiveUserId) headers["X-User-Id"] = String(effectiveUserId);
     return headers;
   }
-
-  // Telegram Native BackButton Integration
-  useEffect(() => {
-    const tg = window.Telegram?.WebApp;
-    if (!tg?.BackButton) return;
-
-    if (mode) {
-      tg.BackButton.show();
-      const handleBack = () => backToModeSelect();
-      tg.BackButton.onClick(handleBack);
-      return () => {
-        tg.BackButton.offClick(handleBack);
-      };
-    } else {
-      tg.BackButton.hide();
-    }
-  }, [mode]);
 
   function loadCards() {
     setLoading(true);
@@ -108,7 +72,6 @@ export default function App() {
     setStats({ remembered: 0, forgot: 0 });
 
     if (!API) {
-      knownCardIdsRef.current = new Set(DEMO_CARDS.map((c) => c.id));
       setCards(DEMO_CARDS);
       setLoading(false);
       return;
@@ -116,29 +79,15 @@ export default function App() {
 
     const headers = getAuthHeaders();
     const effectiveUserId = getEffectiveUserId();
-    const fetchUrl = `${API}/api/flashcards${effectiveUserId ? `?userId=${effectiveUserId}` : ""}`;
-
-    fetch(fetchUrl, { headers })
-      .then((r) => {
-        if (!r.ok) {
-          if (r.status === 401) {
-            // Authentication not provided or expired: fall back gracefully
-            return { cards: DEMO_CARDS };
-          }
-          throw new Error(`HTTP ${r.status}: ${r.statusText}`);
-        }
-        return r.json();
-      })
+    fetch(`${API}/api/flashcards${effectiveUserId ? `?userId=${effectiveUserId}` : ""}`, { headers })
+      .then((r) => (r.ok ? r.json() : { cards: DEMO_CARDS }))
       .then((data) => {
         const fresh = data.cards && data.cards.length > 0 ? data.cards : DEMO_CARDS;
         knownCardIdsRef.current = new Set(fresh.map((c) => c.id));
-        setCards(fresh); // API returns newest cards first (ORDER BY id DESC)
-        setApiError(null);
+        setCards(fresh);
         setLoading(false);
       })
-      .catch((error) => {
-        setApiError(null);
-        knownCardIdsRef.current = new Set(DEMO_CARDS.map((c) => c.id));
+      .catch(() => {
         setCards(DEMO_CARDS);
         setLoading(false);
       });
@@ -152,35 +101,6 @@ export default function App() {
     loadCards();
   }, []);
 
-  // Background Poller: Prepend newly saved chat mistakes directly to the top of the deck
-  useEffect(() => {
-    if (done || !API) return;
-
-    const interval = setInterval(async () => {
-      try {
-        const headers = getAuthHeaders();
-        const effectiveUserId = getEffectiveUserId();
-        const fetchUrl = `${API}/api/flashcards${effectiveUserId ? `?userId=${effectiveUserId}` : ""}`;
-
-        const res = await fetch(fetchUrl, { headers });
-        if (!res.ok) return;
-        const data = await res.json();
-        const incomingCards = data.cards || [];
-        const brandNewCards = incomingCards.filter((c) => !knownCardIdsRef.current.has(c.id));
-
-        if (brandNewCards.length === 0) return;
-
-        brandNewCards.forEach((c) => knownCardIdsRef.current.add(c.id));
-        // Add new cards to the front
-        setCards((prev) => [...brandNewCards, ...prev]);
-      } catch {
-        // Silent poll error handling
-      }
-    }, NEW_CARD_POLL_MS);
-
-    return () => clearInterval(interval);
-  }, [mode, done]);
-
   function handleResult(cardId, remembered) {
     setStats((prev) => ({
       remembered: prev.remembered + (remembered ? 1 : 0),
@@ -188,12 +108,11 @@ export default function App() {
     }));
 
     if (API) {
-      const headers = getAuthHeaders();
       fetch(`${API}/api/flashcards/${cardId}/review`, {
         method: "POST",
-        headers,
+        headers: getAuthHeaders(),
         body: JSON.stringify({ remembered }),
-      }).catch(() => {});
+      }).catch(() => { });
     }
 
     setCards((prev) => {
@@ -203,19 +122,17 @@ export default function App() {
     });
   }
 
-  // Direct in-app PDF Downloader
   async function handleDownloadPdf(endpoint, filename) {
     if (!API) {
-      alert("API is not connected in demo mode.");
+      alert("API required for PDF generation.");
       return;
     }
     setPdfLoading(true);
     try {
-      const headers = getAuthHeaders();
-      const effectiveUserId = getEffectiveUserId();
-      const fetchUrl = `${API}${endpoint}${effectiveUserId ? `?userId=${effectiveUserId}` : ""}`;
-      const res = await fetch(fetchUrl, { headers });
-      if (!res.ok) throw new Error(`Download error (HTTP ${res.status})`);
+      const res = await fetch(`${API}${endpoint}?userId=${getEffectiveUserId()}`, {
+        headers: getAuthHeaders(),
+      });
+      if (!res.ok) throw new Error("Download error");
       const blob = await res.blob();
       const blobUrl = window.URL.createObjectURL(blob);
       const link = document.createElement("a");
@@ -226,7 +143,7 @@ export default function App() {
       link.remove();
       window.URL.revokeObjectURL(blobUrl);
     } catch {
-      alert("Could not download PDF. Please make sure you have saved vocabulary or a roadmap first.");
+      alert("Could not download PDF. Verify vocabulary exists first.");
     } finally {
       setPdfLoading(false);
     }
@@ -248,25 +165,7 @@ export default function App() {
     );
   }
 
-  // ── Mode select ──────────────────────────────────────────────────────────────
   if (!mode) {
-    if (cards.length === 0) {
-      return (
-        <div className="min-h-screen flex flex-col items-center justify-center px-6 text-center">
-          <div className="text-6xl mb-6">🎉</div>
-          <h1 className="text-2xl font-bold text-white mb-2">No words to practice yet!</h1>
-          <p className="text-slate-400 text-sm mb-6">Keep chatting with the bot — any mistakes get saved here automatically in base form.</p>
-          <button
-            onClick={() => handleDownloadPdf("/api/roadmap/pdf", "My_Learning_Roadmap.pdf")}
-            disabled={pdfLoading}
-            className="py-3 px-5 rounded-xl bg-slate-800 border border-slate-700 text-slate-300 text-sm font-medium hover:bg-slate-700 active:scale-95 transition-all flex items-center gap-2"
-          >
-            <span>📈</span> {pdfLoading ? "Preparing PDF..." : "Download Learning Roadmap PDF"}
-          </button>
-        </div>
-      );
-    }
-
     return (
       <div className="min-h-screen flex flex-col items-center justify-center px-6 text-center py-8">
         <h1 className="text-2xl font-bold text-white mb-1">Choose a game</h1>
@@ -274,77 +173,79 @@ export default function App() {
           {cards.length} word{cards.length !== 1 ? "s" : ""} ready to practice
         </p>
 
-        {/* Game Mode Cards */}
-        <div className="w-full max-w-xs flex flex-col gap-4">
+        <div className="w-full max-w-xs flex flex-col gap-3.5">
           <button
             onClick={() => setMode("flashcards")}
-            className="w-full py-5 px-4 rounded-2xl bg-slate-800 border border-slate-700 hover:bg-slate-700 active:scale-95 transition-all text-left"
-            style={{ boxShadow: "0 20px 60px rgba(0,0,0,0.4)" }}
+            className="w-full py-4 px-4 rounded-2xl bg-slate-800 border border-slate-700 hover:bg-slate-700 active:scale-95 transition-all text-left shadow-lg"
           >
-            <div className="text-4xl mb-2">📚</div>
-            <div className="text-white font-semibold">Flashcards</div>
-            <div className="text-slate-400 text-xs mt-1">Review base lemmas, phonetics, grammar notes, and sentences</div>
+            <div className="text-3xl mb-1">📚</div>
+            <div className="text-white font-semibold text-sm">Flashcards</div>
+            <div className="text-slate-400 text-xs mt-0.5">Review base lemmas, phonetics, rules, and sentences</div>
+          </button>
+
+          <button
+            onClick={() => setMode("speaking")}
+            className="w-full py-4 px-4 rounded-2xl bg-gradient-to-br from-amber-600 to-orange-700 hover:brightness-110 active:scale-95 transition-all text-left shadow-lg"
+          >
+            <div className="text-3xl mb-1">🗣️</div>
+            <div className="text-white font-semibold text-sm">Speaking Challenge</div>
+            <div className="text-amber-100 text-xs mt-0.5">Speak the word into the mic to test pronunciation accuracy</div>
           </button>
 
           <button
             onClick={() => setMode("quiz")}
-            className="w-full py-5 px-4 rounded-2xl bg-gradient-to-br from-indigo-600 to-purple-700 hover:brightness-110 active:scale-95 transition-all text-left"
-            style={{ boxShadow: "0 20px 60px rgba(0,0,0,0.4)" }}
+            className="w-full py-4 px-4 rounded-2xl bg-gradient-to-br from-indigo-600 to-purple-700 hover:brightness-110 active:scale-95 transition-all text-left shadow-lg"
           >
-            <div className="text-4xl mb-2">🎯</div>
-            <div className="text-white font-semibold">Smart Quiz</div>
-            <div className="text-indigo-100 text-xs mt-1">AI evaluates synonyms & meanings — 3 in a row masters the word</div>
+            <div className="text-3xl mb-1">🎯</div>
+            <div className="text-white font-semibold text-sm">Smart Quiz</div>
+            <div className="text-indigo-100 text-xs mt-0.5">AI evaluates synonyms & meanings — 3 in a row masters it</div>
           </button>
+
           <button
             onClick={() => setMode("listening")}
-            className="w-full py-5 px-4 rounded-2xl bg-gradient-to-br from-cyan-600 to-blue-700 hover:brightness-110 active:scale-95 transition-all text-left"
-            style={{ boxShadow: "0 20px 60px rgba(0,0,0,0.4)" }}
+            className="w-full py-4 px-4 rounded-2xl bg-gradient-to-br from-cyan-600 to-blue-700 hover:brightness-110 active:scale-95 transition-all text-left shadow-lg"
           >
-            <div className="text-4xl mb-2">🎧</div>
-            <div className="text-white font-semibold">Listening</div>
-            <div className="text-cyan-100 text-xs mt-1">Hear the word first — type or pick what it means</div>
+            <div className="text-3xl mb-1">🎧</div>
+            <div className="text-white font-semibold text-sm">Listening</div>
+            <div className="text-cyan-100 text-xs mt-0.5">Hear the word first — type or pick what it means</div>
+          </button>
+
+          <button
+            onClick={() => setMode("match")}
+            className="w-full py-4 px-4 rounded-2xl bg-gradient-to-br from-emerald-600 to-teal-700 hover:brightness-110 active:scale-95 transition-all text-left shadow-lg"
+          >
+            <div className="text-3xl mb-1">🔊</div>
+            <div className="text-white font-semibold text-sm">Sound Match</div>
+            <div className="text-emerald-100 text-xs mt-0.5">Match spoken audio tiles to definitions with streak combos</div>
           </button>
         </div>
 
-        {/* PDF Materials Download Section */}
-        <div className="w-full max-w-xs flex flex-col gap-2.5 mt-6 pt-5 border-t border-slate-800">
-          <p className="text-[11px] uppercase tracking-wider text-slate-500 font-semibold text-center mb-1">
-            Downloadable PDF Materials
-          </p>
-
+        <div className="w-full max-w-xs flex flex-col gap-2 mt-6 pt-4 border-t border-slate-800">
           <button
             onClick={() => handleDownloadPdf("/api/vocabulary/pdf", "My_Vocabulary_Notebook.pdf")}
             disabled={pdfLoading}
-            className="w-full py-3 px-4 rounded-xl bg-slate-800/80 border border-slate-700 text-slate-200 text-xs font-medium hover:bg-slate-700 active:scale-95 transition-all flex items-center justify-center gap-2 disabled:opacity-50"
+            className="w-full py-2.5 px-3 rounded-xl bg-slate-800/80 border border-slate-700 text-slate-200 text-xs font-medium hover:bg-slate-700 active:scale-95 transition-all flex items-center justify-center gap-2"
           >
             <span>📥</span> {pdfLoading ? "Compiling..." : "Download Vocabulary Notebook (PDF)"}
           </button>
-
-          <button
-            onClick={() => handleDownloadPdf("/api/roadmap/pdf", "My_Learning_Roadmap.pdf")}
-            disabled={pdfLoading}
-            className="w-full py-3 px-4 rounded-xl bg-slate-800/80 border border-slate-700 text-slate-200 text-xs font-medium hover:bg-slate-700 active:scale-95 transition-all flex items-center justify-center gap-2 disabled:opacity-50"
-          >
-            <span>📈</span> {pdfLoading ? "Compiling..." : "Download Learning Roadmap (PDF)"}
-          </button>
         </div>
-
-        {apiError && (
-          <p className="text-center text-yellow-500 text-xs mt-6">⚠️ Using demo cards (API: {apiError})</p>
-        )}
       </div>
     );
   }
-  // ── Listening mode ────────────────────────────────────────────────────────────
+
+  if (mode === "speaking") {
+    return <SpeakingGame cards={cards} API={API} authHeaders={getAuthHeaders()} onExit={backToModeSelect} />;
+  }
   if (mode === "listening") {
     return <ListeningGame cards={cards} API={API} authHeaders={getAuthHeaders()} onExit={backToModeSelect} />;
   }
-  // ── Quiz mode ─────────────────────────────────────────────────────────────────
+  if (mode === "match") {
+    return <ListeningMatch cards={cards} API={API} authHeaders={getAuthHeaders()} onExit={backToModeSelect} />;
+  }
   if (mode === "quiz") {
     return <Quiz cards={cards} API={API} authHeaders={getAuthHeaders()} onExit={backToModeSelect} />;
   }
 
-  // ── Flashcards mode ───────────────────────────────────────────────────────────
   if (done || cards.length === 0) {
     return (
       <Summary
@@ -358,36 +259,13 @@ export default function App() {
   return (
     <div className="min-h-screen flex flex-col items-center justify-center px-4 py-8">
       <div className="w-full max-w-sm mb-6">
-        <h1 className="text-xl font-bold text-center text-white mb-1">
-          📚 Flashcard Review
-        </h1>
-        <p className="text-center text-slate-400 text-xs">
-          {cards.length} card{cards.length !== 1 ? "s" : ""} remaining
-        </p>
-        {apiError && (
-          <p className="text-center text-yellow-500 text-xs mt-1">
-            ⚠️ Using demo cards (API: {apiError})
-          </p>
-        )}
-        <div className="mt-3 h-1.5 bg-slate-700 rounded-full overflow-hidden">
-          <div
-            className="h-full bg-indigo-500 rounded-full transition-all duration-500"
-            style={{
-              width: `${((stats.remembered + stats.forgot) /
-                (stats.remembered + stats.forgot + cards.length)) *
-                100
-                }%`,
-            }}
-          />
-        </div>
+        <h1 className="text-xl font-bold text-center text-white mb-1">📚 Flashcard Review</h1>
+        <p className="text-center text-slate-400 text-xs">{cards.length} cards remaining</p>
       </div>
-
       <FlashcardDeck key={cards[0]?.id ?? "empty"} cards={cards} onResult={handleResult} />
-
-      <p className="mt-6 text-slate-500 text-xs text-center">
-        Tap to reveal • ✅ remembered • ❌ forgot
-      </p>
-
+      <button onClick={backToModeSelect} className="mt-6 text-xs text-slate-500 hover:text-slate-300">
+        ← Back to games
+      </button>
     </div>
   );
 }

@@ -1404,6 +1404,21 @@ initDB().then(async () => {
       { command: "help", description: "How to use this bot" }
     ]);
     console.log("✅ Telegram command menu registered successfully");
+
+    if (MINIAPP_URL) {
+      try {
+        await bot.api.setChatMenuButton({
+          menu_button: {
+            type: "web_app",
+            text: "Open App",
+            web_app: { url: MINIAPP_URL.replace(/\/+$/, "") },
+          },
+        });
+        console.log(`✅ Telegram chat menu button set to: ${MINIAPP_URL}`);
+      } catch (btnErr) {
+        console.warn("Could not set chat menu button:", btnErr.message);
+      }
+    }
   } catch (cmdErr) {
     console.warn("Could not register bot commands:", cmdErr.message);
   }

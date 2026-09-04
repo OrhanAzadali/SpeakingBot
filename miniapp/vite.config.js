@@ -1,3 +1,4 @@
+// miniapp/vite.config.js
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 
@@ -9,7 +10,7 @@ export default defineConfig({
     allowedHosts: "all",
   },
   build: {
-    outDir: "../dist",
+    outDir: "dist", // ✅ Vite will now generate miniapp/dist
     emptyOutDir: true,
   },
 });
