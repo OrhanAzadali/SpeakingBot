@@ -1158,6 +1158,9 @@ async function sendRoadmapPdfToUser(ctx, userId) {
   }
 }
 
+// Returns true if the user may proceed; otherwise sends an upgrade prompt and
+// returns false. Called before any Groq/TTS work so a blocked user doesn't
+// burn API calls or eat into the webhook's ack window for nothing.
 async function enforceUsageLimit(ctx, userId) {
   const usage = await checkAndIncrementUsage(userId, FREE_DAILY_LIMIT);
   if (usage.allowed) return true;
