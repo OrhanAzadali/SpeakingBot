@@ -85,10 +85,6 @@ export default function Quiz({ cards, API, authHeaders, onExit }) {
           partOfSpeech: current.part_of_speech || "word",
           transcription: current.transcription || "",
           pronunciation_rule: current.pronunciation_rule || "",
-          grammar_rule: current.grammar_rule || "",
-          orthography_rule: current.orthography_rule || "",
-          syntax_rule: current.syntax_rule || "",
-          semantics_note: current.semantics_note || "",
           synonyms: current.synonyms || "",
           sentence: current.sentence || current.context || "",
           mastered: false,
@@ -106,10 +102,6 @@ export default function Quiz({ cards, API, authHeaders, onExit }) {
         partOfSpeech: data.partOfSpeech || current.part_of_speech,
         transcription: data.transcription || current.transcription,
         pronunciation_rule: data.pronunciation_rule || current.pronunciation_rule,
-        grammar_rule: data.grammar_rule || current.grammar_rule,
-        orthography_rule: data.orthography_rule || current.orthography_rule,
-        syntax_rule: data.syntax_rule || current.syntax_rule,
-        semantics_note: data.semantics_note || current.semantics_note,
         synonyms: data.synonyms || current.synonyms,
         sentence: data.sentence || current.sentence,
         initialForm: data.initialForm || current.initial_form || current.word,
@@ -161,11 +153,11 @@ export default function Quiz({ cards, API, authHeaders, onExit }) {
     );
   }
 
-  // ── Feedback panel (Synonyms, Phonetics, Grammar, Syntax, Orthography) ───────
+  // ── Feedback panel (Synonyms, Phonetics, Grammar Role & Explanation) ────────
   if (feedback) {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center px-4 py-8 text-center max-w-sm mx-auto">
-        <div className="text-5xl mb-2">{feedback.correct ? (feedback.isSynonym ? "💡" : "✅") : "❌"}</div>
+        <div className="text-5xl mb-3">{feedback.correct ? (feedback.isSynonym ? "💡" : "✅") : "❌"}</div>
 
         <div className="flex items-center gap-2 justify-center mb-1">
           <p className="text-slate-200 font-bold text-xl">{feedback.initialForm}</p>
@@ -186,8 +178,8 @@ export default function Quiz({ cards, API, authHeaders, onExit }) {
           {feedback.correct ? (feedback.isSynonym ? "Synonym Accepted!" : "Correct!") : "Not quite"}
         </h2>
 
-        {/* Detailed Linguistic Breakdown Box (Scrollable for mobile convenience) */}
-        <div className="w-full bg-slate-800/95 border border-slate-700 rounded-2xl p-4 text-left mb-4 shadow-xl text-xs leading-relaxed space-y-2 max-h-[380px] overflow-y-auto">
+        {/* Detailed Explanation Box */}
+        <div className="w-full bg-slate-800/90 border border-slate-700 rounded-2xl p-4 text-left mb-4 shadow-lg text-xs leading-relaxed space-y-2">
           <p className="text-slate-300">
             <span className="text-slate-400 font-semibold">Accepted Meaning:</span>{" "}
             <span className="text-white font-bold">{feedback.correctAnswer}</span>
@@ -200,36 +192,8 @@ export default function Quiz({ cards, API, authHeaders, onExit }) {
           )}
 
           {feedback.pronunciation_rule && (
-            <div className="bg-slate-700/40 p-2 rounded-lg border border-slate-600/40">
-              <p className="text-slate-300">
-                <span className="text-indigo-300 font-semibold">Pronunciation:</span> {feedback.pronunciation_rule}
-              </p>
-            </div>
-          )}
-
-          {feedback.grammar_rule && (
-            <div className="bg-slate-700/40 p-2 rounded-lg border border-slate-600/40">
-              <p className="text-slate-300">
-                <span className="text-emerald-300 font-semibold">Grammar & Morphology:</span> {feedback.grammar_rule}
-              </p>
-            </div>
-          )}
-
-          {feedback.syntax_rule && (
-            <p className="text-slate-300">
-              <span className="text-slate-400 font-semibold">Syntax & Case Government:</span> {feedback.syntax_rule}
-            </p>
-          )}
-
-          {feedback.orthography_rule && (
-            <p className="text-slate-300">
-              <span className="text-slate-400 font-semibold">Orthography:</span> {feedback.orthography_rule}
-            </p>
-          )}
-
-          {feedback.semantics_note && (
-            <p className="text-slate-300">
-              <span className="text-slate-400 font-semibold">Semantics & Collocations:</span> {feedback.semantics_note}
+            <p className="text-slate-300 bg-slate-700/40 p-2 rounded-lg border border-slate-600/40">
+              <span className="text-indigo-300 font-semibold">Pronunciation:</span> {feedback.pronunciation_rule}
             </p>
           )}
 
@@ -239,15 +203,15 @@ export default function Quiz({ cards, API, authHeaders, onExit }) {
             </p>
           )}
 
-          {feedback.explanation && !feedback.grammar_rule && (
+          {feedback.explanation && (
             <p className="text-slate-300">
-              <span className="text-slate-400 font-semibold">Note:</span> {feedback.explanation}
+              <span className="text-slate-400 font-semibold">Grammar Note:</span> {feedback.explanation}
             </p>
           )}
 
           {feedback.sentence && (
             <div className="pt-2 border-t border-slate-700">
-              <p className="text-[11px] text-slate-400 font-semibold mb-0.5">Example in Context:</p>
+              <p className="text-[11px] text-slate-400 font-semibold mb-0.5">Example in context:</p>
               <p
                 className="text-slate-300 italic"
                 dangerouslySetInnerHTML={{ __html: feedback.sentence }}
@@ -271,7 +235,7 @@ export default function Quiz({ cards, API, authHeaders, onExit }) {
   }
 
   // ── Question screen ─────────────────────────────────────────────────────────
-  if (!current) return null; // brief gap while the effect above picks the next question
+  if (!current) return null;
 
   const displayWord = current.initial_form || current.word;
 
@@ -345,6 +309,7 @@ export default function Quiz({ cards, API, authHeaders, onExit }) {
     </div>
   );
 }
+
 // import React, { useEffect, useState } from "react";
 
 // function shuffle(arr) {
