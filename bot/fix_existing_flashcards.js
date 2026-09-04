@@ -5,8 +5,11 @@
 //    (e.g., Russian: "вопроса" -> "вопрос", "горшками" -> "горшок", "исправь" -> "исправить").
 // 2. `transcription` holds the IPA phonetic transcription and reading guide with stress.
 // 3. `pronunciation_rule` holds the key pronunciation/orthography rule for that word.
-// 4. `part_of_speech` and `synonyms` are extracted and populated.
-// 5. `correction` holds an accurate translation (never identical to the target word).
+// 4. `grammar_rule`, `orthography_rule`, `syntax_rule`, and `semantics_note` are populated.
+// 5. `part_of_speech` and `synonyms` are extracted and populated.
+// 6. `correction` holds an accurate translation (never identical to the target word).
+// 7. Deletes corrupted transliteration slang ("BIL", "SHO", "TEM", "TOGO"), single-letter noise,
+//    and hallucinated words ("думавладельце").
 //
 // Usage:
 //   node fix_existing_flashcards.js            # Dry run — prints proposed updates, writes nothing
@@ -40,9 +43,9 @@ const LANGUAGE_NAMES = {
   marathi: "Marathi", swahili: "Swahili", afrikaans: "Afrikaans", azerbaijani: "Azerbaijani",
 };
 
-// Words to immediately delete as noise/transliteration slang
+// Words to immediately delete as noise, slang, single-letter particles, or hallucinations
 const NOISE_WORDS = new Set([
-  "bil", "sho", "tem", "togo", "думавладельце", "не", "о", "а", "эрнана кортеса"
+  "bil", "sho", "tem", "togo", "думавладельце", "не", "о", "а", "в", "и", "эрнана кортеса"
 ]);
 
 function normalize(str) {
@@ -60,8 +63,8 @@ function extractJsonObject(raw) {
   return match ? match[0] : raw;
 }
 
-async function reprocessWordToRichLemma(languageName, word, oldMeaning) {
-  const prompt = `You are an expert lexicographer and dictionary editor for ${languageName}.
+async function reprocessWordToRichLinguistics(languageName, word, oldMeaning) {
+  const prompt = `You are an expert lexicographer, grammarian, and dictionary editor for ${languageName}.
 
 A student saved the word or phrase: "${word}" (existing translation: "${oldMeaning || ""}").
 
@@ -70,14 +73,18 @@ TASK:
    - Nouns MUST be singular nominative (e.g. Russian: "вопроса" -> "вопрос", "горшками" -> "горшок", "крышей" -> "крыша").
    - Verbs MUST be bare infinitive (e.g. Russian: "исправь" -> "исправить", "читал" -> "читать"; German: "heißt" -> "heißen").
    - Adjectives MUST be masculine singular nominative (e.g. Russian: "разными" -> "разный", "черепичной" -> "черепичный").
-   - Pronouns MUST be dictionary lemma (e.g. Russian: "мои" -> "мой", "этого" -> "этот").
-   - If the input is transliteration slang (like "BIL", "SHO", "TEM"), convert to native script (e.g. "был", "что", "тем") or set "is_noise": true.
+   - Pronouns MUST be dictionary headword (e.g. Russian: "мои" -> "мой", "этого" -> "этот").
+   - If the input is transliteration slang (like "BIL", "SHO", "TEM"), convert to native script or set "is_noise": true.
 2. "part_of_speech": noun | verb | adjective | adverb | pronoun | phrase.
 3. "transcription": IPA + approximate phonetic reading with stress indicated.
-4. "pronunciation_rule": 1 sentence explaining the key pronunciation/phonetic rule (stress placement, silent letters, reductions, umlauts).
-5. "meaning": Accurate English meaning/translation of the lemma (NEVER identical to the lemma).
-6. "synonyms": 2-3 comma-separated synonyms.
-7. "is_noise": Set to true if the input is a single-letter preposition/particle ("о", "а", "не"), gibberish, or proper name.
+4. "pronunciation_rule": 1 sentence explaining key phonetic rules (stress placement, reductions, silent letters, umlauts).
+5. "grammar_rule": Morphological properties (gender, declension/conjugation pattern, irregular stems).
+6. "orthography_rule": Spelling rule, letter combinations, capitalization, or diacritics.
+7. "syntax_rule": Case government, preposition requirements, and word order constraints.
+8. "semantics_note": Nuances, register, false friends, collocations, and contextual usage notes.
+9. "meaning": Accurate English meaning/translation of the lemma (NEVER identical to the lemma).
+10. "synonyms": 2-3 comma-separated synonyms.
+11. "is_noise": Set to true if the input is a single-letter preposition/particle ("о", "а", "не"), gibberish, or proper name.
 
 Return ONLY a JSON object:
 {
@@ -86,6 +93,10 @@ Return ONLY a JSON object:
   "part_of_speech": "...",
   "transcription": "...",
   "pronunciation_rule": "...",
+  "grammar_rule": "...",
+  "orthography_rule": "...",
+  "syntax_rule": "...",
+  "semantics_note": "...",
   "meaning": "...",
   "synonyms": "..."
 }`;
@@ -95,7 +106,7 @@ Return ONLY a JSON object:
       model: "llama-3.3-70b-versatile",
       messages: [{ role: "user", content: prompt }],
       temperature: 0.1,
-      max_tokens: 350,
+      max_tokens: 650,
       response_format: { type: "json_object" },
     });
 
@@ -117,6 +128,10 @@ Return ONLY a JSON object:
       partOfSpeech: parsed.part_of_speech?.trim() || "word",
       transcription: parsed.transcription?.trim() || null,
       pronunciationRule: parsed.pronunciation_rule?.trim() || null,
+      grammarRule: parsed.grammar_rule?.trim() || null,
+      orthographyRule: parsed.orthography_rule?.trim() || null,
+      syntaxRule: parsed.syntax_rule?.trim() || null,
+      semanticsNote: parsed.semantics_note?.trim() || null,
       meaning: cleanMeaning,
       synonyms: parsed.synonyms?.trim() || null,
     };
@@ -140,9 +155,9 @@ async function main() {
     const cleanWord = String(card.word || "").trim();
     const lowerWord = cleanWord.toLowerCase();
 
-    // 1. Check known noise/slang words to purge
+    // 1. Immediate purge of known noise words or single-letter particles
     if (NOISE_WORDS.has(lowerWord) || cleanWord.length <= 1) {
-      console.log(`[delete] #${card.id} "${card.word}" — noise or particle`);
+      console.log(`[delete] #${card.id} "${card.word}" — noise or single-letter particle`);
       deletedCount++;
       if (APPLY) {
         await pool.query("DELETE FROM flashcards WHERE id = $1", [card.id]);
@@ -153,7 +168,7 @@ async function main() {
     const languageName = LANGUAGE_NAMES[card.language] || card.language || "the target language";
 
     try {
-      const result = await reprocessWordToRichLemma(languageName, card.word, card.correction);
+      const result = await reprocessWordToRichLinguistics(languageName, card.word, card.correction);
 
       if (!result) {
         console.log(`[skip]   #${card.id} "${card.word}" — could not confidently lemmatize`);
@@ -186,8 +201,12 @@ async function main() {
                part_of_speech = $4,
                synonyms = COALESCE(synonyms, $5),
                transcription = COALESCE(transcription, $6),
-               pronunciation_rule = COALESCE(pronunciation_rule, $7)
-           WHERE id = $8`,
+               pronunciation_rule = COALESCE(pronunciation_rule, $7),
+               grammar_rule = COALESCE(grammar_rule, $8),
+               orthography_rule = COALESCE(orthography_rule, $9),
+               syntax_rule = COALESCE(syntax_rule, $10),
+               semantics_note = COALESCE(semantics_note, $11)
+           WHERE id = $12`,
           [
             result.lemma,
             card.word,
@@ -196,6 +215,10 @@ async function main() {
             result.synonyms,
             result.transcription,
             result.pronunciationRule,
+            result.grammarRule,
+            result.orthographyRule,
+            result.syntaxRule,
+            result.semanticsNote,
             card.id,
           ]
         );
@@ -205,13 +228,13 @@ async function main() {
       skippedCount++;
     }
 
-    // Small delay to comfortably stay within Groq rate limits
+    // Small delay to stay well within Groq rate limits
     await new Promise((r) => setTimeout(r, 200));
   }
 
   console.log(`\n════════════════════════════════════════════════════════════════`);
   console.log(`MIGRATION SUMMARY (${APPLY ? "APPLIED TO DATABASE" : "DRY RUN"}):`);
-  console.log(`  • Updated: ${updatedCount} words lemmatized & enriched with phonetics`);
+  console.log(`  • Updated: ${updatedCount} words lemmatized & enriched with full linguistics`);
   console.log(`  • Deleted: ${deletedCount} noise/slang/particle records removed`);
   console.log(`  • Skipped: ${skippedCount} records`);
   console.log(`════════════════════════════════════════════════════════════════\n`);

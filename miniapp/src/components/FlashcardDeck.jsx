@@ -33,7 +33,7 @@ export default function FlashcardDeck({ cards, onResult }) {
         onClick={handleFlip}
         className={`relative w-full rounded-2xl cursor-pointer select-none transition-transform duration-200 active:scale-95 ${animating === "right" ? "animate-slide-right" : ""
           } ${animating === "left" ? "animate-slide-left" : ""}`}
-        style={{ minHeight: 300, boxShadow: "0 20px 60px rgba(0,0,0,0.4)" }}
+        style={{ minHeight: 340, boxShadow: "0 20px 60px rgba(0,0,0,0.4)" }}
       >
         {/* FRONT: Base Lemma, Grammatical Role & Phonetic Transcription */}
         {!flipped && (
@@ -61,63 +61,89 @@ export default function FlashcardDeck({ cards, onResult }) {
               </p>
             )}
 
-            <p className="mt-6 text-indigo-200 text-xs flex items-center gap-1.5">
-              <span>👆</span> Tap to reveal meaning, grammar & pronunciation rules
+            <p className="mt-8 text-indigo-200 text-xs flex items-center gap-1.5">
+              <span>👆</span> Tap to reveal full grammar, syntax, semantics & rules
             </p>
           </div>
         )}
 
-        {/* BACK: Meaning, Pronunciation Rules, Synonyms, Grammar & Context Sentence */}
+        {/* BACK: Comprehensive Linguistic Card (Grammar, Syntax, Orthography, Semantics) */}
         {flipped && (
-          <div className="absolute inset-0 flex flex-col justify-center p-6 rounded-2xl bg-gradient-to-br from-slate-800 to-slate-900 text-left overflow-y-auto">
-            <div className="flex items-center justify-between mb-1.5">
+          <div className="absolute inset-0 flex flex-col p-5 rounded-2xl bg-gradient-to-br from-slate-800 to-slate-900 text-left overflow-y-auto">
+            {/* Header: Meaning & POS */}
+            <div className="flex items-center justify-between mb-1">
               <span className="text-xs uppercase tracking-widest text-slate-400">Meaning</span>
               {current.part_of_speech && (
-                <span className="text-[11px] px-2 py-0.5 rounded-full bg-slate-700 text-slate-300">
+                <span className="text-[11px] px-2 py-0.5 rounded-full bg-slate-700 text-slate-300 font-medium">
                   {current.part_of_speech}
                 </span>
               )}
             </div>
 
-            <p className="text-2xl font-bold text-green-400 mb-2">{current.correction}</p>
+            <p className="text-xl font-bold text-green-400 mb-2">{current.correction}</p>
 
-            {current.transcription && (
-              <p className="text-xs text-indigo-300 mb-1.5 font-medium">
-                <span className="text-slate-400 font-semibold">Phonetics:</span> {current.transcription}
-              </p>
-            )}
+            {/* Linguistic Details Container */}
+            <div className="space-y-2 text-xs leading-relaxed">
+              {current.transcription && (
+                <p className="text-indigo-300">
+                  <span className="text-slate-400 font-semibold">Phonetics:</span> {current.transcription}
+                </p>
+              )}
 
-            {current.pronunciation_rule && (
-              <p className="text-xs text-slate-300 mb-2 leading-relaxed bg-slate-700/40 p-2 rounded-lg border border-slate-600/40">
-                <span className="text-indigo-300 font-semibold">Pronunciation Rule:</span> {current.pronunciation_rule}
-              </p>
-            )}
+              {current.pronunciation_rule && (
+                <div className="bg-slate-700/40 p-2 rounded-lg border border-slate-600/40">
+                  <p className="text-slate-300">
+                    <span className="text-indigo-300 font-semibold">Pronunciation:</span> {current.pronunciation_rule}
+                  </p>
+                </div>
+              )}
 
-            {current.synonyms && (
-              <p className="text-xs text-indigo-300 mb-1.5">
-                <span className="font-semibold text-slate-400">Synonyms:</span> {current.synonyms}
-              </p>
-            )}
+              {current.grammar_rule && (
+                <div className="bg-slate-700/40 p-2 rounded-lg border border-slate-600/40">
+                  <p className="text-slate-300">
+                    <span className="text-emerald-300 font-semibold">Grammar & Morphology:</span> {current.grammar_rule}
+                  </p>
+                </div>
+              )}
 
-            {current.explanation && (
-              <p className="text-xs text-slate-300 mb-2 leading-relaxed">
-                <span className="font-semibold text-slate-400">Grammar Note:</span> {current.explanation}
-              </p>
-            )}
+              {current.orthography_rule && (
+                <p className="text-slate-300">
+                  <span className="text-slate-400 font-semibold">Orthography:</span> {current.orthography_rule}
+                </p>
+              )}
 
-            {(current.sentence || current.context) && (
-              <div className="mt-2 pt-2 border-t border-slate-700/80">
-                <p className="text-[11px] uppercase tracking-wider text-slate-500 mb-1">Context Sentence</p>
-                {current.sentence ? (
-                  <p
-                    className="text-slate-300 text-xs leading-relaxed italic"
-                    dangerouslySetInnerHTML={{ __html: current.sentence }}
-                  />
-                ) : (
-                  <p className="text-slate-300 text-xs leading-relaxed italic">{current.context}</p>
-                )}
-              </div>
-            )}
+              {current.syntax_rule && (
+                <p className="text-slate-300">
+                  <span className="text-slate-400 font-semibold">Syntax & Case:</span> {current.syntax_rule}
+                </p>
+              )}
+
+              {current.semantics_note && (
+                <p className="text-slate-300">
+                  <span className="text-slate-400 font-semibold">Semantics & Collocations:</span> {current.semantics_note}
+                </p>
+              )}
+
+              {current.synonyms && (
+                <p className="text-indigo-300">
+                  <span className="text-slate-400 font-semibold">Synonyms:</span> {current.synonyms}
+                </p>
+              )}
+
+              {(current.sentence || current.context) && (
+                <div className="pt-2 border-t border-slate-700/80">
+                  <p className="text-[11px] uppercase tracking-wider text-slate-500 mb-0.5">Example in Context</p>
+                  {current.sentence ? (
+                    <p
+                      className="text-slate-300 italic"
+                      dangerouslySetInnerHTML={{ __html: current.sentence }}
+                    />
+                  ) : (
+                    <p className="text-slate-300 italic">{current.context}</p>
+                  )}
+                </div>
+              )}
+            </div>
           </div>
         )}
       </div>
