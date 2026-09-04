@@ -1,0 +1,6 @@
+{
+  "name": "Language Immersion Coach & Grammar Notebook",
+  "description": "AI Language Immersion Coach with full grammar guides, interactive drills, flashcards, and downloadable PDF grammar notebooks.",
+  "requestFramePermissions": ["microphone"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
