@@ -15,3 +15,5 @@ dist
 *.log
 
 speakingbot.zip
+.vercel
+.env*
