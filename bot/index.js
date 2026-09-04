@@ -1158,6 +1158,17 @@ async function sendRoadmapPdfToUser(ctx, userId) {
   }
 }
 
+async function enforceUsageLimit(ctx, userId) {
+  const usage = await checkAndIncrementUsage(userId, FREE_DAILY_LIMIT);
+  if (usage.allowed) return true;
+
+  await ctx.reply(
+    `⏳ You've used all ${usage.limit} free messages today.\n\n` +
+    `Send /upgrade for unlimited daily practice with Premium.`
+  );
+  return false;
+}
+
 // ── Voice Messages ────────────────────────────────────────────────────────────
 
 bot.on("message:voice", async (ctx) => {
