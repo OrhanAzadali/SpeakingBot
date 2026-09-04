@@ -1,6 +1,4 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import "tailwindcss";
 
 /* ── Telegram WebApp Theme Bindings & Base Styles ────────────────────────── */
 
