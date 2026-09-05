@@ -186,7 +186,7 @@ FORMATTING RULES FOR "grammar_topic":
 - "explanation": Write clean Markdown headers (###) and tables. NEVER output raw JSON curly braces or string objects like {"target": ...} inside the explanation text!
 - "examples": Provide an array of structured objects: [{ "target": "...", "translation": "...", "note": "..." }]
 
-Return your response strictly as a single JSON object with all the messages properly translated in a proper language depending on the condition ${explanationDirective}:
+Return your response strictly as a single JSON object with all the messages properly translated in a proper language depending on the level:
 {
   "correctionText": "✅ Perfect!" OR "📝 Correction: <corrected sentence> (<1-sentence explanation>)" OR "ℹ️ It seems you got a bit confused, lets dive into it together in ${mediatorLanguage} language!",
   "grammar_topic": {
@@ -215,7 +215,9 @@ Return your response strictly as a single JSON object with all the messages prop
       "sentence": "Full corrected sentence with the word wrapped in <u>word</u> (grammatically adjusted!)"
     }
   ]
-} `;
+};
+
+Always recheck your response content and adjust the text to respect the grammar rules of the specific language you're using while responding`;
 }
 
 // ── Call 3: 4-Skill Drill Generator (Level-Aware Instructions & Skill Purity) ─
