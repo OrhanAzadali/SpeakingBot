@@ -11,6 +11,7 @@ import {
     CheckCircle2,
     ListFilter,
     ChevronRight,
+    Trash2,
 } from "lucide-react";
 
 export default function GrammarBook({ API, authHeaders, effectiveUserId, onExit }) {
@@ -102,6 +103,28 @@ export default function GrammarBook({ API, authHeaders, effectiveUserId, onExit 
         }
     };
 
+    const handleDeleteTopic = async (topicId, e) => {
+        if (e) e.stopPropagation();
+        if (!confirm("Are you sure you want to delete this grammar topic?")) return;
+
+        try {
+            const res = await fetch(`${BACKEND_URL}/api/grammar/${topicId}?userId=${effectiveUserId}`, {
+                method: "DELETE",
+                headers: authHeaders,
+            });
+            if (res.ok) {
+                showToast("🗑 Topic deleted successfully");
+                setTopics((prev) => prev.filter((t) => t.id !== topicId));
+                if (selectedTopic?.id === topicId) setSelectedTopic(null);
+            } else {
+                showToast("Failed to delete topic");
+            }
+        } catch {
+            showToast("Network error deleting topic");
+        }
+    };
+
+
     const categories = ["All", ...Array.from(new Set(topics.map((t) => t.category).filter(Boolean)))];
 
     const filteredTopics = topics.filter((t) => {
@@ -123,7 +146,6 @@ export default function GrammarBook({ API, authHeaders, effectiveUserId, onExit 
         }
         return [];
     };
-
     return (
         <div className="min-h-screen bg-slate-900 text-white flex flex-col p-4 sm:p-6 font-sans">
             {/* Toast Notification */}
@@ -278,6 +300,14 @@ export default function GrammarBook({ API, authHeaders, effectiveUserId, onExit 
                                                 <Send className="w-3 h-3 text-indigo-400" />
                                                 <span>{actionLoading === `tg-${topic.id}` ? "..." : "TG"}</span>
                                             </button>
+                                            {/* Delete button on card */}
+                                            <button
+                                                onClick={(e) => handleDeleteTopic(topic.id, e)}
+                                                className="py-1 px-2 rounded-lg bg-rose-950/60 border border-rose-900/80 text-rose-400 hover:bg-rose-900 hover:text-white text-xs font-semibold transition flex items-center justify-center"
+                                                title="Delete Rule"
+                                            >
+                                                <Trash2 className="w-3.5 h-3.5" />
+                                            </button>
                                         </div>
                                     </div>
                                 </div>
@@ -338,13 +368,17 @@ export default function GrammarBook({ API, authHeaders, effectiveUserId, onExit 
                             })()}
                         </div>
 
+                        {/* Modal Action Footer with Delete Button */}
                         <div className="p-3 border-t border-slate-700 bg-slate-900/60 flex items-center justify-between">
                             <button
-                                onClick={() => setSelectedTopic(null)}
-                                className="text-xs text-slate-400 hover:text-white"
+                                onClick={() => handleDeleteTopic(selectedTopic.id)}
+                                className="py-1.5 px-3 rounded-xl bg-rose-950/70 border border-rose-900 text-rose-300 hover:bg-rose-900 hover:text-white text-xs font-semibold transition flex items-center gap-1.5"
+                                title="Delete this topic"
                             >
-                                Close
+                                <Trash2 className="w-3.5 h-3.5" />
+                                <span>Delete Rule</span>
                             </button>
+
                             <div className="flex gap-2">
                                 <button
                                     onClick={() => handleDownloadTopicPdf(selectedTopic.id, selectedTopic.title)}
@@ -359,7 +393,7 @@ export default function GrammarBook({ API, authHeaders, effectiveUserId, onExit 
                                     className="py-1.5 px-3 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold transition disabled:opacity-50 flex items-center gap-1.5"
                                 >
                                     <Send className="w-3.5 h-3.5" />
-                                    <span>Send to Telegram</span>
+                                    <span>Send to TG</span>
                                 </button>
                             </div>
                         </div>

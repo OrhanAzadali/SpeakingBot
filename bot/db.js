@@ -811,6 +811,16 @@ export async function saveGrammarTopic(userId, language, topicData, mediatorLang
   return rows[0] ?? null;
 }
 
+// ── Delete Grammar Topic by ID ───────────────────────────────────────────────
+export async function deleteGrammarTopic(id, userId) {
+  const { rowCount } = await pool.query(
+    "DELETE FROM grammar_topics WHERE id = $1 AND user_id = $2",
+    [id, userId]
+  );
+  return rowCount > 0;
+}
+
+// ── Get Grammar Topics strictly isolated by Target AND Mediator Language ──────
 export async function getGrammarTopics(userId, language, mediatorLanguage = null) {
   const langKey = String(language || "").toLowerCase().trim();
   let query = "SELECT * FROM grammar_topics WHERE user_id = $1 AND LOWER(language) = LOWER($2)";
@@ -818,14 +828,13 @@ export async function getGrammarTopics(userId, language, mediatorLanguage = null
 
   if (mediatorLanguage) {
     params.push(String(mediatorLanguage).toLowerCase().trim());
-    query += " AND (LOWER(mediator_language) = LOWER($3) OR mediator_language IS NULL)";
+    query += " AND LOWER(COALESCE(mediator_language, 'english')) = LOWER($3)";
   }
 
   query += " ORDER BY updated_at DESC, id DESC";
   const { rows } = await pool.query(query, params);
   return rows;
 }
-
 
 export async function getGrammarTopicById(id, userId = null) {
   if (userId) {

@@ -16,7 +16,7 @@ import {
   checkAndIncrementUsage, grantPremium, getRoadmap, getAllUserVocabulary, addFlashcard,
   saveActiveTest, getActiveTest, recordActiveTestAnswer, clearActiveTest, saveTestResult, getUserTestHistory,
   saveActiveDrill, getActiveDrill, recordDrillAnswer, clearActiveDrill, completeDrillSession, getUserSkillsOverview,
-  saveGrammarTopic, getGrammarTopics, getGrammarTopicById, getLatestGrammarTopic, getAllUserGrammar
+  saveGrammarTopic, getGrammarTopics, getGrammarTopicById, getLatestGrammarTopic, getAllUserGrammar, deleteGrammarTopic
 } from "./db.js";
 import {
   chat, transcribeAudio, textToSpeech, cleanupFile, LANGUAGES,
@@ -1062,7 +1062,26 @@ app.post("/api/grammar/send-pdf", async (req, res) => {
     res.status(500).json({ error: err.message || "Failed to send PDF to Telegram" });
   }
 });
+// ── DELETE: Remove an unwanted grammar topic ─────────────────────────────────
+app.delete("/api/grammar/:id", async (req, res) => {
+  const topicId = parseInt(req.params.id, 10);
+  if (!topicId || isNaN(topicId)) {
+    return res.status(400).json({ error: "Invalid topic ID" });
+  }
 
+  const rawUserId = req.query?.userId || req.headers["x-user-id"] || req.body?.userId || (req.telegramUser && req.telegramUser.id);
+  const userId = rawUserId ? Number(rawUserId) : null;
+  if (!userId) {
+    return res.status(401).json({ error: "Valid User ID is required" });
+  }
+
+  const deleted = await deleteGrammarTopic(topicId, userId);
+  if (!deleted) {
+    return res.status(404).json({ error: "Topic not found or already deleted" });
+  }
+
+  res.json({ success: true, message: "Grammar topic deleted successfully" });
+});
 // ── 2. Roadmap PDF Download (Language & Level Aware with Safe Stream) ─────────
 
 app.get("/api/roadmap/pdf", async (req, res) => {
@@ -1397,7 +1416,7 @@ bot.command(["grammar", "rules"], async (ctx) => {
   });
   kb.text("📚 Скачать всю книгу правил (PDF)", "download_all_grammar_pdf").row();
   kb.webApp("📖 Открыть базу в приложении", `${MINIAPP_URL}?userId=${userId}`);
-
+  kb.text("🗑 Delete", `del_topic_${t.id}`).row();
   await ctx.reply(
     `📚 *Ваша персональная база правил грамматики (${LANGUAGES[user.language]}):*\n\n` +
     `Всего сохранено тем: *${topics.length}*\n\n` +
@@ -1883,6 +1902,7 @@ bot.callbackQuery(/^drillsize_(listening|speaking|reading|writing)_(short|huge)$
   }
 });
 
+
 async function presentNextTestQuestion(ctx, userId, question, index, total) {
   const header = `📝 Question ${index + 1} of ${total} [Target: ${question.cefr_target} • ${question.skill}]\n\n`;
   const cleanPrompt = String(question.prompt || "").replace(/_{2,}/g, "[ ... ]");
@@ -2113,6 +2133,7 @@ bot.callbackQuery("download_roadmap_pdf", async (ctx) => {
   await ctx.answerCallbackQuery({ text: "Compiling your Roadmap PDF..." });
   await sendRoadmapPdfToUser(ctx, ctx.from.id);
 });
+
 bot.callbackQuery(/^dl_all_grammar_(.+)$/, async (ctx) => {
   await ctx.answerCallbackQuery({ text: "Compiling full Grammar Book PDF..." });
   const lang = ctx.match[1];
@@ -2124,6 +2145,19 @@ bot.callbackQuery(/^dl_all_vocab_(.+)$/, async (ctx) => {
   await sendVocabularyPdfToUser(ctx, ctx.from.id);
 });
 
+
+bot.callbackQuery(/^del_topic_(\d+)$/, async (ctx) => {
+  await ctx.answerCallbackQuery({ text: "Deleting topic..." });
+  const topicId = parseInt(ctx.match[1], 10);
+  const userId = ctx.from.id;
+
+  const deleted = await deleteGrammarTopic(topicId, userId);
+  if (deleted) {
+    await ctx.reply(`🗑 Qayda / Правило #${topicId} uğurla silindi.`);
+  } else {
+    await ctx.reply("❌ Qayda tapılmadı və ya artıq silinib.");
+  }
+});
 // ── Voice Messages ────────────────────────────────────────────────────────────
 
 bot.on("message:voice", async (ctx) => {

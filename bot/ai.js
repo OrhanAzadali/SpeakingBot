@@ -1028,31 +1028,32 @@ function buildRoadmapPrompt(language, level, mediatorLanguage = "english", recen
   const outputLanguage = isAdvanced ? language : (mediatorLanguage || "english");
 
   return `You are a certified senior language acquisition curriculum specialist and CEFR diagnostic coach.
-Analyze the student's recent conversation and study history to create an in-depth, structured, and actionable Learning Roadmap.
-Language to write the entire roadmap in: ${outputLanguage.toUpperCase()}.
+Analyze the student's recent study history to create an in-depth Learning Roadmap.
+Target Language to Learn: ${language.toUpperCase()}.
+Student's CEFR Level: ${level.toUpperCase()}.
+Language to write ALL instructions, section headers, categories, and explanations in: ${outputLanguage.toUpperCase()}.
 
 ${isAdvanced
-      ? `CRITICAL ADVANCED IMMERSION: The student is ADVANCED. Write the entire 7-day roadmap and all study instructions strictly in ${language.toUpperCase()}.`
-      : `CRITICAL BEGINNER/INTERMEDIATE PEDAGOGY: The student is ${level.toUpperCase()}. Write all instructions, analysis, and goals in the student's native/mediator language: ${outputLanguage.toUpperCase()}, while citing vocabulary items in ${language}.`}
+      ? `CRITICAL ADVANCED IMMERSION: The student is ADVANCED. Write 100% of the entire report strictly in ${language.toUpperCase()}.`
+      : `CRITICAL BEGINNER/INTERMEDIATE PEDAGOGY:
+- The student is ${level.toUpperCase()}.
+- Write ALL section titles, bullet descriptions, and category labels strictly in ${outputLanguage.toUpperCase()}!
+- ABSOLUTELY NO UNTRANSLATED HEADERS in any third language.
+- VOCABULARY MANDATE (SECTION 4): Every cited target word MUST include its translation in ${outputLanguage.toUpperCase()}!
+  Example: "Ailə üzvləri — mother (ana), father (ata), brother (qardaş)".`}
 
 CRITICAL SCOPE & ANTI-CORRUPTION MANDATE:
-- This is a formal LEARNING ROADMAP and 7-DAY STUDY PLAN, NOT a vocabulary flashcard deck!
-- NEVER output raw HTML tags like <br>, <u>, <b>, <span>, or <table>.
-- DO NOT use markdown punctuation noise like double asterisks (**) or double dashes (--).
-- Use clear uppercase headings and clean bullet points ("•").
-- Complete all sections thoroughly without cutting off mid-sentence.
+- Never output raw HTML tags like <br>, <u>, <b>, <span>, or <table>.
+- Do NOT use double asterisks (**) or markdown noise.
+- Use uppercase section headers and clean bullet points ("•").
 
-${recentContext ? `STUDENT'S RECENT STUDY CONTEXT:\n${recentContext}\n` : ""}
-
-Structure the report into these rich pedagogical sections:
-1. 🎯 Current CEFR Standing & Trajectory (${level})
-2. 📈 Recently Demonstrated Strengths
-3. 🔍 Diagnostics & Weak Areas Under Repair
-4. 🔄 Active Vocabulary to Recycle
-5. 🚀 Actionable Milestone Goals (Next 1-2 Weeks)
-6. 🗓 7-Day Targeted Practice Regimen
-
-Keep the tone encouraging, professional, and precise. Format with clean section headers and bullet points.`;
+Structure required:
+1. 🎯 CURRENT CEFR STANDING & TRAJECTORY (${level})
+2. 📈 RECENTLY DEMONSTRATED STRENGTHS
+3. 🔍 DIAGNOSTICS & WEAK AREAS UNDER REPAIR
+4. 🔄 ACTIVE VOCABULARY TO RECYCLE (Every word must have translation in ${outputLanguage}!)
+5. 🚀 ACTIONABLE MILESTONE GOALS (NEXT 1-2 WEEKS)
+6. 🗓 7-DAY TARGETED PRACTICE REGIMEN`;
 }
 
 export async function generateRoadmap(userId, language, level, mediatorLanguage = "english") {
