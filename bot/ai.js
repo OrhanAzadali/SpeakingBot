@@ -422,9 +422,15 @@ Return ONLY JSON:
   }
 }
 
-// ── Call 5: Universal Skill Drill Evaluator ──────────────────────────────────
+// ── Call 5: Universal Skill Drill Evaluator (Skill & Level Aware) ─────────────
 export async function evaluateSkillAnswer(skill, targetLanguage, mediatorLanguage, level, question, userAnswer, isVoice = false) {
-  const analysis = await analyzeStudentResponse(targetLanguage, mediatorLanguage, question.prompt, userAnswer);
+  // Pass skill context so the evaluator grades against the actual skill CEFR rubric
+  const analysis = await analyzeStudentResponse(
+    targetLanguage,
+    mediatorLanguage,
+    `[Skill: ${skill.toUpperCase()} | CEFR: ${level}] ${question.prompt}`,
+    userAnswer
+  );
 
   let score = 0;
   let feedback = analysis.explanation_in_mediator;
@@ -432,27 +438,40 @@ export async function evaluateSkillAnswer(skill, targetLanguage, mediatorLanguag
   switch (analysis.intent) {
     case "ADMIT_NO_KNOWLEDGE":
       score = 0;
-      feedback = analysis.explanation_in_mediator || `Correct answer in ${targetLanguage}: ${analysis.correct_answer_in_target_language || question.correct_answer || ""}`;
+      feedback = analysis.explanation_in_mediator ||
+        `Correct answer in ${targetLanguage}: ${analysis.correct_answer_in_target_language || question.correct_answer || ""}`;
       break;
 
     case "ANSWER_IN_WRONG_LANGUAGE":
       score = 25;
-      feedback = `Answer understood, but written in ${analysis.detected_language} («${userAnswer}»). The required answer in ${targetLanguage} is: ${analysis.correct_answer_in_target_language}.`;
+      feedback = `Answer understood, but written in ${analysis.detected_language} («${userAnswer}»). In a ${skill} drill, responses must be produced in ${targetLanguage}: ${analysis.correct_answer_in_target_language}.`;
       break;
 
-    case "GENUINE_ATTEMPT":
-      score = Math.max(70, analysis.score_recommendation || 85);
+    case "GENUINE_ATTEMPT": {
+      const baseScore = analysis.score_recommendation || 85;
+      // Skill-specific scoring calibration:
+      if (skill === "speaking" && isVoice) {
+        // Bonus for acoustic voice production in target language
+        score = Math.min(100, Math.max(75, baseScore + 5));
+      } else if (skill === "writing") {
+        // Writing requires grammatical accuracy
+        score = Math.max(65, baseScore);
+      } else {
+        score = Math.max(70, baseScore);
+      }
       break;
+    }
 
     case "UNRELATED_OR_EMPTY":
     default:
       score = 0;
-      feedback = `Answer not recognized. Expected answer in ${targetLanguage}: ${analysis.correct_answer_in_target_language || question.correct_answer || ""}`;
+      feedback = `Answer not recognized for this ${skill} task. Expected answer in ${targetLanguage}: ${analysis.correct_answer_in_target_language || question.correct_answer || ""}`;
       break;
   }
 
   return {
     score,
+    skill, // Explicitly return evaluated skill
     feedback,
     mistakes: analysis.extracted_mistakes || []
   };

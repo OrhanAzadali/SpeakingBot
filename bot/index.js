@@ -2081,10 +2081,19 @@ async function handleDrillAnswerSubmission(ctx, userId, drill, question, answerT
   }
 }
 
+// ── Drill Session Finalizer (Utilizes ctx for Telegram Lifecycle) ─────────────
 async function finishSkillDrillSession(ctx, userId, drill) {
+  // 1. Acknowledge callback query immediately if this turn originated from an inline button
+  if (ctx?.callbackQuery) {
+    try {
+      await ctx.answerCallbackQuery({ text: "Drill completed!" });
+    } catch (_) { }
+  }
+
   const scores = Array.isArray(drill.scores) ? drill.scores : [];
   const averageScore = Math.round(scores.reduce((a, b) => a + b, 0) / (scores.length || 1));
 
+  // 2. Persist progress into database
   await completeDrillSession(
     userId,
     drill.language,
@@ -2095,13 +2104,15 @@ async function finishSkillDrillSession(ctx, userId, drill) {
     `Completed ${drill.drill_type} drill with score ${averageScore}%`
   );
 
+  // 3. Clear active drill state and restore chatting state
   await clearActiveDrill(userId);
   await upsertUser(userId, { state: "chatting" });
 
+  // 4. Determine next recommended skill
   const overview = await getUserSkillsOverview(userId, drill.language);
   const otherSkills = Object.entries(overview).filter(([s]) => s !== drill.skill);
   otherSkills.sort((a, b) => a[1].score - b[1].score);
-  const nextRecommended = otherSkills[0][0];
+  const nextRecommended = otherSkills.length > 0 ? otherSkills[0][0] : "speaking";
 
   const kb = new InlineKeyboard()
     .text(`Train ${nextRecommended.toUpperCase()} 🚀`, `train_${nextRecommended}`)
@@ -2115,7 +2126,50 @@ async function finishSkillDrillSession(ctx, userId, drill) {
     `📚 *Vocabulary Extracted:* All new words, transcriptions, grammar, syntax, and pronunciation rules have been saved to your deck.\n\n` +
     `Next recommended skill: *${nextRecommended.toUpperCase()}*!`;
 
-  await bot.api.sendMessage(userId, summary, { parse_mode: "Markdown", reply_markup: kb });
+  // 5. Deliver summary using ctx if available, or bot.api fallback
+  try {
+    if (ctx && typeof ctx.reply === "function") {
+      await ctx.reply(summary, { parse_mode: "Markdown", reply_markup: kb });
+    } else {
+      await bot.api.sendMessage(userId, summary, { parse_mode: "Markdown", reply_markup: kb });
+    }
+  } catch (err) {
+    console.warn("Markdown failed for drill summary, falling back to plain text:", err.message);
+    await bot.api.sendMessage(userId, summary.replace(/[*_`]/g, ""), { reply_markup: kb });
+  }
+}
+
+await completeDrillSession(
+  userId,
+  drill.language,
+  drill.skill,
+  drill.drill_type,
+  drill.questions.length,
+  averageScore,
+  `Completed ${drill.drill_type} drill with score ${averageScore}%`
+);
+
+await clearActiveDrill(userId);
+await upsertUser(userId, { state: "chatting" });
+
+const overview = await getUserSkillsOverview(userId, drill.language);
+const otherSkills = Object.entries(overview).filter(([s]) => s !== drill.skill);
+otherSkills.sort((a, b) => a[1].score - b[1].score);
+const nextRecommended = otherSkills[0][0];
+
+const kb = new InlineKeyboard()
+  .text(`Train ${nextRecommended.toUpperCase()} 🚀`, `train_${nextRecommended}`)
+  .row()
+  .text("📖 Правила в PDF", `dl_all_grammar_${drill.language}`)
+  .text("📥 Vocabulary PDF", `dl_all_vocab_${drill.language}`);
+
+const summary =
+  `🎉 *${drill.skill.toUpperCase()} DRILL COMPLETE!*\n\n` +
+  `📊 *Session Score:* ${averageScore}/100\n` +
+  `📚 *Vocabulary Extracted:* All new words, transcriptions, grammar, syntax, and pronunciation rules have been saved to your deck.\n\n` +
+  `Next recommended skill: *${nextRecommended.toUpperCase()}*!`;
+
+await bot.api.sendMessage(userId, summary, { parse_mode: "Markdown", reply_markup: kb });
 }
 
 // ── Grammar & PDF Callbacks ───────────────────────────────────────────────────
