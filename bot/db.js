@@ -218,6 +218,7 @@ export async function initDB() {
 
     CREATE INDEX IF NOT EXISTS idx_grammar_user_lang ON grammar_topics (user_id, language);
     CREATE UNIQUE INDEX IF NOT EXISTS idx_unique_grammar_topic ON grammar_topics (user_id, language, title);
+    ALTER TABLE grammar_topics ADD COLUMN IF NOT EXISTS mediator_language TEXT DEFAULT 'english';
   `);
     console.log("✅ Database tables & rich linguistic schemas ready");
   } catch (err) {
@@ -786,32 +787,42 @@ export async function getAllUserVocabulary(userId, language = null) {
 // ── Grammar Topics & Rules (Dedicated Table, Isolated by User and Language) ───
 
 
-export async function saveGrammarTopic(userId, language, topicData) {
+
+// In db.js:
+
+export async function saveGrammarTopic(userId, language, topicData, mediatorLanguage = "english") {
   const { title, category = "General Grammar", rule_summary = "", explanation = "", examples = [] } = topicData;
   if (!title || !explanation) return null;
   const langKey = String(language || "").toLowerCase().trim();
+  const medKey = String(mediatorLanguage || "english").toLowerCase().trim();
 
   const { rows } = await pool.query(`
-    INSERT INTO grammar_topics (user_id, language, title, category, rule_summary, explanation, examples, updated_at)
-    VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
+    INSERT INTO grammar_topics (user_id, language, mediator_language, title, category, rule_summary, explanation, examples, updated_at)
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
     ON CONFLICT (user_id, language, title) DO UPDATE SET
       category = COALESCE(EXCLUDED.category, grammar_topics.category),
       rule_summary = COALESCE(EXCLUDED.rule_summary, grammar_topics.rule_summary),
       explanation = EXCLUDED.explanation,
       examples = COALESCE(EXCLUDED.examples, grammar_topics.examples),
+      mediator_language = EXCLUDED.mediator_language,
       updated_at = NOW()
     RETURNING *
-  `, [userId, langKey, title.trim(), category.trim(), rule_summary.trim(), explanation.trim(), JSON.stringify(examples)]);
+  `, [userId, langKey, medKey, title.trim(), category.trim(), rule_summary.trim(), explanation.trim(), JSON.stringify(examples)]);
   return rows[0] ?? null;
 }
 
-
-export async function getGrammarTopics(userId, language) {
+export async function getGrammarTopics(userId, language, mediatorLanguage = null) {
   const langKey = String(language || "").toLowerCase().trim();
-  const { rows } = await pool.query(
-    "SELECT * FROM grammar_topics WHERE user_id = $1 AND LOWER(language) = LOWER($2) ORDER BY updated_at DESC, id DESC",
-    [userId, langKey]
-  );
+  let query = "SELECT * FROM grammar_topics WHERE user_id = $1 AND LOWER(language) = LOWER($2)";
+  const params = [userId, langKey];
+
+  if (mediatorLanguage) {
+    params.push(String(mediatorLanguage).toLowerCase().trim());
+    query += " AND (LOWER(mediator_language) = LOWER($3) OR mediator_language IS NULL)";
+  }
+
+  query += " ORDER BY updated_at DESC, id DESC";
+  const { rows } = await pool.query(query, params);
   return rows;
 }
 

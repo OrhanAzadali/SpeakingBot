@@ -209,6 +209,9 @@ function findSystemBoldFont() {
 
 // ── Ensure Unicode TrueType Font Exists on Server Startup ──────────────────── 
 
+// In index.js:
+
+// ── Ensure Unicode TrueType Font Exists on Server Startup ─────────────────────
 async function ensureUnicodeFontExists() {
   const fontDir = path.join(process.cwd(), "fonts");
   const fontPath = path.join(fontDir, "DejaVuSans.ttf");
@@ -227,11 +230,9 @@ async function ensureUnicodeFontExists() {
     }
   }
 }
-
 ensureUnicodeFontExists();
 
 // ── Clean & Sanitize Text for PDFKit (Eliminates [] Window Frames) ────────────
-
 function cleanPdfText(text) {
   if (!text) return "";
   return String(text)
@@ -241,15 +242,13 @@ function cleanPdfText(text) {
     .replace(/__(.*?)__/g, "$1")
     .replace(/_(.*?)_/g, "$1")
     .replace(/^#{1,6}\s*/gm, "")
-    // Normalize unicode non-breaking hyphens, en/em dashes to standard characters
     .replace(/[\u2010\u2011\u2012]/g, "-")
     .replace(/[\u2013\u2014]/g, " — ")
     .replace(/\u2212/g, "-")
-    .replace(/\u00A0/g, " ") // Non-breaking space
-    .replace(/[\u2018\u2019\u02BC]/g, "'") // Smart single quotes
-    .replace(/[\u201C\u201D\u201E\u201F]/g, '"') // Smart double quotes
+    .replace(/\u00A0/g, " ")
+    .replace(/[\u2018\u2019\u02BC]/g, "'")
+    .replace(/[\u201C\u201D\u201E\u201F]/g, '"')
     .replace(/--+/g, " — ")
-    // Convert common IPA phonetic extensions that trigger [] in standard fonts
     .replace(/χ/g, "kh")
     .replace(/ɪ/g, "i")
     .replace(/ɐ/g, "a")
@@ -494,10 +493,9 @@ async function generateGrammarTopicPdf(userId, language, topic, outputPath) {
 }
 
 // ── PDF 2: Consolidated Multi-Topic Grammar Reference Book ────────────────────
-async function generateFullGrammarNotebookPdf(userId, language, outputPath) {
-  const topics = await getAllUserGrammar(userId, language);
+async function generateFullGrammarNotebookPdf(userId, language, outputPath, mediatorLanguage = null) {
+  const topics = await getGrammarTopics(userId, language, mediatorLanguage);
   if (!topics || topics.length === 0) return null;
-
   return new Promise((resolve, reject) => {
     const doc = new PDFDocument({ size: "A4", margin: 40 });
     const writeStream = fs.createWriteStream(outputPath);
@@ -870,8 +868,8 @@ app.get("/api/grammar/:id/pdf", async (req, res) => {
   }
 });
 
+// ── Full Grammar Book PDF Download Endpoint (Safe Stream Piping) ───────────
 
-// ── 1. Full Grammar Book PDF Download (Bulletproof Stream Piping) ─────────────
 app.get("/api/grammar/pdf", async (req, res) => {
   const rawId = req.headers["x-user-id"] || req.query.userId || (req.telegramUser && req.telegramUser.id);
   const userId = rawId ? Number(rawId) : null;
@@ -879,22 +877,22 @@ app.get("/api/grammar/pdf", async (req, res) => {
 
   const user = await getUser(userId);
   const lang = String(req.query.language || user?.language || "russian").toLowerCase().trim();
+  const mediator = String(user?.mediator_language || "english").toLowerCase().trim();
   const tempPath = path.join(tmpdir(), `grammar_full_${userId}_${Date.now()}.pdf`);
 
   try {
-    let filePath = await generateFullGrammarNotebookPdf(userId, lang, tempPath);
+    let filePath = await generateFullGrammarNotebookPdf(userId, lang, tempPath, mediator);
 
-    // Self-heal: If no rules exist for this language yet, generate one immediately!
     if (!filePath) {
       const guide = await generateGrammarGuide(
         LANGUAGES[lang] || lang,
-        user?.mediator_language || "english",
-        `Основы грамматики и правила (${LANGUAGES[lang] || lang})`,
+        mediator,
+        `Grammar Essentials and Structures (${LANGUAGES[lang] || lang})`,
         user?.level || "Beginner"
       );
       if (guide) {
-        await saveGrammarTopic(userId, lang, guide);
-        filePath = await generateFullGrammarNotebookPdf(userId, lang, tempPath);
+        await saveGrammarTopic(userId, lang, guide, mediator);
+        filePath = await generateFullGrammarNotebookPdf(userId, lang, tempPath, mediator);
       }
     }
 
@@ -917,10 +915,11 @@ app.get("/api/grammar/pdf", async (req, res) => {
       if (!res.headersSent) res.status(500).json({ error: "Stream error" });
     });
   } catch (err) {
-    console.error("Full grammar PDF error:", err);
+    console.error("Full grammar PDF error:", err.message);
     if (!res.headersSent) res.status(500).json({ error: "Failed to generate Grammar Notebook PDF" });
   }
 });
+
 
 app.post("/api/grammar/send-pdf", async (req, res) => {
   const rawId = req.body.userId || req.headers["x-user-id"] || req.query.userId || (req.telegramUser && req.telegramUser.id);
@@ -1017,7 +1016,6 @@ app.post("/api/vocabulary/send-pdf", requireTelegramAuth, async (req, res) => {
     res.status(500).json({ error: "Failed to generate PDF" });
   }
 });
-
 
 // ── 2. Roadmap PDF Download (Language & Level Aware with Safe Stream) ─────────
 app.get("/api/roadmap/pdf", requireTelegramAuth, async (req, res) => {
@@ -1538,18 +1536,21 @@ bot.callbackQuery(/^lang_(.+)$/, async (ctx) => {
   );
 });
 
+// ── Invalidate Roadmap When Mediator Language Changes ────────────────────────
 bot.callbackQuery(/^med_(.+)$/, async (ctx) => {
   await ctx.answerCallbackQuery();
   const mediator_language = ctx.match[1];
   const userId = ctx.from.id;
   await upsertUser(userId, { mediator_language, state: "starting_test" });
 
-  const kb = new InlineKeyboard().text("🚀 Start Diagnostic Placement Test", "start_placement_test");
+  // Invalidate old roadmap so it regenerates in the new mediator language
+  const pool = (await import("./db.js")).default;
+  await pool.query("UPDATE user_progress SET roadmap = NULL WHERE user_id = $1", [userId]);
 
+  const kb = new InlineKeyboard().text("🚀 Start Diagnostic Placement Test", "start_placement_test");
   await ctx.editMessageText(
     `✅ Support language set to *${MEDIATOR_LANGS[mediator_language] || mediator_language}*.\n\n` +
-    `🎯 *Step 3: Mandatory AI Placement Test*\n\n` +
-    `Before chatting, our AI examiner will administer a 5-question test to diagnose your CEFR proficiency level (A1-C2).\n\n` +
+    `🎯 *Step 3: Diagnostic Placement Test*\n\n` +
     `Ready to begin? Tap below:`,
     { parse_mode: "Markdown", reply_markup: kb }
   );
