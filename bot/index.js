@@ -2081,19 +2081,17 @@ async function handleDrillAnswerSubmission(ctx, userId, drill, question, answerT
   }
 }
 
-// ── Drill Session Finalizer (Utilizes ctx for Telegram Lifecycle) ─────────────
 async function finishSkillDrillSession(ctx, userId, drill) {
-  // 1. Acknowledge callback query immediately if this turn originated from an inline button
+  // 1. Cleanly acknowledge the Telegram button callback if this was an inline click
   if (ctx?.callbackQuery) {
     try {
-      await ctx.answerCallbackQuery({ text: "Drill completed!" });
+      await ctx.answerCallbackQuery();
     } catch (_) { }
   }
 
   const scores = Array.isArray(drill.scores) ? drill.scores : [];
   const averageScore = Math.round(scores.reduce((a, b) => a + b, 0) / (scores.length || 1));
 
-  // 2. Persist progress into database
   await completeDrillSession(
     userId,
     drill.language,
@@ -2104,11 +2102,9 @@ async function finishSkillDrillSession(ctx, userId, drill) {
     `Completed ${drill.drill_type} drill with score ${averageScore}%`
   );
 
-  // 3. Clear active drill state and restore chatting state
   await clearActiveDrill(userId);
   await upsertUser(userId, { state: "chatting" });
 
-  // 4. Determine next recommended skill
   const overview = await getUserSkillsOverview(userId, drill.language);
   const otherSkills = Object.entries(overview).filter(([s]) => s !== drill.skill);
   otherSkills.sort((a, b) => a[1].score - b[1].score);
@@ -2126,7 +2122,7 @@ async function finishSkillDrillSession(ctx, userId, drill) {
     `📚 *Vocabulary Extracted:* All new words, transcriptions, grammar, syntax, and pronunciation rules have been saved to your deck.\n\n` +
     `Next recommended skill: *${nextRecommended.toUpperCase()}*!`;
 
-  // 5. Deliver summary using ctx if available, or bot.api fallback
+  // 2. Safely deliver the summary using ctx or bot.api with markdown error protection
   try {
     if (ctx && typeof ctx.reply === "function") {
       await ctx.reply(summary, { parse_mode: "Markdown", reply_markup: kb });
