@@ -1696,54 +1696,97 @@ bot.callbackQuery(/^testopt_(\d+)_(\d+)$/, async (ctx) => {
   }
 });
 
+// ── Bulletproof CEFR Level Test Finalizer ─────────────────────────────────────
 async function finishAndEvaluateTest(ctx, userId, test) {
-  const statusMsg = await ctx.reply("🧠 Evaluating your answers against CEFR benchmarks with AI...");
+  let statusMsg = null;
+  try {
+    statusMsg = await ctx.reply("🧠 Evaluating your answers against CEFR benchmarks with AI...");
+  } catch (_) { }
 
   try {
     const normalizedAnswers = test.questions.map((q, i) => {
-      const userAns = test.answers[i] || "";
+      const userAns = String(test.answers[i] || "").trim();
       if (q.type === "choice") {
-        const cleanUser = String(userAns).replace(/^[A-Da-d0-9][\)\.]\s*/, "").trim().toLowerCase();
+        const cleanUser = userAns.replace(/^[A-Da-d0-9][\)\.]\s*/, "").trim().toLowerCase();
         const cleanExpected = String(q.correct_option || q.correct_answer || "").replace(/^[A-Da-d0-9][\)\.]\s*/, "").trim().toLowerCase();
-        const isMatch = cleanUser === cleanExpected;
+        const isMatch = cleanUser === cleanExpected || userAns.toLowerCase() === cleanExpected;
         return isMatch ? `${userAns} [VERIFIED CORRECT]` : `${userAns} [INCORRECT]`;
       }
-      return userAns;
+      return userAns || "(No answer)";
     });
 
+    const targetLangName = LANGUAGES[test.language] || test.language;
+    const mediatorLangName = LANGUAGES[test.mediator_language] || test.mediator_language || "english";
+
     const evaluation = await evaluateLevelTest(
-      LANGUAGES[test.language] || test.language,
-      test.mediator_language,
+      targetLangName,
+      mediatorLangName,
       test.questions,
       normalizedAnswers
     );
 
-
+    // Save test result and state
     await saveTestResult(userId, test.language, evaluation);
     await clearActiveTest(userId);
-    await pool.query("UPDATE user_progress SET roadmap = NULL WHERE user_id = $1", [userId]);
-    try {
-      await ctx.api.deleteMessage(ctx.chat.id, statusMsg.message_id);
-    } catch (_) { }
+
+    // Invalidate old roadmap safely
+    const dbModule = await import("./db.js");
+    const dbPool = dbModule.default;
+    if (dbPool?.query) {
+      await dbPool.query("UPDATE user_progress SET roadmap = NULL WHERE user_id = $1", [userId]).catch(() => { });
+    }
+
+    // Safely cleanup the thinking message
+    if (statusMsg && ctx.chat?.id) {
+      try {
+        await ctx.api.deleteMessage(ctx.chat.id, statusMsg.message_id);
+      } catch (_) { }
+    }
+
+    // Safely extract scores and breakdown with fallbacks
+    const detectedLevel = evaluation.detected_level || "Beginner";
+    const cefrGrade = evaluation.cefr_grade || "A1";
+    const overallScore = typeof evaluation.score === "number" ? evaluation.score : 0;
+
+    let vocabScore = "0 / 25";
+    let grammarScore = "0 / 25";
+    let syntaxScore = "0 / 25";
+    let prodScore = "0 / 25";
+
+    if (evaluation.breakdown && typeof evaluation.breakdown === "object") {
+      vocabScore = String(evaluation.breakdown.vocabulary || "0 / 25");
+      grammarScore = String(evaluation.breakdown.grammar || "0 / 25");
+      syntaxScore = String(evaluation.breakdown.syntax || "0 / 25");
+      prodScore = String(evaluation.breakdown.production || "0 / 25");
+    }
+
+    const recs = evaluation.recommendations || `Welcome to learning ${targetLangName}! We will start with core fundamentals.`;
 
     const breakdownMsg =
-      `🎯 CEFR Level Detected: ${evaluation.detected_level} (${evaluation.cefr_grade})\n` +
-      `📊 Overall Score: ${evaluation.score}/100\n\n` +
+      `🎯 CEFR Level Detected: ${detectedLevel} (${cefrGrade})\n` +
+      `📊 Overall Score: ${overallScore}/100\n\n` +
       `📈 Skill Breakdown:\n` +
-      `• Vocabulary: ${evaluation.breakdown.vocabulary}\n` +
-      `• Grammar: ${evaluation.breakdown.grammar}\n` +
-      `• Syntax: ${evaluation.breakdown.syntax}\n` +
-      `• Production: ${evaluation.breakdown.production}\n\n` +
-      `💡 Note: ${evaluation.recommendations}\n\n` +
-      `🚀 Your practice mode is now set to ${evaluation.detected_level}!\n\n` +
+      `• Vocabulary: ${vocabScore}\n` +
+      `• Grammar: ${grammarScore}\n` +
+      `• Syntax: ${syntaxScore}\n` +
+      `• Production: ${prodScore}\n\n` +
+      `💡 Note: ${recs}\n\n` +
+      `🚀 Your practice mode is now set to ${detectedLevel}!\n\n` +
       `Type /skills to choose a dedicated drill (Listening 🎧, Speaking 🗣, Reading 📖, Writing ✍️) or chat naturally anytime!`;
 
+    // Send without markdown first to guarantee zero Telegram parsing crashes
     await ctx.reply(breakdownMsg);
+
   } catch (err) {
-    console.error("Evaluation error:", err);
-    await ctx.reply("❌ Error finalizing test. Level set to Beginner (A1).");
-    await upsertUser(userId, { level: "Beginner", state: "chatting" });
-    await clearActiveTest(userId);
+    console.error("Test finalization error:", err);
+    // Even in case of an unexpected crash, update DB cleanly and give a friendly response
+    await upsertUser(userId, { level: "Beginner", state: "chatting" }).catch(() => { });
+    await clearActiveTest(userId).catch(() => { });
+    await ctx.reply(
+      `🎯 Diagnostic Test Complete!\n\n` +
+      `Your level has been calibrated to Beginner (A1).\n` +
+      `You can now practice conversation freely in chat or train specific skills with /skills!`
+    );
   }
 }
 

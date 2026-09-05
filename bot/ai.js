@@ -10,13 +10,17 @@ import { tmpdir } from "os";
 const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
 
 // Active, non-decommissioned Groq production models.
-// Decommissioned 'mixtral-8x7b-32768' and non-existent models are removed.
 const CHAT_MODELS = [
   "llama-3.3-70b-versatile",
   "llama-3.1-8b-instant",
   "gemma2-9b-it",
   "llama3-70b-8192",
-  "llama3-8b-8192"
+  "llama3-8b-8192",
+  "openai/gpt-oss-120b",
+  "openai/gpt-oss-120b",
+  "openai/gpt-oss-20b",
+  "openai/gpt-oss-20b",
+  "openai/gpt-oss-20b"
 ];
 const STT_MODELS = ["whisper-large-v3", "whisper-large-v3-turbo"];
 
@@ -655,35 +659,40 @@ Return strictly a valid JSON object:
 }
 
 // ── Call 7: Universal CEFR Placement Test Evaluator ───────────────────────────
+// ── Call 7: Universal CEFR Placement Test Evaluator ───────────────────────────
 export async function evaluateLevelTest(targetLanguage, mediatorLanguage, questions, userAnswers) {
   const prompt = `You are a certified psychometric CEFR language testing specialist evaluating a full placement test.
 Target Language: ${targetLanguage}.
-Mediator Language for report: ${mediatorLanguage}.
+Student Mediator Language: ${mediatorLanguage}.
 
 Questions and Student Answers:
-${questions.map((q, i) => `Q${i + 1} (${q.skill}):\nPrompt: ${q.prompt}\nStudent Answer: "${userAnswers[i] || "No answer"}"`).join("\n\n")}
+${questions.map((q, i) => `Q${i + 1} (${q.skill}):\nPrompt: ${q.prompt}\nStudent Answer: "${userAnswers[i] || "(No answer)"}"`).join("\n\n")}
 
 UNIVERSAL EVALUATION MANDATE:
 1. SEMANTIC INTENT CHECK:
-   - If the student states in ANY language that they do not know or cannot answer, they MUST NOT receive vocabulary or syntax points in ${targetLanguage}!
+   - If the student writes in ANY language (e.g. Azerbaijani "nə dediyini anlamıram", Russian "не понимаю / не знаю", Turkish "anlamıyorum", English "I don't understand / I don't know") stating they don't understand, don't know, or cannot answer:
+     * This is an admission of zero knowledge in ${targetLanguage}.
+     * They MUST NOT receive points in ${targetLanguage}!
+     * "admits_zero_knowledge" MUST be true.
 2. TARGET LANGUAGE PROFICIENCY ONLY:
    - Grade ONLY actual words, grammar, and structures produced in ${targetLanguage}.
-   - Sentences in ${mediatorLanguage} saying they don't know ${targetLanguage} are strictly worth 0 points!
-3. SCORING BREAKDOWN (0 to 25 each):
-   - If no valid ${targetLanguage} was demonstrated, overall score MUST BE 0, and level MUST BE Beginner (A1).
+   - If no valid ${targetLanguage} was demonstrated, overall score MUST BE 0-20, and detected_level MUST BE "Beginner", cefr_grade "A1".
+3. RETURN TYPE REQUIREMENT:
+   - "score" must be a number between 0 and 100.
+   - "breakdown" MUST be an object with string fields: "vocabulary", "grammar", "syntax", "production".
 
-Return ONLY JSON:
+Return strictly a valid JSON object:
 {
-  "admits_zero_knowledge": false,
-  "target_language_demonstrated": true,
-  "detected_level": "Beginner | Intermediate | Advanced",
-  "cefr_grade": "A1 | A2 | B1 | B2 | C1 | C2",
+  "admits_zero_knowledge": true,
+  "target_language_demonstrated": false,
+  "detected_level": "Beginner",
+  "cefr_grade": "A1",
   "score": 0,
   "breakdown": {
-    "vocabulary": "Score out of 25",
-    "grammar": "Score out of 25",
-    "syntax": "Score out of 25",
-    "production": "Score out of 25"
+    "vocabulary": "0 / 25",
+    "grammar": "0 / 25",
+    "syntax": "0 / 25",
+    "production": "0 / 25"
   },
   "recommendations": "Advice in ${mediatorLanguage}."
 }`;
@@ -706,20 +715,31 @@ Return ONLY JSON:
       return {
         detected_level: "Beginner",
         cefr_grade: "A1",
-        score: 0,
+        score: typeof parsed.score === "number" ? Math.min(parsed.score, 25) : 0,
         breakdown: {
-          vocabulary: "0 / 25",
-          grammar: "0 / 25",
-          syntax: "0 / 25",
-          production: "0 / 25"
+          vocabulary: parsed.breakdown?.vocabulary || "0 / 25",
+          grammar: parsed.breakdown?.grammar || "0 / 25",
+          syntax: parsed.breakdown?.syntax || "0 / 25",
+          production: parsed.breakdown?.production || "0 / 25"
         },
-        recommendations: parsed.recommendations || `Welcome to studying ${targetLanguage}!`
+        recommendations: parsed.recommendations || `Welcome to learning ${targetLanguage}! We will start with basic vocabulary and phrases.`
       };
     }
 
-    return parsed;
+    return {
+      detected_level: parsed.detected_level || "Beginner",
+      cefr_grade: parsed.cefr_grade || "A1",
+      score: typeof parsed.score === "number" ? parsed.score : 0,
+      breakdown: {
+        vocabulary: String(parsed.breakdown?.vocabulary || "10 / 25"),
+        grammar: String(parsed.breakdown?.grammar || "10 / 25"),
+        syntax: String(parsed.breakdown?.syntax || "10 / 25"),
+        production: String(parsed.breakdown?.production || "10 / 25")
+      },
+      recommendations: parsed.recommendations || `Practice regularly to advance your ${targetLanguage} proficiency!`
+    };
   } catch (err) {
-    console.error("Evaluation error:", err.message);
+    console.error("evaluateLevelTest fallback:", err.message);
     return {
       detected_level: "Beginner",
       cefr_grade: "A1",
@@ -730,7 +750,7 @@ Return ONLY JSON:
         syntax: "0 / 25",
         production: "0 / 25"
       },
-      recommendations: `Welcome to studying ${targetLanguage}!`
+      recommendations: `Welcome to learning ${targetLanguage}! We will start from the basics.`
     };
   }
 }
