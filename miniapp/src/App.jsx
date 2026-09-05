@@ -158,7 +158,7 @@ export default function App() {
   const handleDownloadAllGrammarPdf = () => {
     const activeLang = targetLanguage || "russian";
     showToast(`Generating Complete Grammar Book PDF (${activeLang.toUpperCase()})...`, "info");
-    triggerDownload(`/api/grammar/pdf&language=${encodeURIComponent(activeLang)}`, `Grammar_Book_${activeLang}.pdf`);
+    triggerDownload(`/api/grammar/pdf?language=${encodeURIComponent(activeLang)}`, `Grammar_Book_${activeLang}.pdf`);
   };
 
   const handleDownloadVocabPdf = () => {

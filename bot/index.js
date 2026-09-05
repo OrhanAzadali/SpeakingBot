@@ -999,16 +999,27 @@ app.post("/api/roadmap/send-pdf", async (req, res) => {
 async function sendRoadmapPdfToUser(ctx, userId) {
   const user = await getUser(userId);
   const lang = user?.language || "russian";
+  const level = user?.level || "Beginner";
+  const mediator = user?.mediator_language || "english";
+
+  const isAdvanced = String(level).toLowerCase().includes("advanced");
+  const expectedLangName = isAdvanced ? (LANGUAGES[lang] || lang) : (LANGUAGES[mediator] || mediator);
+
   let progress = await getRoadmap(userId);
   let roadmapText = progress?.roadmap;
 
-  // Force language regeneration if old cached roadmap was German
-  if (!roadmapText || isCorruptedRoadmap(roadmapText) || (roadmapText && !roadmapText.includes(LANGUAGES[lang] || lang))) {
+  // CRITICAL CHECK: Invalidate cached roadmap if level or language changed!
+  const isStale = !roadmapText ||
+    isCorruptedRoadmap(roadmapText) ||
+    !roadmapText.toLowerCase().includes(lang.toLowerCase()) ||
+    !roadmapText.toLowerCase().includes(level.toLowerCase());
+
+  if (isStale) {
     roadmapText = await generateRoadmap(
       userId,
       LANGUAGES[lang] || lang,
-      user?.level || "Beginner",
-      user?.mediator_language || "english"
+      level,
+      mediator
     );
   }
 
@@ -1018,15 +1029,11 @@ async function sendRoadmapPdfToUser(ctx, userId) {
   try {
     const clean = cleanRoadmapText(roadmapText);
     const filePath = await generateRoadmapPdf(userId, lang, clean, tempPath);
-    const docName = `My_${lang}_Learning_Roadmap.pdf`;
-    const caption = `📈 *Personal Learning Roadmap (${LANGUAGES[lang] || lang})*`;
+    const docName = `My_${lang}_Roadmap_${level}.pdf`;
+    const caption = `📈 *Personal Learning Roadmap (${LANGUAGES[lang] || lang} • ${level})*`;
 
-    if (ctx) {
-      await ctx.replyWithDocument(new InputFile(filePath, docName), { caption, parse_mode: "Markdown" });
-    } else {
-      await bot.api.sendDocument(userId, new InputFile(filePath, docName), { caption, parse_mode: "Markdown" });
-    }
-
+    // Always use bot.api.sendDocument with explicit chat/user ID
+    await bot.api.sendDocument(userId, new InputFile(filePath, docName), { caption, parse_mode: "Markdown" });
     await cleanupFile(filePath);
     return true;
   } catch (err) {
@@ -1035,43 +1042,81 @@ async function sendRoadmapPdfToUser(ctx, userId) {
   }
 }
 
-async function sendVocabularyPdfToUser(ctx, userId) {
+async function sendGrammarPdfToUser(ctx, userId, topicId = null) {
   const user = await getUser(userId);
-  if (!user?.language) return false;
+  const lang = user?.language || "russian";
+  const level = user?.level || "Beginner";
+  const mediator = user?.mediator_language || "english";
 
-  const thinking = ctx
-    ? await ctx.reply("⏳ *Compiling your rich PDF vocabulary notebook...*", { parse_mode: "Markdown" })
-    : await bot.api.sendMessage(userId, "⏳ *Compiling your rich PDF vocabulary notebook...*", { parse_mode: "Markdown" });
-
-  const tempPath = path.join(tmpdir(), `vocabulary_${userId}_${Date.now()}.pdf`);
+  const tempPath = path.join(tmpdir(), `grammar_chat_${userId}_${Date.now()}.pdf`);
 
   try {
-    const filePath = await generateVocabularyPdf(userId, user.language, tempPath);
-    try {
-      if (ctx) await ctx.api.deleteMessage(ctx.chat.id, thinking.message_id);
-      else await bot.api.deleteMessage(userId, thinking.message_id);
-    } catch (_) { }
+    let filePath;
+    let docName;
+    let caption;
 
-    if (!filePath) {
-      const emptyMsg = "📭 You don't have any saved flashcards or words yet! Practice chatting or complete a drill first.";
-      if (ctx) await ctx.reply(emptyMsg);
-      else await bot.api.sendMessage(userId, emptyMsg);
-      return false;
-    }
-
-    const docName = `My_${user.language}_Vocabulary.pdf`;
-    const caption = `📖 *Here is your complete vocabulary PDF notebook!*\n\nIncludes base lemmas, phonetics/IPA, pronunciation rules, morphology, orthography, syntax, and context sentences.`;
-
-    if (ctx) {
-      await ctx.replyWithDocument(new InputFile(filePath, docName), { caption, parse_mode: "Markdown" });
+    if (topicId) {
+      const topic = await getGrammarTopicById(topicId, userId);
+      if (!topic) throw new Error("Topic not found");
+      filePath = await generateGrammarTopicPdf(userId, topic.language, topic, tempPath);
+      docName = `${topic.title.replace(/[^\w\d\-]/g, "_")}.pdf`;
+      caption = `📖 *${topic.title}* (${LANGUAGES[topic.language] || topic.language} Grammar Rule PDF)`;
     } else {
-      await bot.api.sendDocument(userId, new InputFile(filePath, docName), { caption, parse_mode: "Markdown" });
+      filePath = await generateFullGrammarNotebookPdf(userId, lang, tempPath);
+
+      // Self-heal: If no rules exist for this language yet, generate one right now!
+      if (!filePath) {
+        const guide = await generateGrammarGuide(
+          LANGUAGES[lang] || lang,
+          mediator,
+          `Основы грамматики и правила (${LANGUAGES[lang] || lang})`,
+          level
+        );
+        if (guide) {
+          await saveGrammarTopic(userId, lang, guide);
+          filePath = await generateFullGrammarNotebookPdf(userId, lang, tempPath);
+        }
+      }
+
+      if (!filePath) {
+        await bot.api.sendMessage(userId, "📭 Не удалось скомпилировать книгу грамматики. Попробуйте написать вопрос боту в чате.");
+        return false;
+      }
+
+      docName = `Grammar_Notebook_${lang}.pdf`;
+      caption = `📚 *Полная книга грамматики (${LANGUAGES[lang] || lang} • ${level})*`;
     }
 
+    // Always use bot.api.sendDocument for guaranteed delivery in both chat and callbacks
+    await bot.api.sendDocument(userId, new InputFile(filePath, docName), { caption, parse_mode: "Markdown" });
     await cleanupFile(filePath);
     return true;
   } catch (err) {
-    console.error("PDF export error:", err);
+    console.error("Grammar PDF export error:", err);
+    await bot.api.sendMessage(userId, "❌ Ошибка при отправке PDF в Telegram.");
+    return false;
+  }
+}
+async function sendVocabularyPdfToUser(ctx, userId) {
+  const user = await getUser(userId);
+  const lang = user?.language || "russian";
+  const tempPath = path.join(tmpdir(), `vocabulary_${userId}_${Date.now()}.pdf`);
+
+  try {
+    const filePath = await generateVocabularyPdf(userId, lang, tempPath);
+    if (!filePath) {
+      await bot.api.sendMessage(userId, "📭 У вас пока нет сохраненных карточек для этого языка. Пообщайтесь с ботом, чтобы добавить слова!");
+      return false;
+    }
+
+    const docName = `My_${lang}_Vocabulary.pdf`;
+    const caption = `📖 *Ваш персональный словарь (${LANGUAGES[lang] || lang})*`;
+
+    await bot.api.sendDocument(userId, new InputFile(filePath, docName), { caption, parse_mode: "Markdown" });
+    await cleanupFile(filePath);
+    return true;
+  } catch (err) {
+    console.error("Vocabulary PDF export error:", err);
     return false;
   }
 }
@@ -1476,6 +1521,7 @@ async function initiateLevelTest(ctx, language, mediatorLanguage) {
   }
 }
 
+
 async function presentNextTestQuestion(ctx, userId, question, index, total) {
   const header = `📝 Question ${index + 1} of ${total} [Target: ${question.cefr_target} • ${question.skill}]\n\n`;
 
@@ -1544,8 +1590,10 @@ async function finishAndEvaluateTest(ctx, userId, test) {
       normalizedAnswers
     );
 
+
     await saveTestResult(userId, test.language, evaluation);
     await clearActiveTest(userId);
+    await pool.query("UPDATE user_progress SET roadmap = NULL WHERE user_id = $1", [userId]);
     try {
       await ctx.api.deleteMessage(ctx.chat.id, statusMsg.message_id);
     } catch (_) { }
