@@ -699,13 +699,20 @@ function smartFallbackMatch(submitted, correctAnswer, synonyms = "") {
 }
 
 // ── Call: Full Pedagogical Grammar Guide Generator ────────────────────────────
+// ── Call: Full Pedagogical Grammar Guide Generator ────────────────────────────
 export async function generateGrammarGuide(targetLanguage, mediatorLanguage, topicOrQuery, userLevel = "Beginner") {
+  const isAdvanced = String(userLevel || "").toLowerCase().includes("advanced");
+  // For Advanced learners, 100% target language immersion; for Beginners/Intermediates, mediator language
+  const guideLanguage = isAdvanced ? targetLanguage : (mediatorLanguage || "english");
+
   const prompt = `You are a world-class university professor of ${targetLanguage} linguistics and pedagogy.
-Create an exhaustive, publication-grade Grammar Reference Guide in ${mediatorLanguage.toUpperCase()} for a student at ${userLevel} level.
+Create an exhaustive, publication-grade Grammar Reference Guide in ${guideLanguage.toUpperCase()} for a student at ${userLevel} level.
 
 Topic/Question: "${topicOrQuery}"
 
 The guide MUST be 100% COMPLETE, RICH, AND FORMATTED FOR AN A4 PDF STUDY SHEET.
+${isAdvanced ? `CRITICAL ADVANCED IMMERSION: Write ALL explanations, terminology, and analysis strictly in ${targetLanguage}.` : `Write grammatical explanations in ${mediatorLanguage}, with examples in ${targetLanguage}.`}
+
 Structure required:
 1. 🏷 Title & Conceptual Blueprint: Clear explanation of what this rule is and why it exists.
 2. 📐 Structural Formula & Word Order Mechanics: Formulas with visual diagrams/tables.
@@ -731,7 +738,7 @@ Return ONLY JSON:
         model,
         messages: [{ role: "user", content: prompt }],
         temperature: 0.2,
-        max_tokens: 3500, // Generous budget ensures zero truncation
+        max_tokens: 3500,
         response_format: { type: "json_object" },
         ...reasoningParams(model),
       })
@@ -877,12 +884,18 @@ export function cleanRoadmapText(raw) {
 }
 
 function buildRoadmapPrompt(language, level, mediatorLanguage = "english", recentContext = "") {
-  const isAdvanced = level.toLowerCase().includes("advanced");
-  const outputLanguage = isAdvanced ? language : mediatorLanguage;
+  const isAdvanced = String(level || "").toLowerCase().includes("advanced");
+  // For Advanced learners: 100% Target Language immersion
+  // For Beginners & Intermediates: Mediator Language so they can comprehend their study plan!
+  const outputLanguage = isAdvanced ? language : (mediatorLanguage || "english");
 
   return `You are a certified senior language acquisition curriculum specialist and CEFR diagnostic coach.
 Analyze the student's recent conversation and study history to create an in-depth, structured, and actionable Learning Roadmap.
 Language to write the entire roadmap in: ${outputLanguage.toUpperCase()}.
+
+${isAdvanced
+      ? `CRITICAL ADVANCED IMMERSION: The student is ADVANCED. Write the entire 7-day roadmap and all study instructions strictly in ${language.toUpperCase()}.`
+      : `CRITICAL BEGINNER/INTERMEDIATE PEDAGOGY: The student is ${level.toUpperCase()}. Write all instructions, analysis, and goals in the student's native/mediator language: ${outputLanguage.toUpperCase()}, while citing vocabulary items in ${language}.`}
 
 CRITICAL SCOPE & ANTI-CORRUPTION MANDATE:
 - This is a formal LEARNING ROADMAP and 7-DAY STUDY PLAN, NOT a vocabulary flashcard deck!
@@ -895,24 +908,12 @@ CRITICAL SCOPE & ANTI-CORRUPTION MANDATE:
 ${recentContext ? `STUDENT'S RECENT STUDY CONTEXT:\n${recentContext}\n` : ""}
 
 Structure the report into these rich pedagogical sections:
-
-1. 🎯 Current CEFR Standing & Trajectory:
-   - Detailed assessment of current active capability in ${language} at ${level} level.
-
-2. 📈 Recently Demonstrated Strengths:
-   - What specific structures, vocabulary domains, and speech patterns the student used successfully.
-
-3. 🔍 Diagnostics & Weak Areas Under Repair:
-   - Concrete breakdown of recurring grammar slips, missing vocabulary, tense confusion, or syntax/word order issues observed.
-
-4. 🔄 Active Vocabulary to Recycle:
-   - 3-5 specific words, phrases, or collocations the student struggled with that must be actively reintroduced in upcoming sessions.
-
-5. 🚀 Actionable Milestone Goals (Next 1-2 Weeks):
-   - 3 high-impact, measurable objectives.
-
-6. 🗓 7-Day Targeted Practice Regimen:
-   - Daily micro-drills (Listening, Speaking, Grammar, Vocabulary) customized to fix the diagnosed weak spots.
+1. 🎯 Current CEFR Standing & Trajectory
+2. 📈 Recently Demonstrated Strengths
+3. 🔍 Diagnostics & Weak Areas Under Repair
+4. 🔄 Active Vocabulary to Recycle
+5. 🚀 Actionable Milestone Goals (Next 1-2 Weeks)
+6. 🗓 7-Day Targeted Practice Regimen
 
 Keep the tone encouraging, professional, and precise. Format with clean section headers and bullet points.`;
 }

@@ -136,17 +136,29 @@ export default function App() {
   };
   // Safe PDF Download for Web & Telegram MiniApp
   const triggerDownload = (endpoint, filename) => {
-    const downloadUrl = `${BACKEND_URL}${endpoint}?userId=${effectiveUserId}`;
+    const separator = endpoint.includes("?") ? "&" : "?";
+    // 1. Pass filename to the backend so Content-Disposition sets the exact name
+    const downloadUrl = `${BACKEND_URL}${endpoint}${separator}userId=${effectiveUserId}&filename=${encodeURIComponent(filename || "document.pdf")}`;
+
+    // 2. In Telegram MiniApp, use openLink so native Telegram app opens the link externally
     if (window.Telegram?.WebApp?.openLink) {
       window.Telegram.WebApp.openLink(downloadUrl);
     } else {
-      window.open(downloadUrl, "_blank");
+      // 3. In WebApp (Browser), use an <a> tag with explicit download attribute for clean file naming
+      const a = document.createElement("a");
+      a.href = downloadUrl;
+      if (filename) a.download = filename;
+      a.target = "_blank";
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
     }
   };
 
   const handleDownloadAllGrammarPdf = () => {
-    showToast("Generating Complete Grammar Book PDF...", "info");
-    triggerDownload("/api/grammar/pdf", `Grammar_Book_${targetLanguage}.pdf`);
+    const activeLang = targetLanguage || "russian";
+    showToast(`Generating Complete Grammar Book PDF (${activeLang.toUpperCase()})...`, "info");
+    triggerDownload(`/api/grammar/pdf&language=${encodeURIComponent(activeLang)}`, `Grammar_Book_${activeLang}.pdf`);
   };
 
   const handleDownloadVocabPdf = () => {

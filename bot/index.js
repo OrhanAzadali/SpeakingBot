@@ -778,12 +778,19 @@ app.get("/api/grammar/:id/pdf", async (req, res) => {
   const topic = await getGrammarTopicById(topicId, userId);
   if (!topic) return res.status(404).json({ error: "Topic not found" });
 
+  const user = await getUser(userId);
+  const lang = user?.language || topic.language || "russian";
   const tempPath = path.join(tmpdir(), `grammar_${topicId}_${Date.now()}.pdf`);
+
   try {
     const filePath = await generateGrammarTopicPdf(userId, topic.language, topic, tempPath);
+
+    // Read the requested filename from query, or fall back to the topic's title
+    const downloadName = req.query.filename || `${topic.title.replace(/[^\w\d\-]/g, "_")}.pdf`;
+
     res.setHeader("Content-Type", "application/pdf");
-    res.setHeader("Content-Disposition", `attachment; filename="${encodeURIComponent(topic.title)}.pdf"`);
-    res.download(filePath, `${topic.title.replace(/[^\w\d\-]/g, "_")}.pdf`, async () => {
+    res.setHeader("Content-Disposition", `attachment; filename="${encodeURIComponent(downloadName)}"`);
+    res.download(filePath, downloadName, async () => {
       await cleanupFile(filePath);
     });
   } catch (err) {
@@ -792,6 +799,7 @@ app.get("/api/grammar/:id/pdf", async (req, res) => {
   }
 });
 
+// ── Full Grammar Book PDF Download Endpoint (Self-Healing on Empty) ───────────
 app.get("/api/grammar/pdf", async (req, res) => {
   const rawId = req.headers["x-user-id"] || req.query.userId || (req.telegramUser && req.telegramUser.id);
   const userId = rawId ? Number(rawId) : null;
@@ -802,11 +810,32 @@ app.get("/api/grammar/pdf", async (req, res) => {
   const tempPath = path.join(tmpdir(), `grammar_full_${userId}_${Date.now()}.pdf`);
 
   try {
-    const filePath = await generateFullGrammarNotebookPdf(userId, lang, tempPath);
-    if (!filePath) return res.status(404).json({ error: "No grammar topics found for this language." });
+    let filePath = await generateFullGrammarNotebookPdf(userId, lang, tempPath);
+
+    // If no topics exist for this language yet, generate starter guide right now!
+    if (!filePath) {
+      const guide = await generateGrammarGuide(
+        LANGUAGES[lang] || lang,
+        user?.mediator_language || "english",
+        `Основы грамматики и правила (${LANGUAGES[lang] || lang})`,
+        user?.level || "Beginner"
+      );
+      if (guide) {
+        await saveGrammarTopic(userId, lang, guide);
+        filePath = await generateFullGrammarNotebookPdf(userId, lang, tempPath);
+      }
+    }
+
+    if (!filePath) {
+      return res.status(404).json({ error: `No grammar topics found for ${lang}.` });
+    }
+
+    // Read the requested filename from query, or fall back to default
+    const downloadName = req.query.filename || `Complete_Grammar_Notebook_${lang}.pdf`;
+
     res.setHeader("Content-Type", "application/pdf");
-    res.setHeader("Content-Disposition", `attachment; filename="Grammar_Notebook_${lang}.pdf"`);
-    res.download(filePath, `Grammar_Notebook_${lang}.pdf`, async () => {
+    res.setHeader("Content-Disposition", `attachment; filename="${encodeURIComponent(downloadName)}"`);
+    res.download(filePath, downloadName, async () => {
       await cleanupFile(filePath);
     });
   } catch (err) {
@@ -874,17 +903,28 @@ app.post("/api/grammar/send-pdf", async (req, res) => {
 
 // ── 3. Vocabulary & Roadmap PDF Delivery ──────────────────────────────────────
 app.get("/api/vocabulary/pdf", requireTelegramAuth, async (req, res) => {
-  const user = await getUser(req.telegramUser.id);
-  const lang = req.query.language || user?.language || "russian";
-  const tempPath = path.join(tmpdir(), `vocab_web_${req.telegramUser.id}_${Date.now()}.pdf`);
-  try {
-    const filePath = await generateVocabularyPdf(req.telegramUser.id, lang, tempPath);
-    if (!filePath) return res.status(404).json({ error: "No vocabulary found" });
+  const rawId = req.headers["x-user-id"] || req.query.userId || (req.telegramUser && req.telegramUser.id);
+  const userId = rawId ? Number(rawId) : null;
+  if (!userId) return res.status(401).json({ error: "Unauthorized: Missing userId" });
 
-    res.download(filePath, `My_${lang}_Vocabulary.pdf`, async () => {
+  const user = await getUser(userId);
+  const lang = req.query.language || user?.language || "russian";
+  const tempPath = path.join(tmpdir(), `vocab_web_${userId}_${Date.now()}.pdf`);
+
+  try {
+    const filePath = await generateVocabularyPdf(userId, lang, tempPath);
+    if (!filePath) return res.status(404).json({ error: "No vocabulary found to export." });
+
+    // Read the requested filename from query, or fall back to default
+    const downloadName = req.query.filename || `My_${lang}_Vocabulary.pdf`;
+
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader("Content-Disposition", `attachment; filename="${encodeURIComponent(downloadName)}"`);
+    res.download(filePath, downloadName, async () => {
       await cleanupFile(filePath);
     });
   } catch (err) {
+    console.error("Web PDF error:", err);
     res.status(500).json({ error: "Failed to generate PDF" });
   }
 });
@@ -901,29 +941,40 @@ app.post("/api/vocabulary/send-pdf", requireTelegramAuth, async (req, res) => {
 });
 
 app.get("/api/roadmap/pdf", requireTelegramAuth, async (req, res) => {
-  const user = await getUser(req.telegramUser.id);
-  const lang = user?.language || "russian";
-  let progress = await getRoadmap(req.telegramUser.id);
+  const rawId = req.headers["x-user-id"] || req.query.userId || (req.telegramUser && req.telegramUser.id);
+  const userId = rawId ? Number(rawId) : null;
+  if (!userId) return res.status(401).json({ error: "Unauthorized: Missing userId" });
+
+  const user = await getUser(userId);
+  const lang = req.query.language || user?.language || "russian";
+  let progress = await getRoadmap(userId);
   let roadmapText = progress?.roadmap;
 
   // Language check: if cached roadmap mentions another language, regenerate!
   if (!roadmapText || isCorruptedRoadmap(roadmapText) || (roadmapText && !roadmapText.includes(LANGUAGES[lang] || lang))) {
     roadmapText = await generateRoadmap(
-      req.telegramUser.id,
+      userId,
       LANGUAGES[lang] || lang,
       user?.level || "Beginner",
       user?.mediator_language || "english"
     );
   }
 
-  const tempPath = path.join(tmpdir(), `roadmap_web_${req.telegramUser.id}_${Date.now()}.pdf`);
+  const tempPath = path.join(tmpdir(), `roadmap_web_${userId}_${Date.now()}.pdf`);
   try {
     const clean = cleanRoadmapText(roadmapText);
-    const filePath = await generateRoadmapPdf(req.telegramUser.id, lang, clean, tempPath);
-    res.download(filePath, `My_${lang}_Roadmap.pdf`, async () => {
+    const filePath = await generateRoadmapPdf(userId, lang, clean, tempPath);
+
+    // Read the requested filename from query, or fall back to default
+    const downloadName = req.query.filename || `My_${lang}_Roadmap.pdf`;
+
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader("Content-Disposition", `attachment; filename="${encodeURIComponent(downloadName)}"`);
+    res.download(filePath, downloadName, async () => {
       await cleanupFile(filePath);
     });
   } catch (err) {
+    console.error("Roadmap PDF error:", err);
     res.status(500).json({ error: "Failed to generate Roadmap PDF" });
   }
 });
