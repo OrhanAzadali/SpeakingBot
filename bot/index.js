@@ -645,34 +645,25 @@ async function generateRoadmapPdf(userId, language, roadmapText, outputPath) {
 
 // ── REST API Endpoints (Mini App & Web Frontend) ──────────────────────────────
 // 1. Flashcards API
-// 1. Flashcards API
 app.get("/api/flashcards", requireTelegramAuth, async (req, res) => {
   const userId = req.telegramUser.id;
-  let user = await getUser(userId);
-  let lang = user?.language;
+  const user = await getUser(userId);
 
+  // Accept requested language from query, fallback to user's saved language, fallback to German
+  const requestedLang = req.query.language || user?.language || "german";
   const pool = (await import("./db.js")).default;
-  let cards = [];
 
-  if (lang) {
-    cards = await getFlashcardsByLanguage(userId, lang.toLowerCase());
-    if (cards.length === 0) {
-      cards = await getFlashcardsByLanguage(userId, lang);
-    }
-  }
+  // Query ONLY flashcards for this specific language (case-insensitive)
+  const { rows } = await pool.query(`
+    SELECT *,
+      COALESCE(NULLIF(initial_form, ''), word) AS word,
+      COALESCE(NULLIF(initial_form, ''), word) AS initial_form
+    FROM flashcards
+    WHERE user_id = $1 AND LOWER(language) = LOWER($2)
+    ORDER BY id DESC
+  `, [userId, requestedLang]);
 
-  if (cards.length === 0) {
-    const { rows } = await pool.query(
-      "SELECT *, COALESCE(NULLIF(initial_form, ''), word) AS word, COALESCE(NULLIF(initial_form, ''), word) AS initial_form FROM flashcards WHERE user_id = $1 ORDER BY id DESC",
-      [userId]
-    );
-    cards = rows;
-    if (cards.length > 0 && !lang) {
-      lang = cards[0].language;
-    }
-  }
-
-  res.json({ cards, language: lang || "German" });
+  res.json({ cards: rows, language: requestedLang });
 });
 
 app.post("/api/flashcards/:id/review", requireTelegramAuth, async (req, res) => {
@@ -861,6 +852,67 @@ app.get("/api/roadmap/pdf", requireTelegramAuth, async (req, res) => {
     });
   } catch (err) {
     res.status(500).json({ error: "Failed to generate Roadmap PDF" });
+  }
+});
+
+// ── Send Grammar PDF to Telegram Chat ─────────────────────────────────────────
+app.post("/api/grammar/send-pdf", async (req, res) => {
+  const userId = req.body.userId || req.headers["x-user-id"] || req.query.userId || (req.telegramUser && req.telegramUser.id);
+  if (!userId || userId === "123456789") {
+    return res.status(400).json({ error: "Valid Telegram User ID is required." });
+  }
+
+  const { topicId } = req.body;
+  try {
+    const user = await getUser(userId);
+    const lang = user?.language || "German";
+
+    if (topicId) {
+      const topic = await getGrammarTopicById(topicId, userId);
+      if (!topic) return res.status(404).json({ error: "Topic not found" });
+
+      const tempPath = path.join(tmpdir(), `grammar_${topicId}_${Date.now()}.pdf`);
+      const filePath = await generateGrammarTopicPdf(userId, lang, topic, tempPath);
+
+      await bot.api.sendDocument(userId, new InputFile(filePath, `${topic.title.replace(/[^\w\d\-]/g, "_")}.pdf`), {
+        caption: `📖 *${topic.title}* (Grammar Rule PDF)`,
+        parse_mode: "Markdown"
+      });
+      await cleanupFile(filePath);
+    } else {
+      const tempPath = path.join(tmpdir(), `grammar_full_${userId}_${Date.now()}.pdf`);
+      const filePath = await generateFullGrammarNotebookPdf(userId, lang, tempPath);
+      if (!filePath) {
+        return res.status(404).json({ error: "No grammar topics found to export." });
+      }
+
+      await bot.api.sendDocument(userId, new InputFile(filePath, `Complete_Grammar_Notebook_${lang}.pdf`), {
+        caption: `📚 *Complete Grammar Reference Notebook*`,
+        parse_mode: "Markdown"
+      });
+      await cleanupFile(filePath);
+    }
+    res.json({ success: true });
+  } catch (err) {
+    console.error("Send grammar PDF error:", err);
+    res.status(500).json({ error: "Failed to send PDF to Telegram" });
+  }
+});
+
+// ── Send Roadmap PDF to Telegram Chat ─────────────────────────────────────────
+app.post("/api/roadmap/send-pdf", async (req, res) => {
+  const userId = req.body.userId || req.headers["x-user-id"] || req.query.userId || (req.telegramUser && req.telegramUser.id);
+  if (!userId || userId === "123456789") {
+    return res.status(400).json({ error: "Valid Telegram User ID is required." });
+  }
+
+  try {
+    const success = await sendRoadmapPdfToUser(null, userId);
+    if (!success) return res.status(404).json({ error: "No roadmap available to export." });
+    res.json({ success: true });
+  } catch (err) {
+    console.error("Send roadmap PDF error:", err);
+    res.status(500).json({ error: "Failed to send Roadmap PDF to Telegram" });
   }
 });
 

@@ -82,8 +82,10 @@ export default function App() {
       window.Telegram.WebApp.expand?.();
     }
     fetchGrammarTopics();
-    fetchFlashcards();
-  }, []);
+    if (targetLanguage) {
+      fetchFlashcards(targetLanguage);
+    }
+  }, [targetLanguage]);
 
   const fetchGrammarTopics = async () => {
     try {
@@ -100,15 +102,14 @@ export default function App() {
     }
   };
 
-  const fetchFlashcards = async () => {
+  const fetchFlashcards = async (lang = targetLanguage) => {
     try {
-      const res = await fetch(`${BACKEND_URL}/api/flashcards?userId=${effectiveUserId}`, {
+      const res = await fetch(`${BACKEND_URL}/api/flashcards?userId=${effectiveUserId}&language=${encodeURIComponent(lang)}`, {
         headers: getHeaders(),
       });
       if (res.ok) {
         const data = await res.json();
         setFlashcards(data.cards || []);
-        if (data.language) setTargetLanguage(data.language);
       }
     } catch (err) {
       console.error("Failed to fetch flashcards:", err);
@@ -124,7 +125,6 @@ export default function App() {
       window.open(downloadUrl, "_blank");
     }
   };
-
 
   const handleDownloadAllGrammarPdf = () => {
     showToast("Generating Complete Grammar Book PDF...", "info");
