@@ -21,7 +21,7 @@ import {
 import {
   chat, transcribeAudio, textToSpeech, cleanupFile, LANGUAGES,
   maybeGenerateRoadmap, generateRoadmap, cleanRoadmapText, checkSemanticAnswer, generateLevelTest, evaluateLevelTest,
-  generateSkillDrill, evaluateSkillAnswer, generateGrammarGuide
+  generateSkillDrill, evaluateSkillAnswer, generateGrammarGuide, generateGameSessionWords
 } from "./ai.js";
 
 const bot = new Bot(process.env.BOT_TOKEN);
