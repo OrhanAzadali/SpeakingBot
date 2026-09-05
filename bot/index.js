@@ -127,12 +127,10 @@ async function sendSafeChunkedMessage(ctx, fullText, options = {}) {
     try {
       return await ctx.reply(fullText, options);
     } catch {
-      // Fallback without parse_mode if Telegram markdown parsing fails
       return await ctx.reply(fullText, { ...options, parse_mode: undefined });
     }
   }
 
-  // Split into natural paragraph chunks
   const paragraphs = fullText.split(/\n\n+/);
   const chunks = [];
   let currentChunk = "";
@@ -141,7 +139,6 @@ async function sendSafeChunkedMessage(ctx, fullText, options = {}) {
     if ((currentChunk + "\n\n" + para).length > MAX_CHUNK) {
       if (currentChunk) chunks.push(currentChunk.trim());
       if (para.length > MAX_CHUNK) {
-        // Break huge single paragraphs by lines
         const lines = para.split("\n");
         let lineChunk = "";
         for (const line of lines) {
@@ -205,28 +202,122 @@ function findSystemBoldFont() {
   return null;
 }
 
-// ── PDF 1: Individual Grammar Rule PDF Generator ──────────────────────────────
 // ── Clean Text Utilities for PDF Generation ──────────────────────────────────
 function cleanPdfText(text) {
   if (!text) return "";
   return text
-    // Remove raw HTML tags
     .replace(/<[^>]+>/g, "")
-    // Remove markdown bold/italic asterisks & underscores
     .replace(/\*\*(.*?)\*\*/g, "$1")
     .replace(/\*(.*?)\*/g, "$1")
     .replace(/__(.*?)__/g, "$1")
     .replace(/_(.*?)_/g, "$1")
-    // Replace markdown headings
     .replace(/^#{1,6}\s*/gm, "")
-    // Replace double dashes with em-dash
-    .replace(/--+/g, "—")
-    // Remove emojis and non-standard symbols that render as broken box glyphs [?] in PDFKit
+    .replace(/--+/g, " — ")
     .replace(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{2190}-\u{21FF}\u{2B00}-\u{2BFF}\u{FE00}-\u{FE0F}]/gu, "")
     .trim();
 }
 
+// ── Fixed Table & Markdown Renderer for PDFKit ───────────────────────────────
+function renderMarkdownContentToPdf(doc, markdownText, setFont) {
+  if (!markdownText) return;
+  const lines = markdownText.split("\n");
+  let tableRows = [];
 
+  const flushTable = () => {
+    if (tableRows.length === 0) return;
+    const numCols = Math.max(...tableRows.map((r) => r.length));
+    const startX = 40;
+    const totalWidth = 515;
+    const colWidth = totalWidth / numCols;
+
+    tableRows.forEach((row, rowIdx) => {
+      if (doc.y > 720) {
+        doc.addPage();
+        doc.x = startX;
+      }
+      const currentY = doc.y;
+      const isHeader = rowIdx === 0;
+
+      if (isHeader) {
+        doc.rect(startX, currentY, totalWidth, 22).fill("#3730a3");
+        setFont("bold");
+        doc.fillColor("#ffffff").fontSize(9);
+      } else {
+        doc.rect(startX, currentY, totalWidth, 20).fill(rowIdx % 2 === 0 ? "#f8fafc" : "#ffffff");
+        doc.rect(startX, currentY, totalWidth, 20).stroke("#e2e8f0");
+        setFont("regular");
+        doc.fillColor("#0f172a").fontSize(8.5);
+      }
+
+      row.forEach((cellText, cIdx) => {
+        const cleanCell = cleanPdfText(cellText);
+        const maxChars = Math.floor(colWidth / 5.5);
+        const safeCell = cleanCell.length > maxChars ? cleanCell.slice(0, maxChars - 1) + "…" : cleanCell;
+
+        doc.text(
+          safeCell,
+          startX + 6 + cIdx * colWidth,
+          currentY + 5.5,
+          { width: colWidth - 10, align: "left" }
+        );
+      });
+
+      doc.x = startX;
+      doc.y = currentY + (isHeader ? 23 : 21);
+    });
+
+    tableRows = [];
+    doc.x = startX;
+    doc.moveDown(0.5);
+  };
+
+  for (const rawLine of lines) {
+    const line = rawLine.trim();
+    if (!line) continue;
+
+    if (line.startsWith("|") && line.endsWith("|")) {
+      const cells = line.split("|").slice(1, -1).map((c) => c.trim());
+      const isDivider = cells.every((c) => /^[:-]+$/.test(c));
+      if (!isDivider) tableRows.push(cells);
+      continue;
+    } else {
+      flushTable();
+    }
+
+    if (doc.y > 720) {
+      doc.addPage();
+      doc.x = 40;
+    }
+
+    doc.x = 40;
+
+    if (line.startsWith("###")) {
+      doc.moveDown(0.4);
+      setFont("bold");
+      doc.fontSize(11).fillColor("#4338ca").text(cleanPdfText(line), 40, doc.y, { width: 515 });
+      doc.moveDown(0.2);
+    } else if (line.startsWith("##")) {
+      doc.moveDown(0.5);
+      setFont("bold");
+      doc.fontSize(13).fillColor("#1e1b4b").text(cleanPdfText(line), 40, doc.y, { width: 515 });
+      doc.moveDown(0.2);
+    } else if (line.startsWith("#")) {
+      doc.moveDown(0.6);
+      setFont("bold");
+      doc.fontSize(15).fillColor("#0f172a").text(cleanPdfText(line), 40, doc.y, { width: 515 });
+      doc.moveDown(0.3);
+    } else if (line.startsWith("-") || line.startsWith("•") || line.startsWith("* ")) {
+      setFont("regular");
+      doc.fontSize(9.5).fillColor("#334155").text(`  •  ${cleanPdfText(line.replace(/^[-•*]\s*/, ""))}`, 40, doc.y, { width: 515, lineGap: 2.5 });
+    } else {
+      setFont("regular");
+      doc.fontSize(9.5).fillColor("#0f172a").text(cleanPdfText(line), 40, doc.y, { width: 515, lineGap: 3.5 });
+    }
+  }
+  flushTable();
+}
+
+// ── PDF 1: Individual Grammar Rule PDF Generator ──────────────────────────────
 async function generateGrammarTopicPdf(userId, language, topic, outputPath) {
   return new Promise((resolve, reject) => {
     const doc = new PDFDocument({ size: "A4", margin: 40 });
@@ -247,12 +338,11 @@ async function generateGrammarTopicPdf(userId, language, topic, outputPath) {
       doc.font("RegularFont");
     }
 
-    // Dynamic Title Measurement to Prevent Any Overlap
     setFont("bold");
     doc.fontSize(17);
     const cleanTitle = cleanPdfText(topic.title);
     const titleHeight = doc.heightOfString(cleanTitle, { width: 485 });
-    const bannerHeight = Math.max(70, titleHeight + 38);
+    const bannerHeight = Math.max(72, titleHeight + 42);
 
     const startY = doc.y;
     doc.roundedRect(40, startY, 515, bannerHeight, 8).fill("#1e1b4b");
@@ -260,15 +350,15 @@ async function generateGrammarTopicPdf(userId, language, topic, outputPath) {
 
     setFont("regular");
     const langName = language ? (LANGUAGES[language] || language) : "Target Language";
+    const subtitleY = startY + titleHeight + 18;
     doc.fontSize(9).fillColor("#a5b4fc").text(
       `Language: ${langName}  |  Category: ${cleanPdfText(topic.category || "Grammar")}  |  Date: ${new Date().toLocaleDateString()}`,
-      55, startY + titleHeight + 16, { width: 485 }
+      55, subtitleY, { width: 485 }
     );
 
     doc.x = 40;
     doc.y = startY + bannerHeight + 14;
 
-    // Summary Box
     if (topic.rule_summary) {
       const summaryText = cleanPdfText(topic.rule_summary);
       setFont("regular");
@@ -284,13 +374,11 @@ async function generateGrammarTopicPdf(userId, language, topic, outputPath) {
       doc.fillColor("#334155").fontSize(9.5).text(summaryText, 52, sumY + 22, { width: 490 });
 
       doc.x = 40;
-      doc.y = sumY + sumH + 12;
+      doc.y = sumY + sumH + 14;
     }
 
-    // Process Markdown Content
     renderMarkdownContentToPdf(doc, topic.explanation, setFont);
 
-    // Examples Section
     let examplesList = [];
     try {
       examplesList = typeof topic.examples === "string" ? JSON.parse(topic.examples) : (topic.examples || []);
@@ -360,7 +448,6 @@ async function generateFullGrammarNotebookPdf(userId, language, outputPath) {
 
     const langName = language ? (LANGUAGES[language] || language) : "Target Language";
 
-    // Title / Cover Page
     doc.roundedRect(40, 60, 515, 140, 10).fill("#1e1b4b");
     setFont("bold");
     doc.fontSize(24).fillColor("#ffffff").text("Comprehensive Grammar Notebook", 60, 95, { align: "center", width: 475 });
@@ -372,24 +459,26 @@ async function generateFullGrammarNotebookPdf(userId, language, outputPath) {
     );
 
     doc.y = 230;
+    doc.x = 40;
     setFont("bold");
-    doc.fontSize(14).fillColor("#0f172a").text("Table of Contents");
+    doc.fontSize(14).fillColor("#0f172a").text("Table of Contents", 40, doc.y);
     doc.moveDown(0.4);
 
     topics.forEach((t, i) => {
       setFont("regular");
-      doc.fontSize(10).fillColor("#334155").text(`${i + 1}. ${cleanPdfText(t.title)} [${cleanPdfText(t.category || "Grammar")}]`);
+      doc.fontSize(10).fillColor("#334155").text(`${i + 1}. ${cleanPdfText(t.title)} [${cleanPdfText(t.category || "Grammar")}]`, 40, doc.y);
     });
 
-    // Content Pages
     topics.forEach((topic, idx) => {
       doc.addPage();
+      doc.x = 40;
       const headY = doc.y;
       doc.roundedRect(40, headY, 515, 45, 6).fill("#312e81");
       setFont("bold");
       doc.fontSize(15).fillColor("#ffffff").text(`${idx + 1}. ${cleanPdfText(topic.title)}`, 52, headY + 10, { width: 490 });
       setFont("regular");
       doc.fontSize(9).fillColor("#c7d2fe").text(`Category: ${cleanPdfText(topic.category || "Grammar")}  |  Saved: ${new Date(topic.created_at).toLocaleDateString()}`, 52, headY + 28);
+      doc.x = 40;
       doc.y = headY + 54;
 
       if (topic.rule_summary) {
@@ -399,6 +488,7 @@ async function generateFullGrammarNotebookPdf(userId, language, outputPath) {
         doc.fillColor("#0f172a").fontSize(9.5).text("Summary:", 50, sY + 6);
         setFont("regular");
         doc.fillColor("#334155").fontSize(9).text(cleanPdfText(topic.rule_summary), 50, sY + 18, { width: 490 });
+        doc.x = 40;
         doc.y = sY + 44;
       }
 
@@ -411,109 +501,79 @@ async function generateFullGrammarNotebookPdf(userId, language, outputPath) {
   });
 }
 
-// ── Shared Table & Markdown Renderer for PDFKit ──────────────────────────────
-// ── Fixed & Tested Table & Markdown Renderer for PDFKit ────────────────────────
-function renderMarkdownContentToPdf(doc, markdownText, setFont) {
-  if (!markdownText) return;
-  const lines = markdownText.split("\n");
-  let tableRows = [];
+// ── PDF 3: Vocabulary Notebook PDF Generator ──────────────────────────────────
+async function generateVocabularyPdf(userId, language, outputPath) {
+  const { active, mastered } = await getAllUserVocabulary(userId, language);
+  const allCards = [...active, ...mastered];
+  if (allCards.length === 0) return null;
 
-  const flushTable = () => {
-    if (tableRows.length === 0) return;
-    const numCols = Math.max(...tableRows.map((r) => r.length));
-    const startX = 40;
-    const totalWidth = 515;
-    const colWidth = totalWidth / numCols;
+  return new Promise((resolve, reject) => {
+    const doc = new PDFDocument({ size: "A4", margin: 40 });
+    const writeStream = fs.createWriteStream(outputPath);
+    doc.pipe(writeStream);
 
-    tableRows.forEach((row, rowIdx) => {
-      if (doc.y > 720) {
+    const regularFont = findSystemUnicodeFont();
+    const boldFont = findSystemBoldFont();
+
+    const setFont = (type = "regular") => {
+      if (regularFont) doc.font(type === "bold" && boldFont ? "BoldFont" : "RegularFont");
+      else doc.font(type === "bold" ? "Helvetica-Bold" : "Helvetica");
+    };
+
+    if (regularFont) {
+      doc.registerFont("RegularFont", regularFont);
+      if (boldFont) doc.registerFont("BoldFont", boldFont);
+      doc.font("RegularFont");
+    }
+
+    const startY = doc.y;
+    doc.roundedRect(40, startY, 515, 60, 8).fill("#0f172a");
+    setFont("bold");
+    doc.fontSize(18).fillColor("#ffffff").text("Personal Vocabulary & Morphology Notebook", 55, startY + 12);
+    setFont("regular");
+    const langName = language ? (LANGUAGES[language] || language) : "Target Language";
+    doc.fontSize(9.5).fillColor("#94a3b8").text(`Target Track: ${langName}  |  Total Words: ${allCards.length}  |  Date: ${new Date().toLocaleDateString()}`, 55, startY + 38);
+    doc.x = 40;
+    doc.y = startY + 75;
+
+    allCards.forEach((card, idx) => {
+      if (doc.y > 690) {
         doc.addPage();
-        doc.x = startX;
+        doc.x = 40;
       }
-      const currentY = doc.y;
-      const isHeader = rowIdx === 0;
 
-      // Draw row background
-      if (isHeader) {
-        doc.rect(startX, currentY, totalWidth, 22).fill("#3730a3"); // Rich Indigo Header
-        setFont("bold");
-        doc.fillColor("#ffffff").fontSize(9);
-      } else {
-        doc.rect(startX, currentY, totalWidth, 20).fill(rowIdx % 2 === 0 ? "#f8fafc" : "#ffffff");
-        doc.rect(startX, currentY, totalWidth, 20).stroke("#e2e8f0");
+      const cardY = doc.y;
+      doc.roundedRect(40, cardY, 515, 50, 4).fill("#f8fafc");
+      doc.rect(40, cardY, 515, 50).stroke("#e2e8f0");
+
+      setFont("bold");
+      doc.fontSize(11).fillColor("#4338ca").text(`${idx + 1}. ${cleanPdfText(card.initial_form || card.word)}`, 50, cardY + 8, { continued: Boolean(card.part_of_speech) });
+      if (card.part_of_speech) {
         setFont("regular");
-        doc.fillColor("#0f172a").fontSize(8.5);
+        doc.fontSize(9).fillColor("#64748b").text(`  [${cleanPdfText(card.part_of_speech)}]`);
       }
 
-      // Draw each cell
-      row.forEach((cellText, cIdx) => {
-        doc.text(
-          cleanPdfText(cellText),
-          startX + 8 + cIdx * colWidth,
-          currentY + 5.5,
-          { width: colWidth - 14, align: "left", lineBreak: false }
-        );
-      });
+      setFont("bold");
+      doc.fontSize(9.5).fillColor("#0f172a").text(`Meaning: ${cleanPdfText(card.correction)}`, 50, cardY + 23);
 
-      // CRITICAL FIX: Reset X to page margin after table cell rendering!
-      doc.x = startX;
-      doc.y = currentY + (isHeader ? 23 : 21);
+      if (card.grammar_rule || card.pronunciation_rule || card.transcription) {
+        setFont("regular");
+        const details = [
+          card.transcription ? `IPA: ${cleanPdfText(card.transcription)}` : null,
+          card.grammar_rule ? `Rule: ${cleanPdfText(card.grammar_rule)}` : null,
+        ].filter(Boolean).join("  |  ");
+        doc.fontSize(8.5).fillColor("#475569").text(details, 50, cardY + 36, { width: 495 });
+      }
+
+      doc.x = 40;
+      doc.y = cardY + 56;
     });
 
-    tableRows = [];
-    doc.x = startX; // Reset X
-    doc.moveDown(0.5);
-  };
-
-  for (const rawLine of lines) {
-    const line = rawLine.trim();
-    if (!line) continue;
-
-    // Detect markdown table rows
-    if (line.startsWith("|") && line.endsWith("|")) {
-      const cells = line.split("|").slice(1, -1).map((c) => c.trim());
-      const isDivider = cells.every((c) => /^[:-]+$/.test(c));
-      if (!isDivider) tableRows.push(cells);
-      continue;
-    } else {
-      flushTable();
-    }
-
-    if (doc.y > 720) {
-      doc.addPage();
-      doc.x = 40;
-    }
-
-    // Always ensure doc.x is at the left margin
-    doc.x = 40;
-
-    // Section Headings
-    if (line.startsWith("###")) {
-      doc.moveDown(0.4);
-      setFont("bold");
-      doc.fontSize(11).fillColor("#4338ca").text(cleanPdfText(line), 40, doc.y, { width: 515 });
-      doc.moveDown(0.2);
-    } else if (line.startsWith("##")) {
-      doc.moveDown(0.5);
-      setFont("bold");
-      doc.fontSize(13).fillColor("#1e1b4b").text(cleanPdfText(line), 40, doc.y, { width: 515 });
-      doc.moveDown(0.2);
-    } else if (line.startsWith("#")) {
-      doc.moveDown(0.6);
-      setFont("bold");
-      doc.fontSize(15).fillColor("#0f172a").text(cleanPdfText(line), 40, doc.y, { width: 515 });
-      doc.moveDown(0.3);
-    } else if (line.startsWith("-") || line.startsWith("•") || line.startsWith("* ")) {
-      setFont("regular");
-      doc.fontSize(9.5).fillColor("#334155").text(`  •  ${cleanPdfText(line.replace(/^[-•*]\s*/, ""))}`, 40, doc.y, { width: 515, lineGap: 2.5 });
-    } else {
-      setFont("regular");
-      doc.fontSize(9.5).fillColor("#0f172a").text(cleanPdfText(line), 40, doc.y, { width: 515, lineGap: 3.5 });
-    }
-  }
-  flushTable();
+    doc.end();
+    writeStream.on("finish", () => resolve(outputPath));
+    writeStream.on("error", reject);
+  });
 }
-
 
 // ── PDF 4: Learning Roadmap Generator ─────────────────────────────────────────
 async function generateRoadmapPdf(userId, language, roadmapText, outputPath) {
@@ -545,6 +605,7 @@ async function generateRoadmapPdf(userId, language, roadmapText, outputPath) {
     setFont("regular");
     const langName = language ? (LANGUAGES[language] || language) : "Target Language";
     doc.fontSize(9.5).fillColor("#94a3b8").text(`Curriculum: ${langName}  |  Generated: ${new Date().toLocaleDateString()}`, 55, startY + 38);
+    doc.x = 40;
     doc.y = startY + 75;
 
     const lines = roadmapText.split("\n");
@@ -552,22 +613,27 @@ async function generateRoadmapPdf(userId, language, roadmapText, outputPath) {
       const line = rawLine.trim();
       if (!line) continue;
 
-      if (doc.y > 720) doc.addPage();
+      if (doc.y > 720) {
+        doc.addPage();
+        doc.x = 40;
+      }
 
-      // Detect numbered roadmap sections or section headers
-      if (/^[1-6]\./.test(line) || line.startsWith("#") || line.toUpperCase() === line && line.length > 5) {
+      doc.x = 40;
+
+      if (/^[1-6]\./.test(line) || line.startsWith("#") || (line.toUpperCase() === line && line.length > 5)) {
         doc.moveDown(0.6);
         const cardY = doc.y;
         doc.roundedRect(40, cardY, 515, 24, 4).fill("#f1f5f9");
         setFont("bold");
         doc.fontSize(11).fillColor("#312e81").text(cleanPdfText(line), 50, cardY + 6);
+        doc.x = 40;
         doc.y = cardY + 28;
       } else if (line.startsWith("-") || line.startsWith("•") || line.startsWith("*")) {
         setFont("regular");
-        doc.fontSize(9.5).fillColor("#334155").text(`  •  ${cleanPdfText(line.replace(/^[-•*]\s*/, ""))}`, { lineGap: 2.5 });
+        doc.fontSize(9.5).fillColor("#334155").text(`  •  ${cleanPdfText(line.replace(/^[-•*]\s*/, ""))}`, 40, doc.y, { width: 515, lineGap: 2.5 });
       } else {
         setFont("regular");
-        doc.fontSize(9.5).fillColor("#1e293b").text(cleanPdfText(line), { lineGap: 3 });
+        doc.fontSize(9.5).fillColor("#1e293b").text(cleanPdfText(line), 40, doc.y, { width: 515, lineGap: 3 });
       }
     }
 
@@ -638,7 +704,7 @@ app.post("/api/flashcards/:id/quiz", requireTelegramAuth, async (req, res) => {
   });
 });
 
-// 2. Dedicated Grammar Topics API (Separated DB, Unique Per Language & User)
+// 2. Dedicated Grammar Topics API
 app.get("/api/grammar", requireTelegramAuth, async (req, res) => {
   const userId = req.telegramUser.id;
   const user = await getUser(userId);
@@ -657,7 +723,6 @@ app.get("/api/grammar/:id", requireTelegramAuth, async (req, res) => {
 
 // ── 1. Individual Topic PDF Download Endpoint ─────────────────────────────────
 app.get("/api/grammar/:id/pdf", async (req, res) => {
-  // Accepts userId from Telegram initData headers OR from ?userId= query parameter
   const userId = req.headers["x-user-id"] || req.query.userId || (req.telegramUser && req.telegramUser.id);
   if (!userId) {
     return res.status(401).json({ error: "Unauthorized: Missing userId" });
@@ -837,7 +902,6 @@ async function sendGrammarPdfToUser(ctx, userId, topicId = null) {
       docName = `${topic.title.replace(/[^\w\d\-]/g, "_")}.pdf`;
       caption = `📖 *${topic.title}*\n\nПолное руководство по правилу в формате PDF с таблицами, IPA и примерами.`;
     } else {
-      // Check if there is a latest topic or generate full book
       const topics = await getGrammarTopics(userId, user.language);
       if (!topics || topics.length === 0) {
         try {
@@ -851,7 +915,6 @@ async function sendGrammarPdfToUser(ctx, userId, topicId = null) {
         return false;
       }
 
-      // If user specifically asked for the recent grammar rule or full notebook
       filePath = await generateFullGrammarNotebookPdf(userId, user.language, tempPath);
       docName = `My_${user.language}_Grammar_Notebook.pdf`;
       caption = `📚 *Полная книга грамматики (${LANGUAGES[user.language]}):*\n\nВключает ${topics.length} тем с полными таблицами спряжения, падежами, IPA и синтаксическими правилами.`;
@@ -1095,7 +1158,6 @@ bot.command("roadmap", async (ctx) => {
   let progress = await getRoadmap(userId);
   let roadmapText = progress?.roadmap;
 
-  // If missing or previously corrupted by old flashcard hallucinations, regenerate cleanly
   if (!roadmapText || isCorruptedRoadmap(roadmapText)) {
     const thinking = await ctx.reply("⏳ Generating your personalized Learning Roadmap...");
     try {
@@ -1322,7 +1384,6 @@ bot.callbackQuery("start_placement_test", async (ctx) => {
   const user = await getUser(userId);
   await initiateLevelTest(ctx, user.language, user.mediator_language || "english");
 });
-
 
 bot.callbackQuery("refresh_roadmap", async (ctx) => {
   await ctx.answerCallbackQuery({ text: "Regenerating roadmap..." });
@@ -1817,7 +1878,6 @@ bot.on("message:voice", async (ctx) => {
       { parse_mode: "Markdown" }
     );
 
-    // Voice response
     const audioPath = await textToSpeech(spokenReply || reply, user.language);
     if (audioPath) {
       await ctx.replyWithVoice(new InputFile(audioPath), { caption: reply.slice(0, 1024) });
@@ -1826,7 +1886,6 @@ bot.on("message:voice", async (ctx) => {
       await sendSafeChunkedMessage(ctx, reply, { parse_mode: "Markdown" });
     }
 
-    // Attach PDF download button if grammar rule was captured
     if (grammarTopic) {
       const kb = new InlineKeyboard()
         .text(`📥 Скачать правило в PDF`, `dl_topic_${grammarTopic.id}`)
@@ -1865,7 +1924,6 @@ bot.on("message:text", async (ctx) => {
   const text = ctx.message.text.trim();
   const lower = text.toLowerCase();
 
-  // If in active Skill Drill
   if (user?.state === "in_skill_drill") {
     const drill = await getActiveDrill(userId);
     if (drill) {
@@ -1879,7 +1937,6 @@ bot.on("message:text", async (ctx) => {
     }
   }
 
-  // If in Placement Test
   if (user?.state === "in_level_test") {
     const test = await getActiveTest(userId);
     if (test) {
@@ -1902,11 +1959,6 @@ bot.on("message:text", async (ctx) => {
     return;
   }
 
-  // =========================================================================
-  // USER INTENT: PROACTIVE GRAMMAR PDF REQUEST HANDLING
-  // Catches requests like: "все твои ответы урезаны - не мог бы ты всегда давать эти ответы в pdf?",
-  // "в pdf", "pdf", "пдф", "скинь в pdf", "сохрани в pdf", "дай правило в pdf"
-  // =========================================================================
   const isPdfGrammarRequest =
     (lower.includes("pdf") || lower.includes("пдф")) &&
     (lower.includes("урез") || lower.includes("ответ") || lower.includes("правил") || lower.includes("грамматик") || lower.includes("всегда") || lower.includes("дай") || lower.includes("скинь"));
@@ -1918,7 +1970,6 @@ bot.on("message:text", async (ctx) => {
       await sendGrammarPdfToUser(ctx, userId, latest.id);
       return;
     } else {
-      // Generate a fresh grammar guide based on user's recent messages
       const history = await getHistory(userId, 4);
       const recentContext = history.map((h) => h.content).join(" \n ");
       const thinking = await ctx.reply("⏳ Генерирую полное грамматическое руководство в формате PDF без каких-либо сокращений...");
@@ -1940,13 +1991,11 @@ bot.on("message:text", async (ctx) => {
     }
   }
 
-  // Regular Roadmap PDF intent
   if (lower.includes("roadmap") && (lower.includes("pdf") || lower.includes("пдф"))) {
     await sendRoadmapPdfToUser(ctx, userId);
     return;
   }
 
-  // Vocabulary PDF intent
   if ((lower === "pdf" || lower === "пдф") && !lower.includes("грамматик")) {
     await sendVocabularyPdfToUser(ctx, userId);
     return;
@@ -1968,12 +2017,10 @@ bot.on("message:text", async (ctx) => {
       await ctx.api.deleteMessage(ctx.chat.id, thinking.message_id);
     } catch (_) { }
 
-    // Deliver correction if present
     if (correction && !correction.includes("✅ Perfect!")) {
       await ctx.reply(correction, { parse_mode: "Markdown" });
     }
 
-    // Deliver full, un-truncated response safely via chunked delivery
     const fullMessageOptions = { parse_mode: "Markdown" };
     let inlineMarkup = null;
 
