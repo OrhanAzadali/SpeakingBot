@@ -1038,58 +1038,6 @@ function isCorruptedRoadmap(text) {
   );
 }
 
-async function sendRoadmapPdfToUser(ctx, userId) {
-  const user = await getUser(userId);
-  let progress = await getRoadmap(userId);
-  let roadmapText = progress?.roadmap;
-
-  if (!roadmapText || isCorruptedRoadmap(roadmapText)) {
-    roadmapText = await generateRoadmap(
-      userId,
-      LANGUAGES[user?.language] || user?.language || "English",
-      user?.level || "Beginner",
-      user?.mediator_language || "english"
-    );
-  }
-
-  if (!roadmapText) {
-    const noRoadmapMsg = "📭 No roadmap available yet. Keep chatting to generate one!";
-    if (ctx) await ctx.reply(noRoadmapMsg);
-    else await bot.api.sendMessage(userId, noRoadmapMsg);
-    return false;
-  }
-
-  const thinking = ctx
-    ? await ctx.reply("⏳ *Compiling your personal Roadmap PDF...*", { parse_mode: "Markdown" })
-    : await bot.api.sendMessage(userId, "⏳ *Compiling your personal Roadmap PDF...*", { parse_mode: "Markdown" });
-
-  const tempPath = path.join(tmpdir(), `roadmap_${userId}_${Date.now()}.pdf`);
-
-  try {
-    const clean = cleanRoadmapText(roadmapText);
-    const filePath = await generateRoadmapPdf(userId, user?.language, clean, tempPath);
-    try {
-      if (ctx) await ctx.api.deleteMessage(ctx.chat.id, thinking.message_id);
-      else await bot.api.deleteMessage(userId, thinking.message_id);
-    } catch (_) { }
-
-    const docName = `My_${user?.language || "Language"}_Learning_Roadmap.pdf`;
-    const caption = `📈 *Here is your Personal Learning Roadmap PDF!*`;
-
-    if (ctx) {
-      await ctx.replyWithDocument(new InputFile(filePath, docName), { caption, parse_mode: "Markdown" });
-    } else {
-      await bot.api.sendDocument(userId, new InputFile(filePath, docName), { caption, parse_mode: "Markdown" });
-    }
-
-    await cleanupFile(filePath);
-    return true;
-  } catch (err) {
-    console.error("Roadmap PDF export error:", err);
-    return false;
-  }
-}
-
 // ── Usage Enforcement ─────────────────────────────────────────────────────────
 async function enforceUsageLimit(ctx, userId) {
   const usage = await checkAndIncrementUsage(userId, FREE_DAILY_LIMIT);
