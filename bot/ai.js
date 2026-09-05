@@ -700,56 +700,6 @@ function smartFallbackMatch(submitted, correctAnswer, synonyms = "") {
 
 // ── Call: Full Pedagogical Grammar Guide Generator ────────────────────────────
 // ── Call: Full Pedagogical Grammar Guide Generator ────────────────────────────
-export async function generateGrammarGuide(targetLanguage, mediatorLanguage, topicOrQuery, userLevel = "Beginner") {
-  const isAdvanced = String(userLevel || "").toLowerCase().includes("advanced");
-  // For Advanced learners, 100% target language immersion; for Beginners/Intermediates, mediator language
-  const guideLanguage = isAdvanced ? targetLanguage : (mediatorLanguage || "english");
-
-  const prompt = `You are a world-class university professor of ${targetLanguage} linguistics and pedagogy.
-Create an exhaustive, publication-grade Grammar Reference Guide in ${guideLanguage.toUpperCase()} for a student at ${userLevel} level.
-
-Topic/Question: "${topicOrQuery}"
-
-The guide MUST be 100% COMPLETE, RICH, AND FORMATTED FOR AN A4 PDF STUDY SHEET.
-${isAdvanced ? `CRITICAL ADVANCED IMMERSION: Write ALL explanations, terminology, and analysis strictly in ${targetLanguage}.` : `Write grammatical explanations in ${mediatorLanguage}, with examples in ${targetLanguage}.`}
-
-Structure required:
-1. 🏷 Title & Conceptual Blueprint: Clear explanation of what this rule is and why it exists.
-2. 📐 Structural Formula & Word Order Mechanics: Formulas with visual diagrams/tables.
-3. 📊 Exhaustive Paradigms & Tables: Complete conjugation/declension tables with IPA and translations for every single row!
-4. ⚠️ Common Traps, Exceptions & False Friends: What learners get wrong.
-5. 💬 Real-World Context Examples: 4-6 bilingual sentences.
-6. 💡 Memory Hacks & Mnemonics: Fast recall tips.
-
-Return ONLY JSON:
-{
-  "title": "Clean concise title",
-  "category": "Grammar category",
-  "rule_summary": "1-2 sentence overview",
-  "explanation": "Full Markdown content formatted with headers and tables",
-  "examples": [
-    { "target": "...", "translation": "...", "note": "..." }
-  ]
-}`;
-
-  try {
-    const response = await withModelFallback(CHAT_MODELS, (model) =>
-      groq.chat.completions.create({
-        model,
-        messages: [{ role: "user", content: prompt }],
-        temperature: 0.2,
-        max_tokens: 3500,
-        response_format: { type: "json_object" },
-        ...reasoningParams(model),
-      })
-    );
-    const raw = response.choices[0]?.message?.content?.trim();
-    return JSON.parse(extractJsonObject(raw));
-  } catch (err) {
-    console.error("Grammar guide generation error:", err);
-    return null;
-  }
-}
 
 // ── Chat Pipeline ─────────────────────────────────────────────────────────────
 export async function chat(userId, userMessage, history, language, level, languageKey, mediatorLanguage = "english") {
@@ -955,7 +905,6 @@ Return strictly JSON:
     return null;
   }
 }
-
 export async function generateRoadmap(userId, language, level, mediatorLanguage = "english") {
   const recent = await getHistory(userId, 10);
   const contextSnippet = recent
