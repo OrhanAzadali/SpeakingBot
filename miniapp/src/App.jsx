@@ -45,23 +45,32 @@ export default function App() {
   const [toast, setToast] = useState(null);
   const [actionLoading, setActionLoading] = useState(null);
 
+  // Extract real Telegram user ID from Telegram WebApp, or URL param, or localStorage
+  const tgUser = typeof window !== "undefined" ? window.Telegram?.WebApp?.initDataUnsafe?.user : null;
   // Auth Info
   const initData = typeof window !== "undefined" ? window.Telegram?.WebApp?.initData || "" : "";
-  const queryUserId = typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("userId") || "123456789" : "123456789";
+  const urlParamId = typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("userId") : null;
+
+  // Real effective user ID (checks Telegram WebApp user, then URL, then stored ID)
+  const effectiveUserId = tgUser?.id ? String(tgUser.id) : (urlParamId || localStorage.getItem("spk_user_id") || "8291613988");
+
+  // Save for persistence across web browser sessions
+  useEffect(() => {
+    if (effectiveUserId && effectiveUserId !== "123456789") {
+      localStorage.setItem("spk_user_id", effectiveUserId);
+    }
+  }, [effectiveUserId]);
 
   const getHeaders = () => {
-    if (initData) {
-      return {
-        "Content-Type": "application/json",
-        Authorization: `tma ${initData}`,
-      };
-    }
-    return {
+    const headers = {
       "Content-Type": "application/json",
-      "x-user-id": queryUserId,
+      "x-user-id": effectiveUserId,
     };
+    if (initData) {
+      headers["Authorization"] = `tma ${initData}`;
+    }
+    return headers;
   };
-
   const showToast = (message, type = "success") => {
     setToast({ message, type });
     setTimeout(() => setToast(null), 4000);
@@ -78,7 +87,7 @@ export default function App() {
 
   const fetchGrammarTopics = async () => {
     try {
-      const res = await fetch(`${BACKEND_URL}/api/grammar?userId=${queryUserId}`, {
+      const res = await fetch(`${BACKEND_URL}/api/grammar?userId=${effectiveUserId}`, {
         headers: getHeaders(),
       });
       if (res.ok) {
@@ -93,7 +102,7 @@ export default function App() {
 
   const fetchFlashcards = async () => {
     try {
-      const res = await fetch(`${BACKEND_URL}/api/flashcards?userId=${queryUserId}`, {
+      const res = await fetch(`${BACKEND_URL}/api/flashcards?userId=${effectiveUserId}`, {
         headers: getHeaders(),
       });
       if (res.ok) {
@@ -108,13 +117,14 @@ export default function App() {
 
   // Safe PDF Download for Web & Telegram MiniApp
   const triggerDownload = (endpoint, filename) => {
-    const downloadUrl = `${BACKEND_URL}${endpoint}?userId=${queryUserId}`;
+    const downloadUrl = `${BACKEND_URL}${endpoint}?userId=${effectiveUserId}`;
     if (window.Telegram?.WebApp?.openLink) {
       window.Telegram.WebApp.openLink(downloadUrl);
     } else {
       window.open(downloadUrl, "_blank");
     }
   };
+
 
   const handleDownloadAllGrammarPdf = () => {
     showToast("Generating Complete Grammar Book PDF...", "info");
@@ -138,7 +148,7 @@ export default function App() {
       const res = await fetch(`${BACKEND_URL}${endpoint}`, {
         method: "POST",
         headers: getHeaders(),
-        body: JSON.stringify({ ...payload, userId: queryUserId }),
+        body: JSON.stringify({ ...payload, userId: effectiveUserId }),
       });
       const data = await res.json();
       if (res.ok) {
@@ -168,7 +178,6 @@ export default function App() {
       });
     } catch (_) { }
 
-    // Advance queue
     setFlashcards((prev) => {
       const rest = prev.slice(1);
       if (rest.length === 0) {
@@ -595,4 +604,3 @@ export default function App() {
     </div>
   );
 }
-

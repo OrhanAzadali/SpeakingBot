@@ -98,7 +98,6 @@ function verifyTelegramInitData(initData, botToken) {
     return null;
   }
 }
-
 function requireTelegramAuth(req, res, next) {
   const authHeader = req.headers["authorization"] || "";
   const initData = authHeader.startsWith("tma ") ? authHeader.slice(4) : null;
@@ -111,8 +110,9 @@ function requireTelegramAuth(req, res, next) {
     }
   }
 
-  const fallbackId = req.headers["x-user-id"] || req.query.userId;
-  if (fallbackId) {
+  // Fallback: accept x-user-id header, query parameter, or JSON body
+  const fallbackId = req.headers["x-user-id"] || req.query.userId || req.body?.userId;
+  if (fallbackId && fallbackId !== "undefined" && fallbackId !== "null") {
     req.telegramUser = { id: Number(fallbackId) };
     return next();
   }
@@ -778,33 +778,36 @@ app.get("/api/grammar/pdf", async (req, res) => {
 
 // ── 3. Send PDF Directly to Telegram Chat Endpoint ───────────────────────────
 app.post("/api/grammar/send-pdf", async (req, res) => {
-  const userId = req.headers["x-user-id"] || req.body.userId || req.query.userId || (req.telegramUser && req.telegramUser.id);
-  if (!userId) {
-    return res.status(401).json({ error: "Unauthorized: Missing userId" });
+  const userId = req.body.userId || req.headers["x-user-id"] || req.query.userId || (req.telegramUser && req.telegramUser.id);
+  if (!userId || userId === "123456789") {
+    return res.status(400).json({ error: "Valid Telegram User ID is required to send to chat." });
   }
 
   const { topicId } = req.body;
   try {
+    const user = await getUser(userId);
+    const lang = user?.language || "german";
+
     if (topicId) {
       const topic = await getGrammarTopicById(topicId);
-      const user = await getUser(userId);
-      const tempPath = path.join(tmpdir(), `grammar_${topicId}_${Date.now()}.pdf`);
-      const filePath = await generateGrammarTopicPdf(userId, user?.language, topic, tempPath);
+      if (!topic) return res.status(404).json({ error: "Topic not found" });
 
-      await bot.api.sendDocument(userId, new InputFile(filePath, `${topic.title}.pdf`), {
+      const tempPath = path.join(tmpdir(), `grammar_${topicId}_${Date.now()}.pdf`);
+      const filePath = await generateGrammarTopicPdf(userId, lang, topic, tempPath);
+
+      await bot.api.sendDocument(userId, new InputFile(filePath, `${topic.title.replace(/[^\w\d\-]/g, "_")}.pdf`), {
         caption: `📖 *${topic.title}* (Grammar Rule PDF)`,
         parse_mode: "Markdown"
       });
       await cleanupFile(filePath);
     } else {
-      const user = await getUser(userId);
       const tempPath = path.join(tmpdir(), `grammar_full_${userId}_${Date.now()}.pdf`);
-      const filePath = await generateFullGrammarNotebookPdf(userId, user?.language, tempPath);
+      const filePath = await generateFullGrammarNotebookPdf(userId, lang, tempPath);
       if (!filePath) {
         return res.status(404).json({ error: "No grammar topics found to export." });
       }
 
-      await bot.api.sendDocument(userId, new InputFile(filePath, "Complete_Grammar_Notebook.pdf"), {
+      await bot.api.sendDocument(userId, new InputFile(filePath, `Complete_Grammar_Notebook_${lang}.pdf`), {
         caption: `📚 *Complete Grammar Reference Notebook*`,
         parse_mode: "Markdown"
       });
