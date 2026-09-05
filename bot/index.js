@@ -787,40 +787,55 @@ app.get("/api/user", requireTelegramAuth, async (req, res) => {
 });
 
 // ── 1. Flashcards API (Filtered strictly by current active language) ──────────
-app.get("/api/flashcards", requireTelegramAuth, async (req, res) => {
-  const userId = req.telegramUser.id;
-  const user = await getUser(userId);
-  const requestedLang = req.query.language || user?.language || "russian";
-  const pool = (await import("./db.js")).default;
 
-  const { rows } = await pool.query(`
-    SELECT *,
-      COALESCE(NULLIF(initial_form, ''), word) AS word,
-      COALESCE(NULLIF(initial_form, ''), word) AS initial_form
-    FROM flashcards
-    WHERE user_id = $1 AND LOWER(language) = LOWER($2)
-    ORDER BY id DESC
-  `, [userId, requestedLang]);
-
-  res.json({ cards: rows, language: requestedLang });
-});
-
+// ── Safe Review Route (Handles both Database numeric IDs and AI string IDs) ──
 app.post("/api/flashcards/:id/review", requireTelegramAuth, async (req, res) => {
-  const { id } = req.params;
+  const rawId = String(req.params.id || "").trim();
   const { remembered } = req.body;
-  const updated = await updateFlashcard(Number(id), remembered, req.telegramUser.id);
+  const userId = req.telegramUser.id;
+
+  // If this is an ephemeral AI game card (starts with "ai_" or non-numeric)
+  if (rawId.startsWith("ai_") || isNaN(Number(rawId))) {
+    // If remembered, optionally save as a real flashcard or learned word
+    return res.json({ ok: true, ephemeral: true });
+  }
+
+  // Real database flashcard
+  const numId = Number(rawId);
+  const updated = await updateFlashcard(numId, remembered, userId);
   if (!updated) return res.status(404).json({ error: "Flashcard not found" });
   res.json({ ok: true });
 });
 
+// ── Safe Quiz Evaluation Route ───────────────────────────────────────────────
 app.post("/api/flashcards/:id/quiz", requireTelegramAuth, async (req, res) => {
-  const { id } = req.params;
+  const rawId = String(req.params.id || "").trim();
   const { answer } = req.body;
   if (typeof answer !== "string") return res.status(400).json({ error: "Missing answer" });
 
-  const card = await getFlashcardById(Number(id), req.telegramUser.id);
+  const userId = req.telegramUser.id;
+  const isAiCard = rawId.startsWith("ai_") || isNaN(Number(rawId));
+
+  let card = null;
+
+  if (isAiCard) {
+    // Card passed from AI session via body or evaluated directly
+    const targetWord = req.body.word || req.body.initial_form || "word";
+    const expectedCorrection = req.body.correction || req.body.meaning || "";
+    card = {
+      initial_form: targetWord,
+      word: targetWord,
+      correction: expectedCorrection,
+      synonyms: req.body.synonyms || "",
+      explanation: req.body.explanation || ""
+    };
+  } else {
+    card = await getFlashcardById(Number(rawId), userId);
+  }
+
   if (!card) return res.status(404).json({ error: "Flashcard not found" });
 
+  // Semantic AI evaluation (Meaning-based, NOT strict string equality!)
   const evalResult = await checkSemanticAnswer(
     card.initial_form || card.word,
     answer,
@@ -828,7 +843,10 @@ app.post("/api/flashcards/:id/quiz", requireTelegramAuth, async (req, res) => {
     card.synonyms
   );
 
-  const result = await recordQuizResult(Number(id), req.telegramUser.id, evalResult.correct);
+  let result = { mastered: false, streak: evalResult.correct ? 1 : 0 };
+  if (!isAiCard) {
+    result = await recordQuizResult(Number(rawId), userId, evalResult.correct);
+  }
 
   res.json({
     correct: evalResult.correct,
@@ -842,6 +860,34 @@ app.post("/api/flashcards/:id/quiz", requireTelegramAuth, async (req, res) => {
     sentence: card.sentence,
     ...result,
   });
+});
+
+// ── Safe Options Route ───────────────────────────────────────────────────────
+app.get("/api/flashcards/:id/options", requireTelegramAuth, async (req, res) => {
+  const rawId = String(req.params.id || "").trim();
+  if (rawId.startsWith("ai_") || isNaN(Number(rawId))) {
+    const word = req.query.word || "word";
+    const correct = req.query.correct || "meaning";
+    return res.json({ options: [correct], correct });
+  }
+
+  const card = await getFlashcardById(Number(rawId), req.telegramUser.id);
+  if (!card) return res.status(404).json({ error: "Card not found" });
+
+  const user = await getUser(req.telegramUser.id);
+  const isAdvanced = String(user?.level || "").toLowerCase().includes("advanced");
+  const optionLang = isAdvanced ? (card.language || "russian") : (user?.mediator_language || "english");
+
+  const correct = card.correction || card.word;
+  const word = card.initial_form || card.word;
+
+  try {
+    const distractors = await generateQuizDistractors(word, correct, LANGUAGES[card.language] || card.language, optionLang);
+    const options = [correct, ...distractors].sort(() => Math.random() - 0.5);
+    res.json({ options, correct });
+  } catch {
+    res.json({ options: [correct], correct });
+  }
 });
 
 // ── AI Dynamic Distractor Generator (No more DB recycled wrong answers!) ─────

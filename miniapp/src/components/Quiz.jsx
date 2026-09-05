@@ -82,7 +82,12 @@ export default function Quiz({ cards, API, authHeaders, onExit }) {
           const res = await fetch(`${API}/api/flashcards/${current.id}/quiz`, {
             method: "POST",
             headers: { "Content-Type": "application/json", ...authHeaders },
-            body: JSON.stringify({ answer }),
+            body: JSON.stringify({
+              answer,
+              word: current.initial_form || current.word,
+              correction: current.correction,
+              synonyms: current.synonyms
+            }),
           });
           if (res.ok) {
             const json = await res.json();
@@ -92,6 +97,7 @@ export default function Quiz({ cards, API, authHeaders, onExit }) {
           }
         } catch {
           // Network or parse issue, fall through to local evaluation
+
         }
       }
 
@@ -297,7 +303,14 @@ export default function Quiz({ cards, API, authHeaders, onExit }) {
       </div>
 
       {questionType === "choice" ? (
-        <div className="w-full max-w-sm flex flex-col gap-3">
+        <div className="w-full max-w-sm flex flex-col gap-3">// In Quiz.jsx render:
+          <div className="w-full max-w-sm mb-3 text-center">
+            <span className="inline-block px-3 py-1 rounded-full text-[11px] font-bold tracking-wide bg-indigo-950 text-indigo-300 border border-indigo-800">
+              {questionType === "choice"
+                ? "👉 ВЫБЕРИТЕ ПЕРЕВОД (SELECT MEANING)"
+                : "✍️ ВВЕДИТЕ ЗНАЧЕНИЕ НА РУССКОМ / ENGLISH"}
+            </span>
+          </div>
           {options.map((opt, i) => (
             <button
               key={i}

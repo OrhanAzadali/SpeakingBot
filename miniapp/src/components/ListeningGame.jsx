@@ -320,7 +320,11 @@ export default function ListeningGame({ cards, API, authHeaders, onExit }) {
       </div>
 
       {questionType === "choice" ? (
-        <div className="w-full max-w-sm flex flex-col gap-3">
+        <div className="w-full max-w-sm flex flex-col gap-3"><div className="w-full max-w-sm mb-3 text-center">
+          <span className="inline-block px-3 py-1 rounded-full text-[11px] font-bold tracking-wide bg-cyan-950 text-cyan-300 border border-cyan-800">
+            🎧 ПОСЛУШАЙТЕ И {questionType === "choice" ? "ВЫБЕРИТЕ ЗНАЧЕНИЕ" : "НАПИШИТЕ ПЕРЕВОД"}
+          </span>
+        </div>
           {options.map((opt, i) => (
             <button
               key={i}
