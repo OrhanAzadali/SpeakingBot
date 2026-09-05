@@ -14,6 +14,9 @@ import {
 } from "lucide-react";
 
 export default function GrammarBook({ API, authHeaders, effectiveUserId, onExit }) {
+    // If API prop is passed from App.jsx, use it; otherwise fallback to environment variable or your Render backend URL
+    const BACKEND_URL = API || import.meta.env.VITE_BACKEND_URL || "https://speakingbot.onrender.com";
+
     const [topics, setTopics] = useState([]);
     const [language, setLanguage] = useState("");
     const [loading, setLoading] = useState(true);
@@ -35,7 +38,7 @@ export default function GrammarBook({ API, authHeaders, effectiveUserId, onExit 
     const fetchTopics = async () => {
         setLoading(true);
         try {
-            const res = await fetch(`${API}/api/grammar?userId=${effectiveUserId}`, {
+            const res = await fetch(`${BACKEND_URL}/api/grammar?userId=${effectiveUserId}`, {
                 headers: authHeaders,
             });
             if (res.ok) {
@@ -52,33 +55,38 @@ export default function GrammarBook({ API, authHeaders, effectiveUserId, onExit 
 
     const handleDownloadTopicPdf = (topicId, title) => {
         showToast(`Preparing PDF: ${title}`);
-        const downloadUrl = `${API}/api/grammar/${topicId}/pdf?userId=${effectiveUserId}`;
-        const a = document.createElement("a");
-        a.href = downloadUrl;
-        a.download = `${title.replace(/\s+/g, "_")}.pdf`;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
+        const downloadUrl = `${BACKEND_URL}/api/grammar/${topicId}/pdf?userId=${effectiveUserId}`;
+
+        // Fix for Telegram MiniApp: Use openLink so native Telegram opens and downloads the file
+        if (window.Telegram?.WebApp?.openLink) {
+            window.Telegram.WebApp.openLink(downloadUrl);
+        } else {
+            window.open(downloadUrl, "_blank");
+        }
     };
 
     const handleDownloadAllGrammarPdf = () => {
         showToast("Generating Complete Grammar Book PDF...");
-        const downloadUrl = `${API}/api/grammar/pdf?userId=${effectiveUserId}`;
-        const a = document.createElement("a");
-        a.href = downloadUrl;
-        a.download = `Grammar_Reference_Book_${language || "Language"}.pdf`;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
+        const downloadUrl = `${BACKEND_URL}/api/grammar/pdf?userId=${effectiveUserId}`;
+
+        // Fix for Telegram MiniApp: Use openLink so native Telegram opens and downloads the file
+        if (window.Telegram?.WebApp?.openLink) {
+            window.Telegram.WebApp.openLink(downloadUrl);
+        } else {
+            window.open(downloadUrl, "_blank");
+        }
     };
 
     const handleSendGrammarToTelegram = async (topicId) => {
         const actionKey = topicId ? `tg-${topicId}` : "tg-all";
         setActionLoading(actionKey);
         try {
-            const res = await fetch(`${API}/api/grammar/send-pdf`, {
+            const res = await fetch(`${BACKEND_URL}/api/grammar/send-pdf`, {
                 method: "POST",
-                headers: authHeaders,
+                headers: {
+                    "Content-Type": "application/json",
+                    ...authHeaders,
+                },
                 body: JSON.stringify({ topicId }),
             });
             const data = await res.json();
@@ -88,7 +96,7 @@ export default function GrammarBook({ API, authHeaders, effectiveUserId, onExit 
                 showToast(data.error || "Failed to send PDF to Telegram");
             }
         } catch {
-            showToast("Network error sending PDF");
+            showToast("Network error connecting to backend server");
         } finally {
             setActionLoading(null);
         }

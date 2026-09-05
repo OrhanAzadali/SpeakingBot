@@ -17,6 +17,7 @@ import {
   X,
 } from "lucide-react";
 
+import GrammarBook from "./components/GrammarBook.jsx";
 export default function App() {
   const [activeTab, setActiveTab] = useState("grammar");
   const [grammarTopics, setGrammarTopics] = useState([]);
@@ -330,169 +331,12 @@ export default function App() {
         {/* TAB 1: GRAMMAR RULES & PDF REFERENCE BOOK                               */}
         {/* ========================================================================= */}
         {activeTab === "grammar" && (
-          <div className="space-y-6">
-            {/* Hero Banner with PDF Downloads */}
-            <div className="bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 rounded-2xl p-5 sm:p-6 text-white shadow-xl relative overflow-hidden">
-              <div className="relative z-10 max-w-2xl">
-                <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-indigo-500/20 text-indigo-300 border border-indigo-400/30 mb-3">
-                  <Sparkles className="w-3.5 h-3.5 text-indigo-400" />
-                  <span>Unrestricted A4 Reference Sheets</span>
-                </div>
-                <h2 className="text-xl sm:text-2xl font-bold tracking-tight">
-                  Personal Grammar Rules & Conjugation Paradigms
-                </h2>
-                <p className="text-slate-300 text-sm mt-1.5 leading-relaxed">
-                  Every grammatical rule, verb paradigm, and syntax breakdown analyzed in your coaching sessions is automatically saved here. Download single rules or the complete book in publication-ready PDF format.
-                </p>
-
-                {/* Primary Action Buttons */}
-                <div className="flex flex-wrap items-center gap-3 mt-4">
-                  <button
-                    onClick={handleDownloadAllGrammarPdf}
-                    className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-indigo-500 hover:bg-indigo-600 text-white font-semibold text-sm shadow-md transition"
-                  >
-                    <Download className="w-4 h-4" />
-                    <span>Download Full Grammar Book (PDF)</span>
-                  </button>
-
-                  <button
-                    onClick={() => handleSendGrammarToTelegram()}
-                    disabled={actionLoading === "tg-all"}
-                    className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-white/10 hover:bg-white/20 text-white border border-white/20 font-semibold text-sm transition disabled:opacity-50"
-                  >
-                    <Send className="w-4 h-4 text-sky-400" />
-                    <span>{actionLoading === "tg-all" ? "Sending..." : "Send Book to Telegram Chat"}</span>
-                  </button>
-                </div>
-              </div>
-            </div>
-
-            {/* Controls: Search & Category Filters */}
-            <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 bg-white p-3 rounded-xl border border-slate-200 shadow-sm">
-              <div className="relative flex-1">
-                <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-                <input
-                  type="text"
-                  placeholder="Search rules, verbs, tenses, or topics..."
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  className="w-full pl-9 pr-4 py-2 text-sm bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                />
-              </div>
-
-              {categories.length > 1 && (
-                <div className="flex items-center gap-1 overflow-x-auto pb-1 sm:pb-0">
-                  <ListFilter className="w-4 h-4 text-slate-400 shrink-0 mr-1" />
-                  {categories.map((cat) => (
-                    <button
-                      key={cat}
-                      onClick={() => setSelectedCategory(cat)}
-                      className={`px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition ${selectedCategory === cat
-                        ? "bg-indigo-600 text-white"
-                        : "bg-slate-100 text-slate-600 hover:bg-slate-200"
-                        }`}
-                    >
-                      {cat}
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-
-            {/* Topics Grid */}
-            {filteredTopics.length === 0 ? (
-              <div className="bg-white rounded-2xl border border-slate-200 p-12 text-center max-w-lg mx-auto">
-                <div className="w-16 h-16 rounded-full bg-indigo-50 text-indigo-600 flex items-center justify-center mx-auto mb-4">
-                  <BookMarked className="w-8 h-8" />
-                </div>
-                <h3 className="font-bold text-lg text-slate-900">No Grammar Rules Saved Yet</h3>
-                <p className="text-sm text-slate-500 mt-2 leading-relaxed">
-                  Chat with the bot about any grammar topic (e.g. <i>"explain verb conjugation"</i>, <i>"how do cases work?"</i>), or click below to generate your starter grammar sheet!
-                </p>
-                <div className="mt-6 flex flex-col sm:flex-row justify-center gap-3">
-                  <button
-                    onClick={() => handleSendGrammarToTelegram()}
-                    className="inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-indigo-600 text-white text-sm font-semibold hover:bg-indigo-700 transition shadow-sm"
-                  >
-                    <Sparkles className="w-4 h-4" />
-                    <span>Generate Starter Grammar Book</span>
-                  </button>
-                </div>
-              </div>
-            ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {filteredTopics.map((topic) => {
-                  const examples = parseExamples(topic.examples);
-                  return (
-                    <div
-                      key={topic.id}
-                      className="bg-white rounded-xl border border-slate-200 hover:border-indigo-300 p-5 shadow-sm hover:shadow-md transition flex flex-col justify-between"
-                    >
-                      <div>
-                        <div className="flex items-center justify-between mb-2">
-                          <span className="text-xs font-semibold tracking-wide uppercase px-2.5 py-0.5 rounded-md bg-indigo-50 text-indigo-700">
-                            {topic.category || "General Grammar"}
-                          </span>
-                          <span className="text-xs text-slate-400">
-                            {new Date(topic.updated_at || topic.created_at).toLocaleDateString()}
-                          </span>
-                        </div>
-
-                        <h3 className="font-bold text-base text-slate-900 leading-snug group-hover:text-indigo-600 transition">
-                          {topic.title}
-                        </h3>
-
-                        {topic.rule_summary && (
-                          <div className="mt-3 p-3 rounded-lg bg-slate-50 border border-slate-100 text-xs text-slate-600 leading-relaxed">
-                            <span className="font-semibold text-slate-800">📌 Takeaway: </span>
-                            {topic.rule_summary}
-                          </div>
-                        )}
-
-                        {examples.length > 0 && (
-                          <div className="mt-3 text-xs text-slate-500 flex items-center gap-1.5">
-                            <span className="font-medium text-slate-700">• {examples.length} model sentences with translations</span>
-                          </div>
-                        )}
-                      </div>
-
-                      {/* Action Buttons for this Rule */}
-                      <div className="mt-5 pt-3 border-t border-slate-100 flex items-center justify-between gap-2">
-                        <button
-                          onClick={() => setSelectedTopic(topic)}
-                          className="text-xs font-semibold text-indigo-600 hover:text-indigo-800 flex items-center gap-1"
-                        >
-                          <span>View Full Rule</span>
-                          <ChevronRight className="w-3.5 h-3.5" />
-                        </button>
-
-                        <div className="flex items-center gap-1.5">
-                          <button
-                            onClick={() => handleDownloadTopicPdf(topic.id, topic.title)}
-                            className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-slate-100 hover:bg-slate-200 text-slate-700 transition"
-                            title="Download PDF directly to device"
-                          >
-                            <Download className="w-3.5 h-3.5 text-slate-600" />
-                            <span>PDF</span>
-                          </button>
-
-                          <button
-                            onClick={() => handleSendGrammarToTelegram(topic.id)}
-                            disabled={actionLoading === `tg-${topic.id}`}
-                            className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-indigo-50 hover:bg-indigo-100 text-indigo-700 transition disabled:opacity-50"
-                            title="Send this rule to Telegram chat"
-                          >
-                            <Send className="w-3.5 h-3.5 text-indigo-600" />
-                            <span>{actionLoading === `tg-${topic.id}` ? "..." : "Send to TG"}</span>
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </div>
+          <GrammarBook
+            API={BACKEND_URL}
+            authHeaders={getHeaders()}
+            effectiveUserId={queryUserId}
+            onExit={() => setActiveTab("flashcards")}
+          />
         )}
 
         {/* ========================================================================= */}

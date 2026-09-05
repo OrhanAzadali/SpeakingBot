@@ -206,6 +206,27 @@ function findSystemBoldFont() {
 }
 
 // ── PDF 1: Individual Grammar Rule / Topic PDF Generator ──────────────────────
+// ── Clean Text Utilities for PDF Generation ──────────────────────────────────
+function cleanPdfText(text) {
+  if (!text) return "";
+  return text
+    // Remove raw HTML tags
+    .replace(/<[^>]+>/g, "")
+    // Remove markdown bold/italic asterisks & underscores
+    .replace(/\*\*(.*?)\*\*/g, "$1")
+    .replace(/\*(.*?)\*/g, "$1")
+    .replace(/__(.*?)__/g, "$1")
+    .replace(/_(.*?)_/g, "$1")
+    // Replace markdown headings
+    .replace(/^#{1,6}\s*/gm, "")
+    // Replace double dashes with em-dash
+    .replace(/--+/g, "—")
+    // Remove emojis and non-standard symbols that render as broken box glyphs [?] in PDFKit
+    .replace(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{2190}-\u{21FF}\u{2B00}-\u{2BFF}\u{FE00}-\u{FE0F}]/gu, "")
+    .trim();
+}
+
+// ── PDF 1: Individual Grammar Rule / Topic PDF Generator ──────────────────────
 async function generateGrammarTopicPdf(userId, language, topic, outputPath) {
   return new Promise((resolve, reject) => {
     const doc = new PDFDocument({ size: "A4", margin: 40 });
@@ -215,116 +236,43 @@ async function generateGrammarTopicPdf(userId, language, topic, outputPath) {
     const regularFont = findSystemUnicodeFont();
     const boldFont = findSystemBoldFont();
 
-    if (regularFont) {
-      doc.registerFont("RegularFont", regularFont);
-      if (boldFont) doc.registerFont("BoldFont", boldFont);
-      doc.font("RegularFont");
-    } else {
-      doc.font("Helvetica");
-    }
-
     const setFont = (type = "regular") => {
       if (regularFont) doc.font(type === "bold" && boldFont ? "BoldFont" : "RegularFont");
       else doc.font(type === "bold" ? "Helvetica-Bold" : "Helvetica");
     };
 
-    // Header Badge & Title
-    setFont("bold");
-    doc.fontSize(22).fillColor("#1e1b4b").text(topic.title, { align: "left" });
-    doc.moveDown(0.3);
+    if (regularFont) {
+      doc.registerFont("RegularFont", regularFont);
+      if (boldFont) doc.registerFont("BoldFont", boldFont);
+      doc.font("RegularFont");
+    }
 
-    const langName = language ? (LANGUAGES[language] || language) : "Target Language";
+    // Top Header Banner
+    const startY = doc.y;
+    doc.roundedRect(40, startY, 515, 65, 8).fill("#1e1b4b");
+    setFont("bold");
+    doc.fontSize(18).fillColor("#ffffff").text(cleanPdfText(topic.title), 55, startY + 14, { width: 485 });
     setFont("regular");
-    doc.fontSize(10.5).fillColor("#64748b").text(
-      `Language: ${langName} | Category: ${topic.category || "Grammar"} | Generated: ${new Date().toLocaleDateString()}`,
-      { align: "left" }
+    const langName = language ? (LANGUAGES[language] || language) : "Target Language";
+    doc.fontSize(9.5).fillColor("#a5b4fc").text(
+      `Language: ${langName}  |  Category: ${cleanPdfText(topic.category || "Grammar")}  |  Date: ${new Date().toLocaleDateString()}`,
+      55, startY + 42
     );
-    doc.moveDown(1);
+    doc.y = startY + 78;
 
     // Summary Box
     if (topic.rule_summary) {
-      const startY = doc.y;
-      doc.rect(40, startY, 515, 45).fillAndStroke("#f1f5f9", "#cbd5e1");
+      const sumY = doc.y;
+      doc.roundedRect(40, sumY, 515, 42, 6).fillAndStroke("#f1f5f9", "#cbd5e1");
       setFont("bold");
-      doc.fillColor("#0f172a").fontSize(11).text("📌 Core Rule Takeaway:", 50, startY + 8);
+      doc.fillColor("#0f172a").fontSize(10).text("CORE RULE TAKEAWAY", 52, sumY + 8);
       setFont("regular");
-      doc.fillColor("#334155").fontSize(10).text(topic.rule_summary, 50, startY + 24, { width: 495 });
-      doc.y = startY + 55;
-      doc.moveDown(0.5);
+      doc.fillColor("#334155").fontSize(9.5).text(cleanPdfText(topic.rule_summary), 52, sumY + 22, { width: 490 });
+      doc.y = sumY + 52;
     }
 
-    // Full Explanation Parsing (handling markdown headers, tables, bullet points)
-    const lines = topic.explanation.split("\n");
-    let inTable = false;
-
-    for (const rawLine of lines) {
-      const line = rawLine.trim();
-      if (!line) {
-        if (!inTable) doc.moveDown(0.3);
-        continue;
-      }
-
-      if (doc.y > 720) doc.addPage();
-
-      // Markdown Table Rows (e.g. | Person | Form | Meaning |)
-      if (line.startsWith("|") && line.endsWith("|")) {
-        inTable = true;
-        const cells = line.split("|").slice(1, -1).map((c) => c.trim());
-        const isDivider = cells.every((c) => /^[:-]+$/.test(c));
-        if (isDivider) {
-          doc.moveDown(0.1);
-          continue;
-        }
-
-        const colWidth = 515 / (cells.length || 1);
-        const currentY = doc.y;
-        const isHeaderRow = cells.some((c) => c.toLowerCase().includes("лицо") || c.toLowerCase().includes("person") || c.toLowerCase().includes("русский"));
-
-        if (isHeaderRow) {
-          doc.rect(40, currentY, 515, 20).fillAndStroke("#e2e8f0", "#94a3b8");
-          setFont("bold");
-          doc.fillColor("#0f172a").fontSize(9.5);
-        } else {
-          doc.rect(40, currentY, 515, 20).fillAndStroke("#ffffff", "#e2e8f0");
-          setFont("regular");
-          doc.fillColor("#1e293b").fontSize(9);
-        }
-
-        cells.forEach((cell, idx) => {
-          doc.text(cell, 45 + idx * colWidth, currentY + 5, { width: colWidth - 8, align: "left" });
-        });
-        doc.y = currentY + 22;
-        continue;
-      } else {
-        inTable = false;
-      }
-
-      // Headers
-      if (line.startsWith("###")) {
-        doc.moveDown(0.6);
-        setFont("bold");
-        doc.fontSize(13).fillColor("#4338ca").text(line.replace(/^###\s*/, ""));
-        doc.moveDown(0.2);
-      } else if (line.startsWith("##")) {
-        doc.moveDown(0.8);
-        setFont("bold");
-        doc.fontSize(15).fillColor("#1e293b").text(line.replace(/^##\s*/, ""));
-        doc.moveDown(0.3);
-      } else if (line.startsWith("#")) {
-        doc.moveDown(1);
-        setFont("bold");
-        doc.fontSize(17).fillColor("#0f172a").text(line.replace(/^#\s*/, ""));
-        doc.moveDown(0.4);
-      } else if (line.startsWith("-") || line.startsWith("•") || line.startsWith("* ")) {
-        setFont("regular");
-        const cleanBullet = line.replace(/^[-•*]\s*/, "").replace(/\*\*(.*?)\*\*/g, "$1");
-        doc.fontSize(10).fillColor("#334155").text(`  •  ${cleanBullet}`, { lineGap: 3 });
-      } else {
-        setFont("regular");
-        const cleanText = line.replace(/\*\*(.*?)\*\*/g, "$1");
-        doc.fontSize(10.5).fillColor("#1e293b").text(cleanText, { lineGap: 3.5 });
-      }
-    }
+    // Process Content
+    renderMarkdownContentToPdf(doc, topic.explanation, setFont);
 
     // Examples Section
     let examplesList = [];
@@ -333,31 +281,29 @@ async function generateGrammarTopicPdf(userId, language, topic, outputPath) {
     } catch (_) { }
 
     if (Array.isArray(examplesList) && examplesList.length > 0) {
-      if (doc.y > 660) doc.addPage();
-      doc.moveDown(0.8);
+      if (doc.y > 640) doc.addPage();
+      doc.moveDown(0.6);
       setFont("bold");
-      doc.fontSize(13).fillColor("#047857").text("💬 Real-World Model Examples:");
+      doc.fontSize(12).fillColor("#047857").text("Model Sentences & Context Examples:");
       doc.moveDown(0.3);
 
       examplesList.forEach((ex, idx) => {
+        if (doc.y > 720) doc.addPage();
+        const cardY = doc.y;
+        doc.roundedRect(40, cardY, 515, 32, 4).fill("#f8fafc");
         setFont("bold");
-        doc.fontSize(10.5).fillColor("#15803d").text(`${idx + 1}. ${ex.target || ""}`, { continued: Boolean(ex.translation) });
+        doc.fontSize(9.5).fillColor("#15803d").text(`${idx + 1}. ${cleanPdfText(ex.target || "")}`, 50, cardY + 6, { continued: Boolean(ex.translation) });
         if (ex.translation) {
           setFont("regular");
-          doc.fillColor("#334155").text(` — ${ex.translation}`);
+          doc.fillColor("#1e293b").text(`  —  ${cleanPdfText(ex.translation)}`);
         }
         if (ex.note) {
           setFont("regular");
-          doc.fontSize(9.5).fillColor("#64748b").text(`    (${ex.note})`);
+          doc.fontSize(8.5).fillColor("#64748b").text(`    Note: ${cleanPdfText(ex.note)}`, 50, cardY + 18);
         }
-        doc.moveDown(0.2);
+        doc.y = cardY + 36;
       });
     }
-
-    doc.moveDown(2);
-    if (doc.y > 720) doc.addPage();
-    setFont("regular");
-    doc.fontSize(8.5).fillColor("#94a3b8").text("Personal Grammar Guide • Retain and master with daily review", { align: "center" });
 
     doc.end();
     writeStream.on("finish", () => resolve(outputPath));
@@ -366,6 +312,7 @@ async function generateGrammarTopicPdf(userId, language, topic, outputPath) {
 }
 
 // ── PDF 2: Consolidated Multi-Topic Grammar Reference Book ────────────────────
+
 async function generateFullGrammarNotebookPdf(userId, language, outputPath) {
   const topics = await getAllUserGrammar(userId, language);
   if (!topics || topics.length === 0) return null;
@@ -387,84 +334,53 @@ async function generateFullGrammarNotebookPdf(userId, language, outputPath) {
       doc.registerFont("RegularFont", regularFont);
       if (boldFont) doc.registerFont("BoldFont", boldFont);
       doc.font("RegularFont");
-    } else {
-      doc.font("Helvetica");
     }
 
-    const langName = language ? (LANGUAGES[language] || language) : "All Languages";
+    const langName = language ? (LANGUAGES[language] || language) : "Target Language";
 
-    // Cover / Title Page
+    // Title / Cover Page
+    doc.roundedRect(40, 60, 515, 140, 10).fill("#1e1b4b");
     setFont("bold");
-    doc.fontSize(26).fillColor("#1e1b4b").text("Comprehensive Grammar Notebook", { align: "center" });
-    doc.moveDown(0.5);
+    doc.fontSize(24).fillColor("#ffffff").text("Comprehensive Grammar Notebook", 60, 95, { align: "center", width: 475 });
     setFont("regular");
-    doc.fontSize(14).fillColor("#4338ca").text(`Target Language: ${langName}`, { align: "center" });
-    doc.moveDown(0.3);
-    doc.fontSize(10.5).fillColor("#64748b").text(
-      `Compiled for User #${userId} • ${topics.length} Total Grammar Topics • Date: ${new Date().toLocaleDateString()}`,
-      { align: "center" }
+    doc.fontSize(13).fillColor("#a5b4fc").text(`Language Track: ${langName}`, 60, 135, { align: "center", width: 475 });
+    doc.fontSize(9.5).fillColor("#cbd5e1").text(
+      `Compiled for User #${userId}  •  ${topics.length} Total Topics  •  ${new Date().toLocaleDateString()}`,
+      60, 160, { align: "center", width: 475 }
     );
-    doc.moveDown(2);
 
-    // Table of Contents
+    doc.y = 230;
     setFont("bold");
-    doc.fontSize(16).fillColor("#0f172a").text("Table of Contents", { underline: true });
-    doc.moveDown(0.6);
+    doc.fontSize(14).fillColor("#0f172a").text("Table of Contents");
+    doc.moveDown(0.4);
 
     topics.forEach((t, i) => {
       setFont("regular");
-      doc.fontSize(11).fillColor("#334155").text(`${i + 1}. ${t.title} [${t.category || "Grammar"}]`);
+      doc.fontSize(10).fillColor("#334155").text(`${i + 1}. ${cleanPdfText(t.title)} [${cleanPdfText(t.category || "Grammar")}]`);
     });
 
     // Content Pages
     topics.forEach((topic, idx) => {
       doc.addPage();
+      const headY = doc.y;
+      doc.roundedRect(40, headY, 515, 45, 6).fill("#312e81");
       setFont("bold");
-      doc.fontSize(18).fillColor("#1e1b4b").text(`${idx + 1}. ${topic.title}`);
-      doc.moveDown(0.2);
+      doc.fontSize(15).fillColor("#ffffff").text(`${idx + 1}. ${cleanPdfText(topic.title)}`, 52, headY + 10, { width: 490 });
       setFont("regular");
-      doc.fontSize(10).fillColor("#64748b").text(`Category: ${topic.category || "Grammar"} | Saved: ${new Date(topic.created_at).toLocaleDateString()}`);
-      doc.moveDown(0.8);
+      doc.fontSize(9).fillColor("#c7d2fe").text(`Category: ${cleanPdfText(topic.category || "Grammar")}  |  Saved: ${new Date(topic.created_at).toLocaleDateString()}`, 52, headY + 28);
+      doc.y = headY + 54;
 
       if (topic.rule_summary) {
-        const startY = doc.y;
-        doc.rect(40, startY, 515, 38).fillAndStroke("#f8fafc", "#cbd5e1");
+        const sY = doc.y;
+        doc.roundedRect(40, sY, 515, 36, 4).fillAndStroke("#f8fafc", "#cbd5e1");
         setFont("bold");
-        doc.fillColor("#0f172a").fontSize(10).text("Summary:", 48, startY + 6);
+        doc.fillColor("#0f172a").fontSize(9.5).text("Summary:", 50, sY + 6);
         setFont("regular");
-        doc.fillColor("#334155").fontSize(9.5).text(topic.rule_summary, 48, startY + 19, { width: 495 });
-        doc.y = startY + 46;
-        doc.moveDown(0.4);
+        doc.fillColor("#334155").fontSize(9).text(cleanPdfText(topic.rule_summary), 50, sY + 18, { width: 490 });
+        doc.y = sY + 44;
       }
 
-      // Render markdown content
-      const lines = topic.explanation.split("\n");
-      for (const rawLine of lines) {
-        const line = rawLine.trim();
-        if (!line) {
-          doc.moveDown(0.2);
-          continue;
-        }
-        if (doc.y > 720) doc.addPage();
-
-        if (line.startsWith("###")) {
-          doc.moveDown(0.4);
-          setFont("bold");
-          doc.fontSize(12).fillColor("#4338ca").text(line.replace(/^###\s*/, ""));
-          doc.moveDown(0.2);
-        } else if (line.startsWith("##")) {
-          doc.moveDown(0.6);
-          setFont("bold");
-          doc.fontSize(13).fillColor("#1e293b").text(line.replace(/^##\s*/, ""));
-          doc.moveDown(0.2);
-        } else if (line.startsWith("-") || line.startsWith("•")) {
-          setFont("regular");
-          doc.fontSize(9.5).fillColor("#334155").text(`  •  ${line.replace(/^[-•]\s*/, "")}`);
-        } else {
-          setFont("regular");
-          doc.fontSize(10).fillColor("#1e293b").text(line.replace(/\*\*(.*?)\*\*/g, "$1"), { lineGap: 3 });
-        }
-      }
+      renderMarkdownContentToPdf(doc, topic.explanation, setFont);
     });
 
     doc.end();
@@ -473,92 +389,84 @@ async function generateFullGrammarNotebookPdf(userId, language, outputPath) {
   });
 }
 
-// ── PDF 3: Vocabulary Notebook PDF Generator ──────────────────────────────────
-async function generateVocabularyPdf(userId, language, outputPath) {
-  const data = await getAllUserVocabulary(userId, language);
-  if (data.total === 0) return null;
+// ── Shared Table & Markdown Renderer for PDFKit ──────────────────────────────
+function renderMarkdownContentToPdf(doc, markdownText, setFont) {
+  if (!markdownText) return;
+  const lines = markdownText.split("\n");
+  let tableRows = [];
 
-  return new Promise((resolve, reject) => {
-    const doc = new PDFDocument({ size: "A4", margin: 40 });
-    const writeStream = fs.createWriteStream(outputPath);
-    doc.pipe(writeStream);
+  const flushTable = () => {
+    if (tableRows.length === 0) return;
+    const numCols = Math.max(...tableRows.map((r) => r.length));
+    const colWidth = 515 / numCols;
 
-    const unicodeFontPath = findSystemUnicodeFont();
-    const boldFont = findSystemBoldFont();
-    if (unicodeFontPath) {
-      doc.registerFont("CustomFont", unicodeFontPath);
-      if (boldFont) doc.registerFont("CustomBold", boldFont);
-      doc.font("CustomFont");
+    tableRows.forEach((row, rowIdx) => {
+      if (doc.y > 730) doc.addPage();
+      const currentY = doc.y;
+      const isHeader = rowIdx === 0;
+
+      if (isHeader) {
+        doc.rect(40, currentY, 515, 20).fill("#4338ca");
+        setFont("bold");
+        doc.fillColor("#ffffff").fontSize(9);
+      } else {
+        doc.rect(40, currentY, 515, 19).fill(rowIdx % 2 === 0 ? "#f8fafc" : "#ffffff");
+        doc.rect(40, currentY, 515, 19).stroke("#e2e8f0");
+        setFont("regular");
+        doc.fillColor("#1e293b").fontSize(8.5);
+      }
+
+      row.forEach((cellText, cIdx) => {
+        doc.text(cleanPdfText(cellText), 45 + cIdx * colWidth, currentY + 5, { width: colWidth - 8, align: "left" });
+      });
+      doc.y = currentY + (isHeader ? 21 : 20);
+    });
+
+    tableRows = [];
+    doc.moveDown(0.4);
+  };
+
+  for (const rawLine of lines) {
+    const line = rawLine.trim();
+    if (!line) continue;
+
+    // Detect markdown table rows
+    if (line.startsWith("|") && line.endsWith("|")) {
+      const cells = line.split("|").slice(1, -1).map((c) => c.trim());
+      const isDivider = cells.every((c) => /^[:-]+$/.test(c));
+      if (!isDivider) tableRows.push(cells);
+      continue;
     } else {
-      doc.font("Helvetica");
+      flushTable();
     }
 
-    doc.fontSize(22).fillColor("#0f172a").text("Personal Vocabulary Notebook", { align: "center" });
-    doc.moveDown(0.3);
+    if (doc.y > 720) doc.addPage();
 
-    const langName = language ? (LANGUAGES[language] || language) : "All";
-    doc.fontSize(11).fillColor("#64748b").text(
-      `Target Language: ${langName} | Total Mastered & Active Words: ${data.total} | Date: ${new Date().toLocaleDateString()}`,
-      { align: "center" }
-    );
-    doc.moveDown(1.5);
-
-    const renderWordItem = (item, index) => {
-      if (doc.y > 670) doc.addPage();
-
-      const wordTitle = `${index + 1}. ${item.display_word || item.initial_form || item.word}`;
-      const posTag = item.part_of_speech ? ` [${item.part_of_speech}]` : "";
-
-      doc.fontSize(13).fillColor("#1e293b").text(`${wordTitle}${posTag}`, { continued: true });
-      doc.fontSize(12).fillColor("#15803d").text(` — ${item.correction}`);
-
-      if (item.transcription) {
-        doc.fontSize(10).fillColor("#6366f1").text(`   • Phonetics & Transcription: ${item.transcription}`);
-      }
-      if (item.pronunciation_rule) {
-        doc.fontSize(10).fillColor("#475569").text(`   • Pronunciation Rule: ${item.pronunciation_rule}`);
-      }
-      if (item.grammar_rule) {
-        doc.fontSize(10).fillColor("#475569").text(`   • Grammar & Morphology: ${item.grammar_rule}`);
-      }
-      if (item.orthography_rule) {
-        doc.fontSize(10).fillColor("#475569").text(`   • Orthography & Spelling: ${item.orthography_rule}`);
-      }
-      if (item.syntax_rule) {
-        doc.fontSize(10).fillColor("#475569").text(`   • Syntax & Case Government: ${item.syntax_rule}`);
-      }
-      if (item.semantics_note) {
-        doc.fontSize(10).fillColor("#475569").text(`   • Semantics & Collocations: ${item.semantics_note}`);
-      }
-      if (item.synonyms) {
-        doc.fontSize(10).fillColor("#475569").text(`   • Synonyms: ${item.synonyms}`);
-      }
-      if (item.sentence) {
-        const cleanSentence = item.sentence.replace(/<\/?u>/g, "");
-        doc.fontSize(10).fillColor("#334155").text(`   • Context Example: "${cleanSentence}"`);
-      }
-
-      doc.moveDown(0.7);
-    };
-
-    if (data.active.length > 0) {
-      doc.fontSize(16).fillColor("#4338ca").text(`Active Flashcards (${data.active.length})`);
+    // Section Headings
+    if (line.startsWith("###")) {
+      doc.moveDown(0.4);
+      setFont("bold");
+      doc.fontSize(11).fillColor("#4338ca").text(cleanPdfText(line));
+      doc.moveDown(0.2);
+    } else if (line.startsWith("##")) {
       doc.moveDown(0.5);
-      data.active.forEach((w, i) => renderWordItem(w, i));
-      doc.moveDown(1);
+      setFont("bold");
+      doc.fontSize(13).fillColor("#1e293b").text(cleanPdfText(line));
+      doc.moveDown(0.2);
+    } else if (line.startsWith("#")) {
+      doc.moveDown(0.6);
+      setFont("bold");
+      doc.fontSize(15).fillColor("#0f172a").text(cleanPdfText(line));
+      doc.moveDown(0.3);
+    } else if (line.startsWith("-") || line.startsWith("•") || line.startsWith("* ")) {
+      setFont("regular");
+      doc.fontSize(9.5).fillColor("#334155").text(`  •  ${cleanPdfText(line.replace(/^[-•*]\s*/, ""))}`, { lineGap: 2.5 });
+    } else {
+      setFont("regular");
+      doc.fontSize(9.5).fillColor("#1e293b").text(cleanPdfText(line), { lineGap: 3 });
     }
-
-    if (data.mastered.length > 0) {
-      if (doc.y > 650) doc.addPage();
-      doc.fontSize(16).fillColor("#047857").text(`Mastered Words (${data.mastered.length})`);
-      doc.moveDown(0.5);
-      data.mastered.forEach((w, i) => renderWordItem(w, i));
-    }
-
-    doc.end();
-    writeStream.on("finish", () => resolve(outputPath));
-    writeStream.on("error", reject);
-  });
+  }
+  flushTable();
 }
 
 // ── PDF 4: Learning Roadmap Generator ─────────────────────────────────────────
@@ -570,50 +478,52 @@ async function generateRoadmapPdf(userId, language, roadmapText, outputPath) {
     const writeStream = fs.createWriteStream(outputPath);
     doc.pipe(writeStream);
 
-    const unicodeFontPath = findSystemUnicodeFont();
-    if (unicodeFontPath) {
-      doc.registerFont("CustomFont", unicodeFontPath);
-      doc.font("CustomFont");
-    } else {
-      doc.font("Helvetica");
+    const regularFont = findSystemUnicodeFont();
+    const boldFont = findSystemBoldFont();
+
+    const setFont = (type = "regular") => {
+      if (regularFont) doc.font(type === "bold" && boldFont ? "BoldFont" : "RegularFont");
+      else doc.font(type === "bold" ? "Helvetica-Bold" : "Helvetica");
+    };
+
+    if (regularFont) {
+      doc.registerFont("RegularFont", regularFont);
+      if (boldFont) doc.registerFont("BoldFont", boldFont);
+      doc.font("RegularFont");
     }
 
-    doc.fontSize(22).fillColor("#1e1b4b").text("Personal Learning Roadmap & Study Plan", { align: "center" });
-    doc.moveDown(0.3);
-
+    const startY = doc.y;
+    doc.roundedRect(40, startY, 515, 60, 8).fill("#0f172a");
+    setFont("bold");
+    doc.fontSize(18).fillColor("#ffffff").text("Personal Learning Roadmap & Study Plan", 55, startY + 12);
+    setFont("regular");
     const langName = language ? (LANGUAGES[language] || language) : "Target Language";
-    doc.fontSize(11).fillColor("#64748b").text(
-      `Curriculum Track: ${langName} | Generated: ${new Date().toLocaleDateString()}`,
-      { align: "center" }
-    );
-    doc.moveDown(1.5);
+    doc.fontSize(9.5).fillColor("#94a3b8").text(`Curriculum: ${langName}  |  Generated: ${new Date().toLocaleDateString()}`, 55, startY + 38);
+    doc.y = startY + 75;
 
     const lines = roadmapText.split("\n");
     for (const rawLine of lines) {
       const line = rawLine.trim();
-      if (!line) {
-        doc.moveDown(0.4);
-        continue;
-      }
+      if (!line) continue;
+
       if (doc.y > 720) doc.addPage();
 
-      if (line.startsWith("#") || line.startsWith("📈") || line.startsWith("🎯") || line.startsWith("🔍") || line.startsWith("🔄") || line.startsWith("🚀") || line.startsWith("🗓") || /^[1-6]\./.test(line)) {
-        doc.moveDown(0.5);
-        const cleanHeading = line.replace(/^[#\s*📈🎯🔍🔄🚀🗓]+/g, "").replace(/\*\*(.*?)\*\*/g, "$1").trim();
-        doc.fontSize(14).fillColor("#4338ca").text(cleanHeading);
-        doc.moveDown(0.3);
+      // Detect numbered roadmap sections or section headers
+      if (/^[1-6]\./.test(line) || line.startsWith("#") || line.toUpperCase() === line && line.length > 5) {
+        doc.moveDown(0.6);
+        const cardY = doc.y;
+        doc.roundedRect(40, cardY, 515, 24, 4).fill("#f1f5f9");
+        setFont("bold");
+        doc.fontSize(11).fillColor("#312e81").text(cleanPdfText(line), 50, cardY + 6);
+        doc.y = cardY + 28;
       } else if (line.startsWith("-") || line.startsWith("•") || line.startsWith("*")) {
-        const cleanBullet = line.replace(/^[-•*]\s*/, "").replace(/\*\*(.*?)\*\*/g, "$1").trim();
-        doc.fontSize(10.5).fillColor("#334155").text(`  •  ${cleanBullet}`, { lineGap: 3 });
+        setFont("regular");
+        doc.fontSize(9.5).fillColor("#334155").text(`  •  ${cleanPdfText(line.replace(/^[-•*]\s*/, ""))}`, { lineGap: 2.5 });
       } else {
-        const cleanText = line.replace(/\*\*(.*?)\*\*/g, "$1").trim();
-        doc.fontSize(11).fillColor("#1e293b").text(cleanText, { lineGap: 3 });
+        setFont("regular");
+        doc.fontSize(9.5).fillColor("#1e293b").text(cleanPdfText(line), { lineGap: 3 });
       }
     }
-
-    doc.moveDown(2);
-    if (doc.y > 700) doc.addPage();
-    doc.fontSize(9).fillColor("#94a3b8").text("Language Immersion Coach • Consistent daily practice yields fluency", { align: "center" });
 
     doc.end();
     writeStream.on("finish", () => resolve(outputPath));
