@@ -217,7 +217,7 @@ Return your response strictly as a single JSON object with all the messages prop
   ]
 };
 
-Always recheck your response content and adjust the text to respect the grammar rules of the specific language you're using while responding`;
+Always recheck your response content and adjust the text to respect the grammar rules of the specific language you're using while responding!`;
 }
 
 // ── Call 3: 4-Skill Drill Generator (Level-Aware Instructions & Skill Purity) ─
