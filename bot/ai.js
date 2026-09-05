@@ -74,9 +74,9 @@ function extractJsonObject(raw) {
 // ── Strict Lemma & Linguistic Accuracy Rules ──────────────────────────────────
 function linguisticAccuracyBlock(language) {
   return `LINGUISTIC ACCURACY & STRICT BASE LEMMA MANDATE:
-- Target language: ${language}.
-- ALWAYS use standard orthography of ${language}, including every diacritic and accent mark.
-- STRICT BASE LEMMA / INFINITIVE RULE FOR DATABASE STORAGE:
+    - Target language: ${language}.
+    - ALWAYS use standard orthography of ${language}, including every diacritic and accent mark.
+    - STRICT BASE LEMMA / INFINITIVE RULE FOR DATABASE STORAGE:
   When extracting vocabulary for flashcards, "initial_form" MUST ALWAYS be the uninflected dictionary headword:
   * Nouns: MUST be singular nominative in native script (e.g. Russian: "вопрос", "дружба"; German: "Buch"; Arabic: كتاب; Japanese: 本).
   * Verbs: MUST be bare infinitive (e.g. Russian: "исправить", "читать"; German: "lesen"; Spanish: "tener").
@@ -84,7 +84,7 @@ function linguisticAccuracyBlock(language) {
   * Pronouns: MUST be dictionary headword.
   * NEVER save Latin transliterations (reject "BIL", "SHO", "TEM", "TOGO") — convert to native script or discard!
   * NEVER save single-letter particles, prepositions ("о", "а", "не", "в") or proper names as flashcards!
-- IN-CONTEXT MORPHOLOGICAL ADJUSTMENT RULE (FOR QUIZZES & DRILLS):
+ - IN-CONTEXT MORPHOLOGICAL ADJUSTMENT RULE (FOR QUIZZES & DRILLS):
   When using stored vocabulary words inside questions, example sentences, cloze tests, or drills:
   * DO NOT drop an uninflected lemma into a sentence where syntax requires a declined or conjugated form!
   * You MUST grammatically adjust, decline, and conjugate the word to match the sentence's syntax, tense, gender, and case!`;
@@ -192,40 +192,45 @@ Return your response strictly as a single JSON object:
 }
 
 // ── Call 3: 4-Skill Drill Generator ───────────────────────────────────────────
-export async function generateSkillDrill(skill, targetLanguage, mediatorLanguage, level, drillType = "short") {
+
+// ── Call 3: 4-Skill Drill Generator (Anti-Placeholder, Fully Multilingual) ─────
+export async function generateSkillDrill(skill, targetLanguage, mediatorLanguage = "english", level = "Intermediate", drillType = "short") {
   const count = drillType === "huge" ? 10 : 5;
-  const isAdvanced = level.toLowerCase().includes("advanced");
-  const isIntermediate = level.toLowerCase().includes("intermediate");
+  const isAdvanced = String(level).toLowerCase().includes("advanced");
+  const isIntermediate = String(level).toLowerCase().includes("intermediate");
+
+  // Instruction language: Target language for Advanced/Intermediate; Mediator language for Beginners
   const promptLang = (isAdvanced || isIntermediate) ? targetLanguage : mediatorLanguage;
 
-  const prompt = `You are an elite CEFR curriculum designer creating a ${drillType.toUpperCase()} ${skill.toUpperCase()} drill.
+  const prompt = `You are a certified CEFR curriculum designer creating an authentic ${drillType.toUpperCase()} ${skill.toUpperCase()} drill.
 Target language being tested: ${targetLanguage}.
 Student level: ${level}.
-Instruction/Prompt language: ${promptLang}.
+Instruction & Question prompt language: ${promptLang}.
 
-CRITICAL ANTI-CIRCULARITY & LEVEL-AWARE RULES:
-1. NEVER ask to translate a word from ${targetLanguage} into ${targetLanguage}!
-2. INSTRUCTION LANGUAGE:
-   - For Advanced and Intermediate students, ALL question prompts MUST be written in ${targetLanguage}!
-   - For Beginner students, question prompts are written in ${mediatorLanguage}.
-3. ABSOLUTELY NO THIRD LANGUAGES (No English if neither target nor mediator is English).
-4. GRAMMATICAL ADJUSTMENT: Words inside cloze sentence gaps must be declined/conjugated to fit sentence syntax.
+CRITICAL ANTI-PLACEHOLDER & QUALITY MANDATE:
+- NEVER use placeholder strings like "Option 1", "Option 2", "Verb 1", "1", "2", "Word", or "Sentence".
+- Every passage, dialogue, question prompt, and option MUST BE authentic, natural, grammatically correct language!
+- ABSOLUTELY NO THIRD LANGUAGES (If target is Russian and mediator is English, use only Russian and English).
+- Cloze gaps (____) must test words grammatically inflected to match sentence syntax.
 
-SKILL PURITY MANDATE:
+SKILL PURITY SPECIFICATIONS:
 - If skill is "listening":
-  * EVERY QUESTION MUST test LISTENING COMPREHENSION of an audio passage.
-  * "audio_script": Spoken narrative/dialogue 100% in ${targetLanguage} (30-50 words) to be read via TTS audio.
-  * "prompt": Comprehension question in ${promptLang} asking about a concrete detail from that audio.
+  * "audio_script": Natural spoken narrative or realistic dialogue 100% in ${targetLanguage} (35-60 words) to be read aloud via TTS.
+  * "prompt": Comprehension question in ${promptLang} asking about a concrete factual detail from that spoken passage.
+  * "options": 4 authentic, distinct, plausible answers in ${promptLang}.
+  * "correct_answer": Must match exactly one of the 4 options.
 - If skill is "reading":
-  * "reading_passage": 100% in ${targetLanguage} (50-80 words).
-  * "prompt": Comprehension question in ${promptLang}.
+  * "reading_passage": A coherent 50-80 word paragraph 100% in ${targetLanguage}.
+  * "prompt": Specific analytical or factual comprehension question in ${promptLang}.
+  * "options": 4 authentic answer choices in ${promptLang}.
+  * "correct_answer": Must match exactly one of the 4 options.
 - If skill is "speaking":
-  * Scenario in ${promptLang} requiring a voice message response in ${targetLanguage}.
+  * "prompt": A realistic communicative scenario in ${promptLang} prompting the student to speak 2-3 full sentences in ${targetLanguage}.
 - If skill is "writing":
-  * Task instructions in ${promptLang} requiring written composition in ${targetLanguage}.
+  * "prompt": A structured communicative composition task in ${promptLang} prompting the student to write 2-4 sentences in ${targetLanguage}.
 
 Generate EXACTLY ${count} questions.
-Return ONLY JSON:
+Return strictly a single valid JSON object:
 {
   "skill": "${skill}",
   "drill_type": "${drillType}",
@@ -233,9 +238,9 @@ Return ONLY JSON:
     {
       "id": 1,
       "type": "${skill === 'speaking' ? 'voice' : (skill === 'writing' ? 'open' : 'choice')}",
-      ${skill === 'listening' ? `"audio_script": "Spoken text in ${targetLanguage}...",` : ""}
-      ${skill === 'reading' ? `"reading_passage": "Text passage in ${targetLanguage}...",` : ""}
-      "prompt": "Question text in ${promptLang}...",
+      ${skill === 'listening' ? `"audio_script": "Natural spoken text in ${targetLanguage}...",` : ""}
+      ${skill === 'reading' ? `"reading_passage": "Natural paragraph in ${targetLanguage}...",` : ""}
+      "prompt": "Authentic question in ${promptLang}...",
       ${skill === 'listening' || skill === 'reading' ? `"options": ["A) ...", "B) ...", "C) ...", "D) ..."], "correct_answer": "A) ..."` : ""}
     }
   ]
@@ -258,21 +263,87 @@ Return ONLY JSON:
     if (!Array.isArray(questions) || questions.length === 0) throw new Error("Invalid drill questions structure");
     return { skill, drill_type: drillType, questions };
   } catch (err) {
-    console.error(`Skill drill generation failed for ${skill}:`, err.message);
+    console.warn(`generateSkillDrill fallback activated for ${skill} in ${targetLanguage}:`, err.message);
+
+    const langLower = String(targetLanguage || "").toLowerCase();
+    const isRu = langLower.includes("russ");
+    const isDe = langLower.includes("germ");
+    const isEs = langLower.includes("span");
+    const isFr = langLower.includes("fren");
+
+    // Dynamic, authentic language fallback (zero placeholders)
+    if (skill === "listening") {
+      const audioText = isRu
+        ? "Здравствуйте! Наш скорый поезд отправляется с третьего пути ровно в четырнадцать часов тридцать минут. Пожалуйста, не забывайте ваши билеты и документы."
+        : (isDe
+          ? "Guten Tag! Unser ICE nach Berlin fährt um vierzehn Uhr dreißig von Gleis drei ab. Bitte halten Sie Ihre Fahrkarten bereit."
+          : (isEs
+            ? "¡Hola! El tren con destino a Madrid saldrá del andén tres a las dos y media de la tarde. Por favor, tengan sus billetes preparados."
+            : "Hello! The express train to Central Station departs from platform three at two thirty in the afternoon. Please have your tickets ready."));
+
+      const promptText = (isAdvanced || isIntermediate)
+        ? (isRu ? "В какое время отправляется поезд?" : (isDe ? "Um wie viel Uhr fährt der Zug ab?" : (isEs ? "¿A qué hora sale el tren?" : "What time does the train depart?")))
+        : (isRu ? "В какое время отправляется поезд согласно объявлению?" : "What time does the train depart according to the announcement?");
+
+      const options = ["A) 13:30", "B) 14:30", "C) 15:00", "D) 16:30"];
+      return {
+        skill,
+        drill_type: drillType,
+        questions: [{ id: 1, type: "choice", audio_script: audioText, prompt: promptText, options, correct_answer: "B) 14:30" }]
+      };
+    }
+
+    if (skill === "reading") {
+      const passage = isRu
+        ? "Санкт-Петербург был основан Петром Первым в 1703 году. Город известен своими прекрасными каналами, мостами и богатыми музеями, среди которых Эрмитаж является самым известным."
+        : (isDe
+          ? "Deutschland liegt in der Mitte Europas und besteht aus sechzehn Bundesländern. Berlin ist die Hauptstadt und zugleich die bevölkerungsreichste Stadt des Landes."
+          : (isEs
+            ? "España es un país situado en el suroeste de Europa. Es conocido mundialmente por su rica historia, su gastronomía variada y sus festivales tradicionales."
+            : "The library is located in the center of the city. It contains thousands of historical manuscripts and modern educational books."));
+
+      const promptText = (isAdvanced || isIntermediate)
+        ? (isRu ? "В каком году был основан Санкт-Петербург?" : (isDe ? "Aus wie vielen Bundesländern besteht Deutschland?" : (isEs ? "¿En qué parte de Europa está situada España?" : "Where is the library located?")))
+        : (isRu ? "В каком году был основан город согласно прочитанному тексту?" : "What fact is stated in the reading passage?");
+
+      const options = isRu
+        ? ["A) В 1689 году", "B) В 1703 году", "C) В 1725 году", "D) В 1812 году"]
+        : (isDe
+          ? ["A) Aus 12 Ländern", "B) Aus 14 Ländern", "C) Aus 16 Ländern", "D) Aus 18 Ländern"]
+          : (isEs
+            ? ["A) En el norte", "B) En el suroeste", "C) En el este", "D) En el centro"]
+            : ["A) In the suburbs", "B) In the center of the city", "C) Near the airport", "D) Outside town"]));
+
+      const correct = isRu ? "B) В 1703 году" : (isDe ? "C) Aus 16 Ländern" : (isEs ? "B) En el suroeste" : "B) In the center of the city"));
+
+      return {
+        skill,
+        drill_type: drillType,
+        questions: [{ id: 1, type: "choice", reading_passage: passage, prompt: promptText, options, correct_answer: correct }]
+      };
+    }
+
+    if (skill === "speaking") {
+      const promptText = (isAdvanced || isIntermediate)
+        ? (isRu ? "Расскажите в 2-3 предложениях о вашем любимом времени года и почему оно вам нравится." : (isDe ? "Erzählen Sie in 2-3 Sätzen über Ihre Lieblingsjahreszeit und warum Sie sie mögen." : "Describe your favorite season in 2-3 sentences and explain why you like it."))
+        : (isRu ? "Опишите ваше любимое время года (2-3 предложения на изучаемом языке)." : `Describe your favorite season in 2-3 sentences in ${targetLanguage}.`);
+
+      return {
+        skill,
+        drill_type: drillType,
+        questions: [{ id: 1, type: "voice", prompt: promptText }]
+      };
+    }
+
+    // Writing drill fallback
+    const promptText = (isAdvanced || isIntermediate)
+      ? (isRu ? "Напишите короткое сообщение (2-3 предложения) другу о ваших планах на предстоящие выходные." : (isDe ? "Schreiben Sie 2-3 Sätze an einen Freund über Ihre Pläne für das kommende Wochenende." : "Write 2-3 sentences to a friend describing your plans for next weekend."))
+      : (isRu ? "Напишите 2-3 предложения о ваших планах на выходные на изучаемом языке." : `Write 2-3 sentences about your weekend plans in ${targetLanguage}.`);
+
     return {
       skill,
       drill_type: drillType,
-      questions: [
-        {
-          id: 1,
-          type: skill === "speaking" ? "voice" : (skill === "listening" ? "open" : "choice"),
-          audio_script: skill === "listening" ? `Listening passage in ${targetLanguage}.` : undefined,
-          reading_passage: skill === "reading" ? `Reading comprehension passage in ${targetLanguage}.` : undefined,
-          prompt: `Question prompt for ${skill} drill in ${targetLanguage}.`,
-          options: (skill === "reading" || skill === "listening") ? ["A) 1", "B) 2", "C) 3", "D) 4"] : undefined,
-          correct_answer: "A) 1"
-        }
-      ]
+      questions: [{ id: 1, type: "open", prompt: promptText }]
     };
   }
 }
@@ -385,19 +456,19 @@ export async function evaluateSkillAnswer(skill, targetLanguage, mediatorLanguag
 }
 
 // ── Call 6: CEFR Placement Test Generator ─────────────────────────────────────
+// ── Call 6: CEFR Placement Test Generator (Authentic Language, Zero Placeholders)
 export async function generateLevelTest(targetLanguage, mediatorLanguage = "english") {
   const prompt = `You are a certified psychometric CEFR language testing specialist.
-Create a diagnostic placement test to assess proficiency in ${targetLanguage}.
+Create a 5-question diagnostic placement test for proficiency in ${targetLanguage}.
+Student mediator language: ${mediatorLanguage}.
 
-DIRECTIONAL & CEFR METHODOLOGY:
-1. NEVER ask: "Choose translation of [TargetWord] into [TargetLanguage]".
-2. INSTRUCTION LANGUAGE:
-   - For Q1-Q3 (A1 to B2), write instructions in ${mediatorLanguage}, testing items strictly in ${targetLanguage}.
-   - For Q4-Q5 (B2 to C1), question instructions must be written directly in ${targetLanguage}!
-3. All cloze gaps (____) must test words grammatically adjusted in context.
-4. NO THIRD LANGUAGES.
+CRITICAL ANTI-PLACEHOLDER MANDATE:
+- NEVER output placeholder strings like "Option 1", "Verb 1", "form 1", "word", "sentence".
+- EVERY question, option, and prompt MUST contain authentic, grammatically correct sentences and real vocabulary words in ${targetLanguage}!
+- For Q1-Q3 (A1-B2): Instructions in ${mediatorLanguage}, sentences and multiple-choice options strictly in ${targetLanguage}.
+- For Q4-Q5 (B2-C1): Entire question prompt in ${targetLanguage}.
 
-Return ONLY JSON:
+Return strictly JSON:
 {
   "questions": [
     {
@@ -405,7 +476,7 @@ Return ONLY JSON:
       "type": "choice",
       "cefr_target": "A1-A2",
       "skill": "Vocabulary",
-      "prompt": "Instructions in ${mediatorLanguage} + sentence in ${targetLanguage} with ____",
+      "prompt": "Complete the sentence in ${targetLanguage} with the correct word:",
       "options": ["A) ...", "B) ...", "C) ...", "D) ..."],
       "correct_option": "A) ..."
     },
@@ -414,7 +485,7 @@ Return ONLY JSON:
       "type": "choice",
       "cefr_target": "B1",
       "skill": "Grammar",
-      "prompt": "Instructions in ${mediatorLanguage} + sentence in ${targetLanguage} with ____",
+      "prompt": "Choose the correctly conjugated verb form in ${targetLanguage}:",
       "options": ["A) ...", "B) ...", "C) ...", "D) ..."],
       "correct_option": "B) ..."
     },
@@ -423,7 +494,7 @@ Return ONLY JSON:
       "type": "choice",
       "cefr_target": "B2",
       "skill": "Syntax",
-      "prompt": "Instructions in ${mediatorLanguage} + sentence in ${targetLanguage} with ____",
+      "prompt": "Choose the appropriate conjunction in ${targetLanguage}:",
       "options": ["A) ...", "B) ...", "C) ...", "D) ..."],
       "correct_option": "C) ..."
     },
@@ -432,14 +503,14 @@ Return ONLY JSON:
       "type": "open",
       "cefr_target": "B1-B2",
       "skill": "Morphology",
-      "prompt": "Prompt in ${targetLanguage} requiring a specific grammatical form..."
+      "prompt": "Write the correct past tense or plural form of the provided word in ${targetLanguage}."
     },
     {
       "id": 5,
       "type": "open",
       "cefr_target": "C1",
       "skill": "Production",
-      "prompt": "Production prompt in ${targetLanguage} asking for 1-2 sentences..."
+      "prompt": "Write 1-2 sentences expressing your personal opinion on modern technology in ${targetLanguage}."
     }
   ]
 }`;
@@ -461,6 +532,11 @@ Return ONLY JSON:
     if (!Array.isArray(questions) || questions.length === 0) throw new Error("No questions generated");
     return { questions };
   } catch (err) {
+    console.warn("generateLevelTest using real linguistic fallback for:", targetLanguage);
+    const isRu = targetLanguage.toLowerCase().includes("russ");
+    const isDe = targetLanguage.toLowerCase().includes("germ");
+    const isEs = targetLanguage.toLowerCase().includes("span");
+
     return {
       questions: [
         {
@@ -468,41 +544,41 @@ Return ONLY JSON:
           type: "choice",
           cefr_target: "A1-A2",
           skill: "Vocabulary",
-          prompt: `Select the correct word to complete the sentence in ${targetLanguage}:`,
-          options: ["A) Option 1", "B) Option 2", "C) Option 3", "D) Option 4"],
-          correct_option: "A) Option 1"
+          prompt: isRu ? "Выберите правильное слово:\n«Утром я обычно пью горячий _____ с молоком.»" : (isDe ? "Wählen Sie das passende Wort:\n«Morgens trinke ich gern heißen _____ mit Milch.»" : "Choose the correct word to complete the sentence:"),
+          options: isRu ? ["A) чай", "B) хлеб", "C) стол", "D) шкаф"] : isDe ? ["A) Tee", "B) Brot", "C) Tisch", "D) Schrank"] : ["A) coffee", "B) chair", "C) street", "D) table"],
+          correct_option: isRu ? "A) чай" : (isDe ? "A) Tee" : "A) coffee")
         },
         {
           id: 2,
           type: "choice",
           cefr_target: "B1",
           skill: "Grammar",
-          prompt: `Select the correct grammatical form:`,
-          options: ["A) Verb 1", "B) Verb 2", "C) Verb 3", "D) Verb 4"],
-          correct_option: "A) Verb 1"
+          prompt: isRu ? "Выберите правильную форму глагола:\n«Если погода будет хорошей, мы завтра _____ за город.»" : (isDe ? "Wählen Sie die richtige Verbform:\n«Wenn das Wetter gut ist, _____ wir morgen aufs Land.»" : "Select the correct verb form:"),
+          options: isRu ? ["A) поедем", "B) поехали", "C) ехать", "D) поехав"] : isDe ? ["A) fahren", "B) fuhren", "C) gefahren", "D) fahrt"] : ["A) will go", "B) gone", "C) went", "D) goes"],
+          correct_option: isRu ? "A) поедем" : (isDe ? "A) fahren" : "A) will go")
         },
         {
           id: 3,
           type: "choice",
           cefr_target: "B2",
           skill: "Syntax",
-          prompt: `Select the correct connector:`,
-          options: ["A) Conjunction 1", "B) Conjunction 2", "C) Conjunction 3", "D) Conjunction 4"],
-          correct_option: "A) Conjunction 1"
+          prompt: isRu ? "Выберите подходящий союз:\n«Он решил пойти на прогулку, _____ на улице шёл сильный дождь.»" : (isDe ? "Wählen Sie die richtige Konjunktion:\n«Er ging spazieren, _____ es draußen stark regnete.»" : "Select the best conjunction:"),
+          options: isRu ? ["A) хотя", "B) потому что", "C) чтобы", "D) если"] : isDe ? ["A) obwohl", "B) weil", "C) damit", "D) wenn"] : ["A) although", "B) because", "C) in order to", "D) if"],
+          correct_option: isRu ? "A) хотя" : (isDe ? "A) obwohl" : "A) although")
         },
         {
           id: 4,
           type: "open",
           cefr_target: "B1-B2",
           skill: "Morphology",
-          prompt: `Write the correct inflected form of the word in ${targetLanguage}:`
+          prompt: isRu ? "Напишите глагол «решить» в форме прошедшего времени множественного числа:" : (isDe ? "Schreiben Sie das Verb «entscheiden» im Präteritum (3. Person Singular):" : "Write the past tense form of the verb provided:")
         },
         {
           id: 5,
           type: "open",
           cefr_target: "C1",
           skill: "Production",
-          prompt: `Write 1-2 natural sentences expressing an argument in ${targetLanguage}:`
+          prompt: isRu ? "Напишите 1-2 предложения, выражающие ваше мнение о влиянии искусственного интеллекта на изучение языков:" : (isDe ? "Schreiben Sie 1-2 Sätze über Ihre Meinung zum Einfluss von KI auf das Sprachenlernen:" : "Write 1-2 sentences expressing your opinion on language learning:")
         }
       ]
     };
@@ -953,7 +1029,44 @@ export async function transcribeAudio(audioBuffer, filename = "audio.ogg") {
     })
   );
 }
+// ── Call: Dynamic AI Distractor Generator for Quiz & Listening Games ─────────
+export async function generateQuizDistractors(targetWord, correctAnswer, targetLanguage, optionLanguage) {
+  const prompt = `You are designing a high-quality language quiz question.
+Target word: "${targetWord}" in ${targetLanguage}.
+Correct translation / meaning: "${correctAnswer}" in ${optionLanguage}.
 
+Task: Generate EXACTLY 3 plausible, natural distractor meanings in ${optionLanguage.toUpperCase()} that belong to the same part of speech or semantic sphere, but are clearly distinct from "${correctAnswer}".
+
+CRITICAL RULES:
+- Write strictly in ${optionLanguage.toUpperCase()}!
+- DO NOT use placeholders like "Option 1", "Word 1", "Verb 1".
+- The 3 distractors must be realistic, authentic dictionary definitions or words.
+
+Return strictly JSON:
+{
+  "distractors": ["Distractor 1", "Distractor 2", "Distractor 3"]
+}`;
+
+  try {
+    const response = await withModelFallback(CHAT_MODELS, (model) =>
+      groq.chat.completions.create({
+        model,
+        messages: [{ role: "user", content: prompt }],
+        temperature: 0.3,
+        max_tokens: 300,
+        response_format: { type: "json_object" },
+      })
+    );
+    const raw = response.choices[0]?.message?.content?.trim();
+    const parsed = JSON.parse(extractJsonObject(raw));
+    if (Array.isArray(parsed.distractors) && parsed.distractors.length >= 3) {
+      return parsed.distractors.slice(0, 3);
+    }
+  } catch (err) {
+    console.warn("Distractor generation fallback:", err.message);
+  }
+  return [];
+}
 
 //INITIAL CODE:
 // // ai.js

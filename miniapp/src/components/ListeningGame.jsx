@@ -51,18 +51,29 @@ export default function ListeningGame({ cards, API, authHeaders, onExit }) {
     if (queue.length === 0) return;
 
     const next = queue[0];
-
-    const distractorPool = cards
-      .filter((c) => c.id !== next.id)
-      .map((c) => c.correction)
-      .filter((text, i, arr) => text && arr.indexOf(text) === i);
-
-    const canOfferChoice = distractorPool.length >= 1;
-    const type = canOfferChoice && Math.random() < 0.5 ? "choice" : "type";
+    const canOfferChoice = Math.random() < 0.5;
+    const type = canOfferChoice ? "choice" : "type";
 
     if (type === "choice") {
-      const distractors = shuffle(distractorPool).slice(0, 3);
-      setOptions(shuffle([next.correction, ...distractors]));
+      // 1. First set immediate distractors from available cards
+      const distractorPool = cards
+        .filter((c) => c.id !== next.id)
+        .map((c) => c.correction)
+        .filter((text, i, arr) => text && arr.indexOf(text) === i);
+      const initialOptions = shuffle([next.correction, ...shuffle(distractorPool).slice(0, 3)]);
+      setOptions(initialOptions);
+
+      // 2. Fetch AI-generated distractors in the exact right language!
+      if (API && next.id) {
+        fetch(`${API}/api/flashcards/${next.id}/options`, { headers: authHeaders })
+          .then((res) => res.json())
+          .then((data) => {
+            if (Array.isArray(data.options) && data.options.length >= 2) {
+              setOptions(data.options);
+            }
+          })
+          .catch(() => { });
+      }
     } else {
       setOptions([]);
     }
@@ -70,10 +81,7 @@ export default function ListeningGame({ cards, API, authHeaders, onExit }) {
     setQuestionType(type);
     setCurrent(next);
     setTypedAnswer("");
-    setPlayCount(0);
-    hasAutoPlayedRef.current = false;
   }, [queue, feedback, current, cards]);
-
   function speak(text, langKey) {
     if (!window.speechSynthesis || !text) return;
     window.speechSynthesis.cancel();

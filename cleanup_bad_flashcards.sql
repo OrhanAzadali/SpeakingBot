@@ -478,3 +478,20 @@
 
 
 -- ALSO DO MIND THAT THE INTERNAL ERROR ISSUE STILL PERSISTS FOR MINIAPP AND FOR WEB APP EITHER - WE CANNOT DOWNLOAD COMPLETE GRAMMAR BOOK BY CLICKING THE PDF IN BUTTON MINIAPPNOR DO IT IN WEBAPP CLICKING THAT BUTTON! FIX THIS TOO!!!
+
+
+
+
+
+
+-- LAST PROMPT:
+-- now another issue - it suggests as options not the real words or sentences but  like Verb1, Verb2, Verb3, Verb4 or Option1 and Option2 - you know, as if placeholders instead of the real words. Besides, it seems the bot takes all the answers for quiz questions from our databases - now I want it to take as answers only words generated using AI in a respective language (using mediator only if it asks for meaning from beginner or intermediate users, and the learning language itself if the level is advanced) - so that there were not any misunderstanding or misconceptions
+
+-- also you should handle all the posssible isues with users shifting from one mediator to another - htis should change the explanation and description languages for pdf all the existing files to the respective one each time the user makes this kind of shift. 
+
+-- another issue is that we have still have issue with Doownload Grammar in PDF buttons in miniapp and in webapp either - it redirects us to the page with this error object: {
+-- "error": "Invalid topic ID"
+-- }
+
+-- NOW ANALYZE THE WHOOLE PROMPT, ALSO ANALYZE ALL THE GIVEN FILES AND DOCUMENTS, ALL WE HAVE DISCUSSED SO FAR, AND AFTER DOING SOME DEEP RESEARCH IF NEEDED AND WHERE NEEDED MAKE A FINAL ULTIMATE COMPREHENSIVE CONLUSION REGARDING HOW TO FIX ALL THESE ISSUES AND GIVE ME AS AN OUTPUT OF YOUR THINKING PROCESS THE NECESSARY PIECES WITH INFO ON WHERE TO PASTE IT IN THE RESPECTIVE FILES:
+

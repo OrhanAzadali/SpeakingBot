@@ -31,27 +31,37 @@ export default function Quiz({ cards, API, authHeaders, onExit }) {
     });
   }, [cards]);
 
-  // Pick the next question whenever the queue advances and nothing is being
-  // shown right now (no feedback panel up, no card in flight).
+
+
+  // Pick the next question
   useEffect(() => {
     if (feedback || current) return;
     if (queue.length === 0) return;
 
     const next = queue[0];
-
-    // Pull distractors from the full card pool (not just the shrinking
-    // queue) so options stay varied even late in a session.
-    const distractorPool = cards
-      .filter((c) => c.id !== next.id)
-      .map((c) => c.correction)
-      .filter((text, i, arr) => text && arr.indexOf(text) === i);
-
-    const canOfferChoice = distractorPool.length >= 1;
-    const type = canOfferChoice && Math.random() < 0.5 ? "choice" : "type";
+    const canOfferChoice = Math.random() < 0.5;
+    const type = canOfferChoice ? "choice" : "type";
 
     if (type === "choice") {
-      const distractors = shuffle(distractorPool).slice(0, 3);
-      setOptions(shuffle([next.correction, ...distractors]));
+      // 1. First set immediate distractors from available cards
+      const distractorPool = cards
+        .filter((c) => c.id !== next.id)
+        .map((c) => c.correction)
+        .filter((text, i, arr) => text && arr.indexOf(text) === i);
+      const initialOptions = shuffle([next.correction, ...shuffle(distractorPool).slice(0, 3)]);
+      setOptions(initialOptions);
+
+      // 2. Fetch AI-generated distractors in the exact right language!
+      if (API && next.id) {
+        fetch(`${API}/api/flashcards/${next.id}/options`, { headers: authHeaders })
+          .then((res) => res.json())
+          .then((data) => {
+            if (Array.isArray(data.options) && data.options.length >= 2) {
+              setOptions(data.options);
+            }
+          })
+          .catch(() => { });
+      }
     } else {
       setOptions([]);
     }
