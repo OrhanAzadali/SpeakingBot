@@ -643,17 +643,46 @@ async function generateRoadmapPdf(userId, language, roadmapText, outputPath) {
   });
 }
 
-// ── REST API Endpoints (Mini App & Web Frontend) ──────────────────────────────
-// 1. Flashcards API
+// ── 0. User Profile API ──────────────────────────────────────────────────────
+app.get("/api/user", requireTelegramAuth, async (req, res) => {
+  const userId = req.telegramUser.id;
+  const user = await getUser(userId);
+  const pool = (await import("./db.js")).default;
+
+  const { rows: cardLangs } = await pool.query(
+    "SELECT DISTINCT language FROM flashcards WHERE user_id = $1 AND language IS NOT NULL",
+    [userId]
+  );
+  const { rows: topicLangs } = await pool.query(
+    "SELECT DISTINCT language FROM grammar_topics WHERE user_id = $1 AND language IS NOT NULL",
+    [userId]
+  );
+
+  const foundLangs = Array.from(
+    new Set([
+      user?.language,
+      ...cardLangs.map((r) => r.language),
+      ...topicLangs.map((r) => r.language),
+    ].filter(Boolean))
+  );
+
+  const activeLang = user?.language || foundLangs[0] || "russian";
+
+  res.json({
+    userId,
+    language: activeLang,
+    level: user?.level || "Beginner",
+    availableLanguages: foundLangs.length > 0 ? foundLangs : [activeLang],
+  });
+});
+
+// ── 1. Flashcards API (Filtered strictly by current active language) ──────────
 app.get("/api/flashcards", requireTelegramAuth, async (req, res) => {
   const userId = req.telegramUser.id;
   const user = await getUser(userId);
-
-  // Accept requested language from query, fallback to user's saved language, fallback to German
-  const requestedLang = req.query.language || user?.language || "german";
+  const requestedLang = req.query.language || user?.language || "russian";
   const pool = (await import("./db.js")).default;
 
-  // Query ONLY flashcards for this specific language (case-insensitive)
   const { rows } = await pool.query(`
     SELECT *,
       COALESCE(NULLIF(initial_form, ''), word) AS word,
@@ -705,37 +734,33 @@ app.post("/api/flashcards/:id/quiz", requireTelegramAuth, async (req, res) => {
   });
 });
 
-// 2. Dedicated Grammar Topics // 2. Dedicated Grammar Topics API
+// ── 2. Grammar Topics API (Language-Aware with Auto-Generation) ───────────────
 app.get("/api/grammar", requireTelegramAuth, async (req, res) => {
   const userId = req.telegramUser.id;
   const user = await getUser(userId);
+  const lang = req.query.language || user?.language || "russian";
+  const pool = (await import("./db.js")).default;
 
-  // Look up topics for this user:
-  // First try the user's selected language; if not found or not set, return ALL grammar topics for this user!
-  let lang = req.query.language || user?.language;
-  let topics = [];
+  let { rows: topics } = await pool.query(
+    "SELECT * FROM grammar_topics WHERE user_id = $1 AND LOWER(language) = LOWER($2) ORDER BY updated_at DESC, id DESC",
+    [userId, lang]
+  );
 
-  if (lang) {
-    topics = await getGrammarTopics(userId, lang.toLowerCase());
-    if (topics.length === 0) {
-      topics = await getGrammarTopics(userId, lang);
-    }
-  }
-
-  // If still empty, fetch all topics for this user regardless of language casing
+  // If no topics exist for this language yet, automatically generate a starter topic!
   if (topics.length === 0) {
-    const pool = (await import("./db.js")).default;
-    const { rows } = await pool.query(
-      "SELECT * FROM grammar_topics WHERE user_id = $1 ORDER BY updated_at DESC, id DESC",
-      [userId]
+    const guide = await generateGrammarGuide(
+      LANGUAGES[lang] || lang,
+      user?.mediator_language || "english",
+      `Основы грамматики, порядок слов и базовые правила (${LANGUAGES[lang] || lang})`,
+      user?.level || "Beginner"
     );
-    topics = rows;
-    if (topics.length > 0 && !lang) {
-      lang = topics[0].language;
+    if (guide) {
+      const saved = await saveGrammarTopic(userId, lang, guide);
+      if (saved) topics = [saved];
     }
   }
 
-  res.json({ topics, language: lang || user?.language || "German" });
+  res.json({ topics, language: lang });
 });
 
 app.get("/api/grammar/:id", requireTelegramAuth, async (req, res) => {
@@ -744,25 +769,18 @@ app.get("/api/grammar/:id", requireTelegramAuth, async (req, res) => {
   res.json({ topic });
 });
 
-// ── 1. Individual Topic PDF Download Endpoint ─────────────────────────────────
 app.get("/api/grammar/:id/pdf", async (req, res) => {
-  const userId = req.headers["x-user-id"] || req.query.userId || (req.telegramUser && req.telegramUser.id);
-  if (!userId) {
-    return res.status(401).json({ error: "Unauthorized: Missing userId" });
-  }
+  const rawId = req.headers["x-user-id"] || req.query.userId || (req.telegramUser && req.telegramUser.id);
+  const userId = rawId ? Number(rawId) : null;
+  if (!userId) return res.status(401).json({ error: "Unauthorized: Missing userId" });
 
   const topicId = parseInt(req.params.id, 10);
-  const topic = await getGrammarTopicById(topicId, userId); // <--- Pass userId!
-  if (!topic) {
-    return res.status(404).json({ error: "Topic not found" });
-  }
+  const topic = await getGrammarTopicById(topicId, userId);
+  if (!topic) return res.status(404).json({ error: "Topic not found" });
 
-  const user = await getUser(userId);
-  const lang = user?.language || topic.language || "german";
   const tempPath = path.join(tmpdir(), `grammar_${topicId}_${Date.now()}.pdf`);
-
   try {
-    const filePath = await generateGrammarTopicPdf(userId, lang, topic, tempPath);
+    const filePath = await generateGrammarTopicPdf(userId, topic.language, topic, tempPath);
     res.setHeader("Content-Type", "application/pdf");
     res.setHeader("Content-Disposition", `attachment; filename="${encodeURIComponent(topic.title)}.pdf"`);
     res.download(filePath, `${topic.title.replace(/[^\w\d\-]/g, "_")}.pdf`, async () => {
@@ -773,45 +791,100 @@ app.get("/api/grammar/:id/pdf", async (req, res) => {
     res.status(500).json({ error: "Failed to generate PDF" });
   }
 });
-// ── 2. Full Grammar Book PDF Download Endpoint ────────────────────────────────
+
 app.get("/api/grammar/pdf", async (req, res) => {
-  const userId = req.headers["x-user-id"] || req.query.userId || (req.telegramUser && req.telegramUser.id);
-  if (!userId) {
-    return res.status(401).json({ error: "Unauthorized: Missing userId" });
-  }
+  const rawId = req.headers["x-user-id"] || req.query.userId || (req.telegramUser && req.telegramUser.id);
+  const userId = rawId ? Number(rawId) : null;
+  if (!userId) return res.status(401).json({ error: "Unauthorized: Missing userId" });
 
   const user = await getUser(userId);
+  const lang = req.query.language || user?.language || "russian";
   const tempPath = path.join(tmpdir(), `grammar_full_${userId}_${Date.now()}.pdf`);
 
   try {
-    const filePath = await generateFullGrammarNotebookPdf(userId, user?.language, tempPath);
-    if (!filePath) {
-      return res.status(404).json({ error: "No grammar topics found to export." });
-    }
+    const filePath = await generateFullGrammarNotebookPdf(userId, lang, tempPath);
+    if (!filePath) return res.status(404).json({ error: "No grammar topics found for this language." });
     res.setHeader("Content-Type", "application/pdf");
-    res.setHeader("Content-Disposition", `attachment; filename="Complete_Grammar_Notebook.pdf"`);
-    res.download(filePath, `Complete_Grammar_Notebook.pdf`, async () => {
+    res.setHeader("Content-Disposition", `attachment; filename="Grammar_Notebook_${lang}.pdf"`);
+    res.download(filePath, `Grammar_Notebook_${lang}.pdf`, async () => {
       await cleanupFile(filePath);
     });
   } catch (err) {
     console.error("Full grammar PDF error:", err);
-    res.status(500).json({ error: "Failed to generate Complete Grammar Notebook PDF" });
+    res.status(500).json({ error: "Failed to generate Grammar Notebook PDF" });
   }
 });
 
-// ── 3. Send PDF Directly to Telegram Chat Endpoint ───────────────────────────
+app.post("/api/grammar/send-pdf", async (req, res) => {
+  const rawId = req.body.userId || req.headers["x-user-id"] || req.query.userId || (req.telegramUser && req.telegramUser.id);
+  const userId = rawId ? Number(rawId) : null;
+  if (!userId || userId === 123456789 || isNaN(userId)) {
+    return res.status(400).json({ error: "Valid Telegram User ID is required." });
+  }
+
+  const { topicId } = req.body;
+  try {
+    const user = await getUser(userId);
+    const lang = user?.language || "russian";
+
+    if (topicId) {
+      const topic = await getGrammarTopicById(topicId, userId);
+      if (!topic) return res.status(404).json({ error: "Topic not found" });
+
+      const tempPath = path.join(tmpdir(), `grammar_${topicId}_${Date.now()}.pdf`);
+      const filePath = await generateGrammarTopicPdf(userId, topic.language, topic, tempPath);
+
+      await bot.api.sendDocument(userId, new InputFile(filePath, `${topic.title.replace(/[^\w\d\-]/g, "_")}.pdf`), {
+        caption: `📖 *${topic.title}* (${LANGUAGES[topic.language] || topic.language} Grammar Rule PDF)`,
+        parse_mode: "Markdown"
+      });
+      await cleanupFile(filePath);
+    } else {
+      const tempPath = path.join(tmpdir(), `grammar_full_${userId}_${Date.now()}.pdf`);
+      let filePath = await generateFullGrammarNotebookPdf(userId, lang, tempPath);
+
+      // If no topics for this language exist, generate one immediately!
+      if (!filePath) {
+        const guide = await generateGrammarGuide(
+          LANGUAGES[lang] || lang,
+          user?.mediator_language || "english",
+          `Основы грамматики и правила (${LANGUAGES[lang] || lang})`,
+          user?.level || "Beginner"
+        );
+        if (guide) {
+          await saveGrammarTopic(userId, lang, guide);
+          filePath = await generateFullGrammarNotebookPdf(userId, lang, tempPath);
+        }
+      }
+
+      if (!filePath) return res.status(404).json({ error: "No grammar topics found to export." });
+
+      await bot.api.sendDocument(userId, new InputFile(filePath, `Complete_Grammar_Notebook_${lang}.pdf`), {
+        caption: `📚 *Complete Grammar Reference Notebook (${LANGUAGES[lang] || lang})*`,
+        parse_mode: "Markdown"
+      });
+      await cleanupFile(filePath);
+    }
+    res.json({ success: true });
+  } catch (err) {
+    console.error("Send grammar PDF error:", err);
+    res.status(500).json({ error: err.message || "Failed to send PDF to Telegram" });
+  }
+});
+
+// ── 3. Vocabulary & Roadmap PDF Delivery ──────────────────────────────────────
 app.get("/api/vocabulary/pdf", requireTelegramAuth, async (req, res) => {
   const user = await getUser(req.telegramUser.id);
+  const lang = req.query.language || user?.language || "russian";
   const tempPath = path.join(tmpdir(), `vocab_web_${req.telegramUser.id}_${Date.now()}.pdf`);
   try {
-    const filePath = await generateVocabularyPdf(req.telegramUser.id, user?.language, tempPath);
+    const filePath = await generateVocabularyPdf(req.telegramUser.id, lang, tempPath);
     if (!filePath) return res.status(404).json({ error: "No vocabulary found" });
 
-    res.download(filePath, `My_${user?.language || "Language"}_Vocabulary.pdf`, async () => {
+    res.download(filePath, `My_${lang}_Vocabulary.pdf`, async () => {
       await cleanupFile(filePath);
     });
   } catch (err) {
-    console.error("Web PDF error:", err);
     res.status(500).json({ error: "Failed to generate PDF" });
   }
 });
@@ -829,25 +902,25 @@ app.post("/api/vocabulary/send-pdf", requireTelegramAuth, async (req, res) => {
 
 app.get("/api/roadmap/pdf", requireTelegramAuth, async (req, res) => {
   const user = await getUser(req.telegramUser.id);
+  const lang = user?.language || "russian";
   let progress = await getRoadmap(req.telegramUser.id);
   let roadmapText = progress?.roadmap;
 
-  if (!roadmapText || isCorruptedRoadmap(roadmapText)) {
+  // Language check: if cached roadmap mentions another language, regenerate!
+  if (!roadmapText || isCorruptedRoadmap(roadmapText) || (roadmapText && !roadmapText.includes(LANGUAGES[lang] || lang))) {
     roadmapText = await generateRoadmap(
       req.telegramUser.id,
-      LANGUAGES[user?.language] || user?.language || "English",
+      LANGUAGES[lang] || lang,
       user?.level || "Beginner",
       user?.mediator_language || "english"
     );
   }
 
-  if (!roadmapText) return res.status(404).json({ error: "No roadmap available" });
-
   const tempPath = path.join(tmpdir(), `roadmap_web_${req.telegramUser.id}_${Date.now()}.pdf`);
   try {
     const clean = cleanRoadmapText(roadmapText);
-    const filePath = await generateRoadmapPdf(req.telegramUser.id, user?.language, clean, tempPath);
-    res.download(filePath, `My_${user?.language || "Language"}_Roadmap.pdf`, async () => {
+    const filePath = await generateRoadmapPdf(req.telegramUser.id, lang, clean, tempPath);
+    res.download(filePath, `My_${lang}_Roadmap.pdf`, async () => {
       await cleanupFile(filePath);
     });
   } catch (err) {
@@ -855,54 +928,10 @@ app.get("/api/roadmap/pdf", requireTelegramAuth, async (req, res) => {
   }
 });
 
-// ── Send Grammar PDF to Telegram Chat ─────────────────────────────────────────
-app.post("/api/grammar/send-pdf", async (req, res) => {
-  const userId = req.body.userId || req.headers["x-user-id"] || req.query.userId || (req.telegramUser && req.telegramUser.id);
-  if (!userId || userId === "123456789") {
-    return res.status(400).json({ error: "Valid Telegram User ID is required." });
-  }
-
-  const { topicId } = req.body;
-  try {
-    const user = await getUser(userId);
-    const lang = user?.language || "German";
-
-    if (topicId) {
-      const topic = await getGrammarTopicById(topicId, userId);
-      if (!topic) return res.status(404).json({ error: "Topic not found" });
-
-      const tempPath = path.join(tmpdir(), `grammar_${topicId}_${Date.now()}.pdf`);
-      const filePath = await generateGrammarTopicPdf(userId, lang, topic, tempPath);
-
-      await bot.api.sendDocument(userId, new InputFile(filePath, `${topic.title.replace(/[^\w\d\-]/g, "_")}.pdf`), {
-        caption: `📖 *${topic.title}* (Grammar Rule PDF)`,
-        parse_mode: "Markdown"
-      });
-      await cleanupFile(filePath);
-    } else {
-      const tempPath = path.join(tmpdir(), `grammar_full_${userId}_${Date.now()}.pdf`);
-      const filePath = await generateFullGrammarNotebookPdf(userId, lang, tempPath);
-      if (!filePath) {
-        return res.status(404).json({ error: "No grammar topics found to export." });
-      }
-
-      await bot.api.sendDocument(userId, new InputFile(filePath, `Complete_Grammar_Notebook_${lang}.pdf`), {
-        caption: `📚 *Complete Grammar Reference Notebook*`,
-        parse_mode: "Markdown"
-      });
-      await cleanupFile(filePath);
-    }
-    res.json({ success: true });
-  } catch (err) {
-    console.error("Send grammar PDF error:", err);
-    res.status(500).json({ error: "Failed to send PDF to Telegram" });
-  }
-});
-
-// ── Send Roadmap PDF to Telegram Chat ─────────────────────────────────────────
 app.post("/api/roadmap/send-pdf", async (req, res) => {
-  const userId = req.body.userId || req.headers["x-user-id"] || req.query.userId || (req.telegramUser && req.telegramUser.id);
-  if (!userId || userId === "123456789") {
+  const rawId = req.body.userId || req.headers["x-user-id"] || req.query.userId || (req.telegramUser && req.telegramUser.id);
+  const userId = rawId ? Number(rawId) : null;
+  if (!userId || userId === 123456789 || isNaN(userId)) {
     return res.status(400).json({ error: "Valid Telegram User ID is required." });
   }
 
@@ -912,61 +941,34 @@ app.post("/api/roadmap/send-pdf", async (req, res) => {
     res.json({ success: true });
   } catch (err) {
     console.error("Send roadmap PDF error:", err);
-    res.status(500).json({ error: "Failed to send Roadmap PDF to Telegram" });
+    res.status(500).json({ error: err.message || "Failed to send Roadmap PDF to Telegram" });
   }
 });
 
-// ── Telegram Direct PDF Senders (Chat Delivery) ───────────────────────────────
-
-async function sendGrammarPdfToUser(ctx, userId, topicId = null) {
+async function sendRoadmapPdfToUser(ctx, userId) {
   const user = await getUser(userId);
-  if (!user?.language) {
-    const msg = "Please /start first to configure your target language.";
-    if (ctx) await ctx.reply(msg);
-    else await bot.api.sendMessage(userId, msg);
-    return false;
+  const lang = user?.language || "russian";
+  let progress = await getRoadmap(userId);
+  let roadmapText = progress?.roadmap;
+
+  // Force language regeneration if old cached roadmap was German
+  if (!roadmapText || isCorruptedRoadmap(roadmapText) || (roadmapText && !roadmapText.includes(LANGUAGES[lang] || lang))) {
+    roadmapText = await generateRoadmap(
+      userId,
+      LANGUAGES[lang] || lang,
+      user?.level || "Beginner",
+      user?.mediator_language || "english"
+    );
   }
 
-  const thinking = ctx
-    ? await ctx.reply("⏳ *Compiling your official Grammar Guide PDF...*", { parse_mode: "Markdown" })
-    : await bot.api.sendMessage(userId, "⏳ *Compiling your official Grammar Guide PDF...*", { parse_mode: "Markdown" });
+  if (!roadmapText) return false;
 
-  const tempPath = path.join(tmpdir(), `grammar_chat_${userId}_${Date.now()}.pdf`);
-
+  const tempPath = path.join(tmpdir(), `roadmap_${userId}_${Date.now()}.pdf`);
   try {
-    let filePath;
-    let docName;
-    let caption;
-
-    if (topicId) {
-      const topic = await getGrammarTopicById(topicId, userId);
-      if (!topic) throw new Error("Topic not found");
-      filePath = await generateGrammarTopicPdf(userId, user.language, topic, tempPath);
-      docName = `${topic.title.replace(/[^\w\d\-]/g, "_")}.pdf`;
-      caption = `📖 *${topic.title}*\n\nПолное руководство по правилу в формате PDF с таблицами, IPA и примерами.`;
-    } else {
-      const topics = await getGrammarTopics(userId, user.language);
-      if (!topics || topics.length === 0) {
-        try {
-          if (ctx) await ctx.api.deleteMessage(ctx.chat.id, thinking.message_id);
-          else await bot.api.deleteMessage(userId, thinking.message_id);
-        } catch (_) { }
-
-        const emptyMsg = "📭 У вас пока нет сохранённых грамматических правил. Напишите боту любой вопрос по грамматике (например: «как составлять предложения» или «объясни спряжение глаголов») — и бот моментально создаст PDF!";
-        if (ctx) await ctx.reply(emptyMsg);
-        else await bot.api.sendMessage(userId, emptyMsg);
-        return false;
-      }
-
-      filePath = await generateFullGrammarNotebookPdf(userId, user.language, tempPath);
-      docName = `My_${user.language}_Grammar_Notebook.pdf`;
-      caption = `📚 *Полная книга грамматики (${LANGUAGES[user.language]}):*\n\nВключает ${topics.length} тем с полными таблицами спряжения, падежами, IPA и синтаксическими правилами.`;
-    }
-
-    try {
-      if (ctx) await ctx.api.deleteMessage(ctx.chat.id, thinking.message_id);
-      else await bot.api.deleteMessage(userId, thinking.message_id);
-    } catch (_) { }
+    const clean = cleanRoadmapText(roadmapText);
+    const filePath = await generateRoadmapPdf(userId, lang, clean, tempPath);
+    const docName = `My_${lang}_Learning_Roadmap.pdf`;
+    const caption = `📈 *Personal Learning Roadmap (${LANGUAGES[lang] || lang})*`;
 
     if (ctx) {
       await ctx.replyWithDocument(new InputFile(filePath, docName), { caption, parse_mode: "Markdown" });
@@ -977,14 +979,7 @@ async function sendGrammarPdfToUser(ctx, userId, topicId = null) {
     await cleanupFile(filePath);
     return true;
   } catch (err) {
-    console.error("Grammar PDF export error:", err);
-    try {
-      if (ctx) await ctx.api.deleteMessage(ctx.chat.id, thinking.message_id);
-      else await bot.api.deleteMessage(userId, thinking.message_id);
-    } catch (_) { }
-    const errMsg = "❌ Ошибка при создании PDF руководства по грамматике.";
-    if (ctx) await ctx.reply(errMsg);
-    else await bot.api.sendMessage(userId, errMsg);
+    console.error("Roadmap PDF export error:", err);
     return false;
   }
 }

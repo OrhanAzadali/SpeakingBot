@@ -36,8 +36,9 @@ export default function App() {
   // Active game mode: null (hub) | 'flashcards' | 'quiz' | 'listening' | 'match' | 'speaking' | 'summary'
   const [activeGame, setActiveGame] = useState(null);
 
+  const [targetLanguage, setTargetLanguage] = useState("");
+  const [availableLanguages, setAvailableLanguages] = useState([]);
   const [grammarTopics, setGrammarTopics] = useState([]);
-  const [targetLanguage, setTargetLanguage] = useState("German");
   const [flashcards, setFlashcards] = useState([]);
   const [sessionStats, setSessionStats] = useState({ remembered: 0, forgot: 0 });
 
@@ -45,16 +46,13 @@ export default function App() {
   const [toast, setToast] = useState(null);
   const [actionLoading, setActionLoading] = useState(null);
 
-  // Extract real Telegram user ID from Telegram WebApp, or URL param, or localStorage
+  // Extract real Telegram user ID
   const tgUser = typeof window !== "undefined" ? window.Telegram?.WebApp?.initDataUnsafe?.user : null;
-  // Auth Info
   const initData = typeof window !== "undefined" ? window.Telegram?.WebApp?.initData || "" : "";
   const urlParamId = typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("userId") : null;
 
-  // Real effective user ID (checks Telegram WebApp user, then URL, then stored ID)
   const effectiveUserId = tgUser?.id ? String(tgUser.id) : (urlParamId || localStorage.getItem("spk_user_id") || "8291613988");
 
-  // Save for persistence across web browser sessions
   useEffect(() => {
     if (effectiveUserId && effectiveUserId !== "123456789") {
       localStorage.setItem("spk_user_id", effectiveUserId);
@@ -71,33 +69,51 @@ export default function App() {
     }
     return headers;
   };
+
   const showToast = (message, type = "success") => {
     setToast({ message, type });
     setTimeout(() => setToast(null), 4000);
   };
 
+  // 1. Initial boot: query the user's active database language
   useEffect(() => {
     if (window.Telegram?.WebApp?.ready) {
       window.Telegram.WebApp.ready();
       window.Telegram.WebApp.expand?.();
     }
-    fetchGrammarTopics();
-    if (targetLanguage) {
-      fetchFlashcards(targetLanguage);
+    loadUserProfile();
+  }, [effectiveUserId]);
+
+  const loadUserProfile = async () => {
+    try {
+      const res = await fetch(`${BACKEND_URL}/api/user?userId=${effectiveUserId}`, {
+        headers: getHeaders(),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        const activeLang = data.language || "russian";
+        setTargetLanguage(activeLang);
+        setAvailableLanguages(data.availableLanguages || [activeLang]);
+        fetchFlashcards(activeLang);
+        fetchGrammarTopics(activeLang);
+        return;
+      }
+    } catch (err) {
+      console.error("User profile load failed:", err);
     }
-  }, [targetLanguage]);
+    fetchFlashcards("russian");
+    fetchGrammarTopics("russian");
+  };
 
   const fetchGrammarTopics = async (lang = targetLanguage) => {
     try {
-      const res = await fetch(`${BACKEND_URL}/api/grammar?userId=${effectiveUserId}&language=${encodeURIComponent(lang)}`, {
+      const queryLang = lang ? `&language=${encodeURIComponent(lang)}` : "";
+      const res = await fetch(`${BACKEND_URL}/api/grammar?userId=${effectiveUserId}${queryLang}`, {
         headers: getHeaders(),
       });
       if (res.ok) {
         const data = await res.json();
         setGrammarTopics(data.topics || []);
-        if (data.language && data.language !== targetLanguage) {
-          setTargetLanguage(data.language);
-        }
       }
     } catch (err) {
       console.error("Failed to fetch grammar topics:", err);
@@ -106,7 +122,8 @@ export default function App() {
 
   const fetchFlashcards = async (lang = targetLanguage) => {
     try {
-      const res = await fetch(`${BACKEND_URL}/api/flashcards?userId=${effectiveUserId}&language=${encodeURIComponent(lang)}`, {
+      const queryLang = lang ? `&language=${encodeURIComponent(lang)}` : "";
+      const res = await fetch(`${BACKEND_URL}/api/flashcards?userId=${effectiveUserId}${queryLang}`, {
         headers: getHeaders(),
       });
       if (res.ok) {
@@ -117,7 +134,6 @@ export default function App() {
       console.error("Failed to fetch flashcards:", err);
     }
   };
-
   // Safe PDF Download for Web & Telegram MiniApp
   const triggerDownload = (endpoint, filename) => {
     const downloadUrl = `${BACKEND_URL}${endpoint}?userId=${effectiveUserId}`;
