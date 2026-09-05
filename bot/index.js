@@ -644,25 +644,35 @@ async function generateRoadmapPdf(userId, language, roadmapText, outputPath) {
 }
 
 // ── REST API Endpoints (Mini App & Web Frontend) ──────────────────────────────
-
+// 1. Flashcards API
 // 1. Flashcards API
 app.get("/api/flashcards", requireTelegramAuth, async (req, res) => {
   const userId = req.telegramUser.id;
   let user = await getUser(userId);
   let lang = user?.language;
 
-  if (!lang) {
-    const pool = (await import("./db.js")).default;
-    const { rows } = await pool.query(
-      "SELECT language FROM flashcards WHERE user_id = $1 AND language IS NOT NULL LIMIT 1",
-      [userId]
-    );
-    lang = rows[0]?.language;
+  const pool = (await import("./db.js")).default;
+  let cards = [];
+
+  if (lang) {
+    cards = await getFlashcardsByLanguage(userId, lang.toLowerCase());
+    if (cards.length === 0) {
+      cards = await getFlashcardsByLanguage(userId, lang);
+    }
   }
 
-  if (!lang) return res.json({ cards: [], language: null });
-  const cards = await getFlashcardsByLanguage(userId, lang);
-  res.json({ cards, language: lang });
+  if (cards.length === 0) {
+    const { rows } = await pool.query(
+      "SELECT *, COALESCE(NULLIF(initial_form, ''), word) AS word, COALESCE(NULLIF(initial_form, ''), word) AS initial_form FROM flashcards WHERE user_id = $1 ORDER BY id DESC",
+      [userId]
+    );
+    cards = rows;
+    if (cards.length > 0 && !lang) {
+      lang = cards[0].language;
+    }
+  }
+
+  res.json({ cards, language: lang || "German" });
 });
 
 app.post("/api/flashcards/:id/review", requireTelegramAuth, async (req, res) => {
@@ -704,15 +714,37 @@ app.post("/api/flashcards/:id/quiz", requireTelegramAuth, async (req, res) => {
   });
 });
 
-// 2. Dedicated Grammar Topics API
+// 2. Dedicated Grammar Topics // 2. Dedicated Grammar Topics API
 app.get("/api/grammar", requireTelegramAuth, async (req, res) => {
   const userId = req.telegramUser.id;
   const user = await getUser(userId);
-  const lang = req.query.language || user?.language;
-  if (!lang) return res.json({ topics: [], language: null });
 
-  const topics = await getGrammarTopics(userId, lang);
-  res.json({ topics, language: lang });
+  // Look up topics for this user:
+  // First try the user's selected language; if not found or not set, return ALL grammar topics for this user!
+  let lang = req.query.language || user?.language;
+  let topics = [];
+
+  if (lang) {
+    topics = await getGrammarTopics(userId, lang.toLowerCase());
+    if (topics.length === 0) {
+      topics = await getGrammarTopics(userId, lang);
+    }
+  }
+
+  // If still empty, fetch all topics for this user regardless of language casing
+  if (topics.length === 0) {
+    const pool = (await import("./db.js")).default;
+    const { rows } = await pool.query(
+      "SELECT * FROM grammar_topics WHERE user_id = $1 ORDER BY updated_at DESC, id DESC",
+      [userId]
+    );
+    topics = rows;
+    if (topics.length > 0 && !lang) {
+      lang = topics[0].language;
+    }
+  }
+
+  res.json({ topics, language: lang || user?.language || "German" });
 });
 
 app.get("/api/grammar/:id", requireTelegramAuth, async (req, res) => {

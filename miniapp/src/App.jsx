@@ -544,7 +544,7 @@ export default function App() {
           <GrammarBook
             API={BACKEND_URL}
             authHeaders={getHeaders()}
-            effectiveUserId={queryUserId}
+            effectiveUserId={effectiveUserId}
             onExit={() => setActiveTab("games")}
           />
         )}
