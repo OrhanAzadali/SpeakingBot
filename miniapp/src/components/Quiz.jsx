@@ -77,6 +77,8 @@ export default function Quiz({ cards, API, authHeaders, onExit }) {
 
     try {
       let data;
+      const isAiCard = String(current.id || "").startsWith("ai_") || isNaN(Number(current.id));
+
       if (API) {
         try {
           const res = await fetch(`${API}/api/flashcards/${current.id}/quiz`, {
@@ -96,25 +98,24 @@ export default function Quiz({ cards, API, authHeaders, onExit }) {
             }
           }
         } catch {
-          // Network or parse issue, fall through to local evaluation
-
+          // Network issue: fall through to local evaluation
         }
       }
 
       if (!data) {
-        // Safe offline/demo fallback
+        // Semantic-aware offline fallback
         const cleanA = (answer || "").trim().toLowerCase();
         const cleanTarget = (current.correction || "").trim().toLowerCase();
         const synonymsList = (current.synonyms || "").toLowerCase().split(",").map((s) => s.trim()).filter(Boolean);
         const isExact = cleanA === cleanTarget;
-        const isSynonym = synonymsList.includes(cleanA);
+        const isSynonym = synonymsList.some((syn) => syn === cleanA || cleanA.includes(syn) || syn.includes(cleanA));
         const isCorrect = isExact || isSynonym;
 
         data = {
           correct: isCorrect,
           isSynonym: isSynonym && !isExact,
           correctAnswer: current.correction || current.word,
-          explanation: current.explanation || (isCorrect ? "Correct answer!" : `Expected "${current.correction}"`),
+          explanation: current.explanation || (isCorrect ? "✅ Correct meaning!" : `Expected "${current.correction}"`),
           partOfSpeech: current.part_of_speech || "word",
           transcription: current.transcription || "",
           pronunciation_rule: current.pronunciation_rule || "",
@@ -122,12 +123,20 @@ export default function Quiz({ cards, API, authHeaders, onExit }) {
           sentence: current.sentence || current.context || "",
           initialForm: current.initial_form || current.word,
           usedForm: current.used_form || current.word,
-          mastered: false,
+          mastered: isAiCard ? isCorrect : false,
         };
       }
 
       setAnsweredCount((n) => n + 1);
-      if (data.mastered) setMasteredCount((n) => n + 1);
+
+      // Determine if this card is considered completed in this session:
+      // - For AI game cards: Answering correctly retires the card so words REDUCE!
+      // - For DB flashcards: Respects 3-in-a-row mastery from PostgreSQL
+      const isCompleted = isAiCard ? data.correct : Boolean(data.mastered);
+
+      if (isCompleted) {
+        setMasteredCount((n) => n + 1);
+      }
 
       setFeedback({
         correct: data.correct,
@@ -141,25 +150,24 @@ export default function Quiz({ cards, API, authHeaders, onExit }) {
         sentence: data.sentence || current.sentence,
         initialForm: data.initialForm || current.initial_form || current.word,
         usedForm: data.usedForm || current.used_form || current.word,
-        mastered: data.mastered,
+        mastered: isCompleted,
         userAnswer: answer,
         word: current.word,
       });
 
+      // Advance the queue: If completed/mastered, remove it from queue; if wrong, recycle it!
       setQueue((prev) => {
         const rest = prev.slice(1);
-        return data.mastered ? rest : [...rest, current];
+        return isCompleted ? rest : [...rest, current];
       });
+
     } catch (err) {
       console.error("Quiz answer error:", err.message);
-      // Don't strand the user on a dead submit — just move on without
-      // crediting or penalizing the card.
       setQueue((prev) => [...prev.slice(1), current]);
     } finally {
       setSubmitting(false);
     }
   }
-
   function handleContinue() {
     setFeedback(null);
     setCurrent(null);
