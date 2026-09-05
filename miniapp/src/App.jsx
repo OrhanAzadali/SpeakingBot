@@ -87,15 +87,17 @@ export default function App() {
     }
   }, [targetLanguage]);
 
-  const fetchGrammarTopics = async () => {
+  const fetchGrammarTopics = async (lang = targetLanguage) => {
     try {
-      const res = await fetch(`${BACKEND_URL}/api/grammar?userId=${effectiveUserId}`, {
+      const res = await fetch(`${BACKEND_URL}/api/grammar?userId=${effectiveUserId}&language=${encodeURIComponent(lang)}`, {
         headers: getHeaders(),
       });
       if (res.ok) {
         const data = await res.json();
         setGrammarTopics(data.topics || []);
-        if (data.language) setTargetLanguage(data.language);
+        if (data.language && data.language !== targetLanguage) {
+          setTargetLanguage(data.language);
+        }
       }
     } catch (err) {
       console.error("Failed to fetch grammar topics:", err);
