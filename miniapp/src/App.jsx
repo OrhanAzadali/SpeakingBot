@@ -545,8 +545,9 @@ export default function App() {
                     <span>{actionLoading === "tg-vocab" ? "Sending..." : "Send Vocab to TG"}</span>
                   </button>
                   <button
-                    onClick={handleAddCustomWord}
-                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs transition"
+                    type="button"
+                    onClick={() => setShowAddModal(true)}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs transition shadow-sm"
                   >
                     <span>➕ Add Custom Word</span>
                   </button>
@@ -751,6 +752,75 @@ export default function App() {
                   </ul>
                 </div>
               </div>
+            </div>
+          </div>
+        )}
+        {showAddModal && (
+          <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4">
+            <div className="bg-slate-800 border border-slate-700 w-full max-w-md rounded-2xl p-6 shadow-2xl relative text-left">
+              <div className="flex items-center justify-between pb-3 border-b border-slate-700 mb-4">
+                <h3 className="font-bold text-base text-white flex items-center gap-2">
+                  <span>➕ Add Word to Flashcards</span>
+                  <span className="text-xs px-2 py-0.5 rounded bg-indigo-950 text-indigo-300 border border-indigo-800">
+                    {targetLanguage.toUpperCase()}
+                  </span>
+                </h3>
+                <button
+                  type="button"
+                  onClick={() => setShowAddModal(false)}
+                  className="w-7 h-7 rounded-lg bg-slate-700 text-slate-300 hover:text-white flex items-center justify-center"
+                >
+                  ✕
+                </button>
+              </div>
+
+              <form onSubmit={handleAddCustomWord} className="space-y-4">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-300 mb-1">
+                    Word in {targetLanguage.toUpperCase()} (Base lemma):
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="e.g. apple, книга, laufen..."
+                    value={newWord}
+                    onChange={(e) => setNewWord(e.target.value)}
+                    className="w-full px-3.5 py-2.5 bg-slate-900 border border-slate-700 rounded-xl text-white text-xs focus:outline-none focus:border-indigo-500"
+                    autoFocus
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-300 mb-1">
+                    Translation / Meaning:
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="e.g. яблоко, book, to run..."
+                    value={newMeaning}
+                    onChange={(e) => setNewMeaning(e.target.value)}
+                    className="w-full px-3.5 py-2.5 bg-slate-900 border border-slate-700 rounded-xl text-white text-xs focus:outline-none focus:border-indigo-500"
+                  />
+                </div>
+
+                <div className="pt-3 border-t border-slate-700 flex justify-end gap-2.5">
+                  <button
+                    type="button"
+                    onClick={() => setShowAddModal(false)}
+                    className="px-4 py-2 rounded-xl bg-slate-700 text-slate-300 text-xs font-semibold hover:bg-slate-600 transition"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={!newWord.trim() || !newMeaning.trim()}
+                    className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold transition disabled:opacity-50"
+                  >
+                    Save to Deck
+                  </button>
+                </div>
+              </form>
             </div>
           </div>
         )}

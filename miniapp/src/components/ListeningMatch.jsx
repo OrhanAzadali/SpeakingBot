@@ -62,23 +62,37 @@ function pickRoundCards(pool, count, excludeIds) {
   return [...chosenFromFresh, ...backfill];
 }
 
-export default function ListeningMatch({ cards, API, authHeaders, onExit }) {
-  const [roundNumber, setRoundNumber] = useState(1);
-  const [pairCount, setPairCount] = useState(Math.min(MAX_PAIRS, Math.max(MIN_PAIRS, cards.length)));
+// 1. Update Props Signature at line 55 of ListeningMatch.jsx:
+export default function ListeningMatch({ cards, API, authHeaders, round = 1, onNextRound, onSaveWord, onExit }) {
+  const [roundNumber, setRoundNumber] = useState(round);
+  const [pairCount, setPairCount] = useState(Math.min(MAX_PAIRS, Math.max(MIN_PAIRS, (cards || []).length)));
   const [roundCards, setRoundCards] = useState([]);
   const [audioTiles, setAudioTiles] = useState([]);
   const [meaningTiles, setMeaningTiles] = useState([]);
   const [selectedAudioId, setSelectedAudioId] = useState(null);
   const [matchedIds, setMatchedIds] = useState(() => new Set());
-  const [wrongPulse, setWrongPulse] = useState(null); // { audioId, meaningId }
+  const [wrongPulse, setWrongPulse] = useState(null);
   const [score, setScore] = useState(0);
   const [streak, setStreak] = useState(0);
   const [bestStreak, setBestStreak] = useState(0);
   const [mistakes, setMistakes] = useState(0);
   const [elapsed, setElapsed] = useState(0);
   const [finished, setFinished] = useState(false);
+  const [savedCardIds, setSavedCardIds] = useState(() => new Set()); // Feedback state for saved words
   const lastRoundIdsRef = useRef(new Set());
   const timerRef = useRef(null);
+
+  // Sync roundNumber with round prop when advancing
+  useEffect(() => {
+    if (round) setRoundNumber(round);
+  }, [round]);
+
+  // Sync cards when round changes
+  useEffect(() => {
+    if (Array.isArray(cards) && cards.length >= MIN_PAIRS) {
+      startRound(Math.min(MAX_PAIRS, Math.max(MIN_PAIRS, cards.length)));
+    }
+  }, [cards]);
 
   function startRound(count) {
     const chosen = pickRoundCards(cards, count, lastRoundIdsRef.current);
@@ -201,46 +215,81 @@ export default function ListeningMatch({ cards, API, authHeaders, onExit }) {
 
   // ── Round complete screen ───────────────────────────────────────────────
   // Find the finished condition in ListeningMatch.jsx and ensure it has safe fallbacks:
+  // ── Round complete screen ───────────────────────────────────────────────
   if (finished || (roundCards.length > 0 && matchedIds.size === roundCards.length)) {
     const flawless = mistakes === 0;
     return (
-      <div className="min-h-screen flex flex-col items-center justify-center px-6 text-center py-8 bg-slate-900 text-white">
-        <div className="text-6xl mb-4 animate-bounce">{flawless ? "🏆" : "🎧"}</div>
+      <div className="min-h-screen flex flex-col items-center justify-center px-4 text-center py-8 bg-slate-900 text-white max-w-sm mx-auto">
+        <div className="text-6xl mb-3 animate-bounce">{flawless ? "🏆" : "🎧"}</div>
         <h1 className="text-2xl font-bold text-white mb-1">
           {flawless ? "Flawless round!" : `Round ${roundNumber} complete!`}
         </h1>
-        <p className="text-slate-400 text-sm mb-6">
+        <p className="text-slate-400 text-xs mb-4">
           {roundCards.length} pairs matched in {formatTime(elapsed)}
         </p>
 
-        <div
-          className="w-full max-w-xs bg-slate-800/90 border border-slate-700/80 rounded-2xl p-6 mb-6 shadow-xl"
-        >
-          <div className="flex justify-around items-center mb-5">
+        <div className="w-full bg-slate-800/90 border border-slate-700/80 rounded-2xl p-4 mb-4 shadow-xl">
+          <div className="flex justify-around items-center mb-3">
             <div className="text-center">
-              <p className="text-3xl font-extrabold text-cyan-400">{score}</p>
-              <p className="text-slate-400 text-xs mt-1 font-medium">Score</p>
+              <p className="text-2xl font-extrabold text-cyan-400">{score}</p>
+              <p className="text-slate-400 text-[11px] mt-0.5">Score</p>
             </div>
-            <div className="w-px h-10 bg-slate-700" />
+            <div className="w-px h-8 bg-slate-700" />
             <div className="text-center">
-              <p className="text-3xl font-extrabold text-emerald-400">{bestStreak}</p>
-              <p className="text-slate-400 text-xs mt-1 font-medium">Best streak</p>
+              <p className="text-2xl font-extrabold text-emerald-400">{bestStreak}</p>
+              <p className="text-slate-400 text-[11px] mt-0.5">Best streak</p>
             </div>
-            <div className="w-px h-10 bg-slate-700" />
+            <div className="w-px h-8 bg-slate-700" />
             <div className="text-center">
-              <p className="text-3xl font-extrabold text-red-400">{mistakes}</p>
-              <p className="text-slate-400 text-xs mt-1 font-medium">Mistakes</p>
+              <p className="text-2xl font-extrabold text-red-400">{mistakes}</p>
+              <p className="text-slate-400 text-[11px] mt-0.5">Mistakes</p>
             </div>
           </div>
-          <p className="text-slate-400 text-xs leading-relaxed">
-            {flawless
-              ? "Perfect ears! Ready for the next difficulty tier."
-              : "Good work! Keep practicing to increase accuracy."}
-          </p>
         </div>
 
-        <div className="w-full max-w-xs flex flex-col gap-3">
+        {/* Round Vocabulary with Active Save Buttons */}
+        <div className="w-full mb-5 text-left">
+          <p className="text-slate-300 text-xs font-semibold mb-2">Round Vocabulary (Save any word to your deck):</p>
+          <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
+            {roundCards.map((c) => {
+              const cardKey = c.id || c.word;
+              const isSaved = savedCardIds.has(cardKey);
+              return (
+                <div
+                  key={cardKey}
+                  className="flex items-center justify-between p-2.5 rounded-xl bg-slate-800 border border-slate-700 text-xs"
+                >
+                  <div className="flex flex-col">
+                    <span className="text-cyan-300 font-bold">{c.initial_form || c.word}</span>
+                    <span className="text-slate-300 text-[11px]">{c.correction}</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      if (isSaved) return;
+                      if (onSaveWord) {
+                        const ok = await onSaveWord(c);
+                        if (ok) setSavedCardIds((prev) => new Set(prev).add(cardKey));
+                      }
+                    }}
+                    className={`py-1 px-2.5 rounded-lg text-xs font-semibold flex items-center gap-1 transition ${isSaved
+                      ? "bg-emerald-950 text-emerald-300 border border-emerald-700"
+                      : "bg-slate-700 hover:bg-slate-600 text-amber-300 border border-slate-600 active:scale-95"
+                      }`}
+                  >
+                    <span>{isSaved ? "✅" : "⭐"}</span>
+                    <span>{isSaved ? "Saved" : "Save"}</span>
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Action Buttons: Advance to Round X & Exit */}
+        <div className="w-full flex flex-col gap-2.5">
           <button
+            type="button"
             onClick={() => {
               if (onNextRound) {
                 onNextRound();
@@ -248,39 +297,18 @@ export default function ListeningMatch({ cards, API, authHeaders, onExit }) {
                 handlePlayAgain();
               }
             }}
-            className="w-full py-3.5 rounded-xl bg-cyan-600 text-white font-semibold text-sm hover:bg-cyan-500 active:scale-95 transition-all shadow-lg shadow-cyan-600/30"
+            className="w-full py-3.5 rounded-xl bg-cyan-600 text-white font-semibold text-sm hover:bg-cyan-500 active:scale-95 transition-all shadow-lg shadow-cyan-600/30 flex items-center justify-center gap-2"
           >
-            Advance to Round {roundNumber + 1} 🚀
+            <span>Advance to Round {roundNumber + 1}</span>
+            <span>🚀</span>
           </button>
           <button
+            type="button"
             onClick={onExit}
-            className="w-full py-3.5 rounded-xl bg-slate-800 border border-slate-700 text-slate-200 font-semibold text-sm hover:bg-slate-700 active:scale-95 transition-all"
+            className="w-full py-2.5 rounded-xl bg-slate-800 border border-slate-700 text-slate-300 font-semibold text-xs hover:bg-slate-700 active:scale-95 transition-all"
           >
             Back to Game Hub
           </button>
-        </div>
-        {/* In ListeningMatch.jsx Round Complete Screen */}
-        <div className="w-full max-w-xs mb-4 text-left">
-          <p className="text-slate-400 text-xs font-semibold mb-2">Round Vocabulary:</p>
-          <div className="space-y-1.5 max-h-36 overflow-y-auto pr-1">
-            {roundCards.map((c) => (
-              <div
-                key={c.id}
-                className="flex items-center justify-between p-2 rounded-lg bg-slate-800 border border-slate-700 text-xs"
-              >
-                <span className="text-cyan-300 font-semibold">{c.initial_form || c.word}</span>
-                <span className="text-slate-300 text-[11px] truncate max-w-[120px]">{c.correction}</span>
-                <button
-                  type="button"
-                  onClick={() => onSaveWord && onSaveWord(c)}
-                  className="p-1 rounded text-amber-400 hover:text-amber-300 text-xs"
-                  title="Save word to deck"
-                >
-                  ⭐ Save
-                </button>
-              </div>
-            ))}
-          </div>
         </div>
       </div>
     );

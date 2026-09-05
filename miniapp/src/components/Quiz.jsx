@@ -10,7 +10,7 @@ function shuffle(arr) {
   return a;
 }
 
-export default function Quiz({ cards, API, authHeaders, onExit }) {
+export default function Quiz({ cards, API, authHeaders, onSaveWord, onExit }) {
   const [queue, setQueue] = useState(() => shuffle(cards));
   const [current, setCurrent] = useState(null);
   const [questionType, setQuestionType] = useState("type"); // "type" | "choice"
