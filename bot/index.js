@@ -2139,39 +2139,6 @@ async function finishSkillDrillSession(ctx, userId, drill) {
   }
 }
 
-await completeDrillSession(
-  userId,
-  drill.language,
-  drill.skill,
-  drill.drill_type,
-  drill.questions.length,
-  averageScore,
-  `Completed ${drill.drill_type} drill with score ${averageScore}%`
-);
-
-await clearActiveDrill(userId);
-await upsertUser(userId, { state: "chatting" });
-
-const overview = await getUserSkillsOverview(userId, drill.language);
-const otherSkills = Object.entries(overview).filter(([s]) => s !== drill.skill);
-otherSkills.sort((a, b) => a[1].score - b[1].score);
-const nextRecommended = otherSkills[0][0];
-
-const kb = new InlineKeyboard()
-  .text(`Train ${nextRecommended.toUpperCase()} 🚀`, `train_${nextRecommended}`)
-  .row()
-  .text("📖 Правила в PDF", `dl_all_grammar_${drill.language}`)
-  .text("📥 Vocabulary PDF", `dl_all_vocab_${drill.language}`);
-
-const summary =
-  `🎉 *${drill.skill.toUpperCase()} DRILL COMPLETE!*\n\n` +
-  `📊 *Session Score:* ${averageScore}/100\n` +
-  `📚 *Vocabulary Extracted:* All new words, transcriptions, grammar, syntax, and pronunciation rules have been saved to your deck.\n\n` +
-  `Next recommended skill: *${nextRecommended.toUpperCase()}*!`;
-
-await bot.api.sendMessage(userId, summary, { parse_mode: "Markdown", reply_markup: kb });
-}
-
 // ── Grammar & PDF Callbacks ───────────────────────────────────────────────────
 
 bot.callbackQuery("download_all_grammar_pdf", async (ctx) => {
