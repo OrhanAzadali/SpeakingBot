@@ -1,7 +1,7 @@
-// ListeningGame.jsx
+// ListeningGame.jsx — Fixed Exit Button & Authentic Meaning Payload
 import React, { useEffect, useRef, useState } from "react";
+import { ArrowLeft, Volume2, CheckCircle2, XCircle } from "lucide-react";
 
-// Same BCP 47 map FlashcardDeck.jsx uses for native in-browser TTS
 const SPEECH_LANG_CODES = {
   spanish: "es-ES", english: "en-US", french: "fr-FR", german: "de-DE",
   japanese: "ja-JP", italian: "it-IT", portuguese: "pt-BR", russian: "ru-RU",
@@ -21,10 +21,10 @@ function shuffle(arr) {
   return a;
 }
 
-export default function ListeningGame({ cards, API, authHeaders, onExit }) {
-  const [queue, setQueue] = useState(() => shuffle(cards));
+export default function ListeningGame({ cards, API, authHeaders, round = 1, onNextRound, onExit }) {
+  const [queue, setQueue] = useState(() => shuffle(cards || []));
   const [current, setCurrent] = useState(null);
-  const [questionType, setQuestionType] = useState("type"); // "type" | "choice"
+  const [questionType, setQuestionType] = useState("choice"); // "type" | "choice"
   const [options, setOptions] = useState([]);
   const [typedAnswer, setTypedAnswer] = useState("");
   const [feedback, setFeedback] = useState(null);
@@ -34,46 +34,30 @@ export default function ListeningGame({ cards, API, authHeaders, onExit }) {
   const [playCount, setPlayCount] = useState(0);
   const hasAutoPlayedRef = useRef(false);
 
-  // Pick up brand-new words the background poller in App.jsx adds mid-session
   useEffect(() => {
-    setQueue((prev) => {
-      const existingIds = new Set(prev.map((c) => c.id));
-      const freshCards = cards.filter((c) => !existingIds.has(c.id));
-      if (freshCards.length === 0) return prev;
-      return [...freshCards, ...prev]; // newest words first
-    });
+    if (Array.isArray(cards) && cards.length > 0) {
+      setQueue(shuffle(cards));
+      setCurrent(null);
+      setFeedback(null);
+    }
   }, [cards]);
 
-  // Pick the next question whenever the queue advances and nothing is being
-  // shown right now (no feedback panel up, no question in flight).
   useEffect(() => {
     if (feedback || current) return;
     if (queue.length === 0) return;
 
     const next = queue[0];
-    const canOfferChoice = Math.random() < 0.5;
+    const distractorPool = cards
+      .filter((c) => c.id !== next.id)
+      .map((c) => c.correction)
+      .filter((text, i, arr) => text && arr.indexOf(text) === i);
+
+    const canOfferChoice = distractorPool.length >= 1;
     const type = canOfferChoice ? "choice" : "type";
 
     if (type === "choice") {
-      // 1. First set immediate distractors from available cards
-      const distractorPool = cards
-        .filter((c) => c.id !== next.id)
-        .map((c) => c.correction)
-        .filter((text, i, arr) => text && arr.indexOf(text) === i);
-      const initialOptions = shuffle([next.correction, ...shuffle(distractorPool).slice(0, 3)]);
-      setOptions(initialOptions);
-
-      // 2. Fetch AI-generated distractors in the exact right language!
-      if (API && next.id) {
-        fetch(`${API}/api/flashcards/${next.id}/options`, { headers: authHeaders })
-          .then((res) => res.json())
-          .then((data) => {
-            if (Array.isArray(data.options) && data.options.length >= 2) {
-              setOptions(data.options);
-            }
-          })
-          .catch(() => { });
-      }
+      const distractors = shuffle(distractorPool).slice(0, 3);
+      setOptions(shuffle([next.correction, ...distractors]));
     } else {
       setOptions([]);
     }
@@ -81,20 +65,20 @@ export default function ListeningGame({ cards, API, authHeaders, onExit }) {
     setQuestionType(type);
     setCurrent(next);
     setTypedAnswer("");
+    setPlayCount(0);
+    hasAutoPlayedRef.current = false;
   }, [queue, feedback, current, cards]);
+
   function speak(text, langKey) {
     if (!window.speechSynthesis || !text) return;
     window.speechSynthesis.cancel();
     const utterance = new SpeechSynthesisUtterance(text);
     utterance.lang = SPEECH_LANG_CODES[langKey?.toLowerCase()] || "en-US";
-    utterance.rate = 0.85; // slower for pedagogical clarity, matches FlashcardDeck
+    utterance.rate = 0.85;
     window.speechSynthesis.speak(utterance);
     setPlayCount((n) => n + 1);
   }
 
-  // Auto-play the word once per question so the challenge starts immediately
-  // without an extra tap. Uses initial_form (the lemma) — same field the
-  // /quiz endpoint grades against — so what's heard always matches what's judged.
   useEffect(() => {
     if (!current || hasAutoPlayedRef.current) return;
     hasAutoPlayedRef.current = true;
@@ -107,6 +91,10 @@ export default function ListeningGame({ cards, API, authHeaders, onExit }) {
     if (submitting || !current) return;
     setSubmitting(true);
 
+    const targetWord = current.initial_form || current.word;
+    const expectedCorrection = current.correction;
+    const isAiCard = String(current.id || "").startsWith("ai_") || isNaN(Number(current.id));
+
     try {
       let data;
       if (API) {
@@ -114,7 +102,12 @@ export default function ListeningGame({ cards, API, authHeaders, onExit }) {
           const res = await fetch(`${API}/api/flashcards/${current.id}/quiz`, {
             method: "POST",
             headers: { "Content-Type": "application/json", ...authHeaders },
-            body: JSON.stringify({ answer }),
+            body: JSON.stringify({
+              answer,
+              word: targetWord,
+              correction: expectedCorrection,
+              synonyms: current.synonyms || "",
+            }),
           });
           if (res.ok) {
             const json = await res.json();
@@ -122,58 +115,56 @@ export default function ListeningGame({ cards, API, authHeaders, onExit }) {
               data = json;
             }
           }
-        } catch {
-          // Network or parse issue, fall through to local evaluation
-        }
+        } catch (_) { }
       }
 
       if (!data) {
-        // Safe offline/demo fallback, mirrors Quiz.jsx
         const cleanA = (answer || "").trim().toLowerCase();
-        const cleanTarget = (current.correction || "").trim().toLowerCase();
+        const cleanTarget = (expectedCorrection || "").trim().toLowerCase();
         const synonymsList = (current.synonyms || "").toLowerCase().split(",").map((s) => s.trim()).filter(Boolean);
         const isExact = cleanA === cleanTarget;
-        const isSynonym = synonymsList.includes(cleanA);
+        const isSynonym = synonymsList.some((s) => s === cleanA || cleanA.includes(s) || s.includes(cleanA));
         const isCorrect = isExact || isSynonym;
 
         data = {
           correct: isCorrect,
           isSynonym: isSynonym && !isExact,
-          correctAnswer: current.correction || current.word,
-          explanation: current.explanation || (isCorrect ? "Exact meaning match" : `Expected "${current.correction}"`),
+          correctAnswer: expectedCorrection,
+          explanation: isCorrect ? "✅ Meaning accepted!" : `Expected translation: "${expectedCorrection}"`,
           partOfSpeech: current.part_of_speech || "word",
           transcription: current.transcription || "",
           pronunciation_rule: current.pronunciation_rule || "",
           synonyms: current.synonyms || "",
           sentence: current.sentence || current.context || "",
-          initialForm: current.initial_form || current.word,
-          usedForm: current.used_form || current.word,
-          mastered: false,
+          initialForm: targetWord,
+          usedForm: current.used_form || targetWord,
+          mastered: isAiCard ? isCorrect : false,
         };
       }
 
       setAnsweredCount((n) => n + 1);
-      if (data.mastered) setMasteredCount((n) => n + 1);
+      const isCompleted = isAiCard ? data.correct : Boolean(data.mastered);
+      if (isCompleted) setMasteredCount((n) => n + 1);
 
       setFeedback({
         correct: data.correct,
         isSynonym: data.isSynonym,
-        correctAnswer: data.correctAnswer || current.correction,
+        correctAnswer: data.correctAnswer || expectedCorrection,
         explanation: data.explanation || current.explanation,
         partOfSpeech: data.partOfSpeech || current.part_of_speech,
         transcription: data.transcription || current.transcription,
         pronunciation_rule: data.pronunciation_rule || current.pronunciation_rule,
         synonyms: data.synonyms || current.synonyms,
         sentence: data.sentence || current.sentence,
-        initialForm: data.initialForm || current.initial_form || current.word,
-        usedForm: data.usedForm || current.used_form || current.word,
-        mastered: data.mastered,
+        initialForm: targetWord,
+        usedForm: data.usedForm || current.used_form || targetWord,
+        mastered: isCompleted,
         userAnswer: answer,
       });
 
       setQueue((prev) => {
         const rest = prev.slice(1);
-        return data.mastered ? rest : [...rest, current];
+        return isCompleted ? rest : [...rest, current];
       });
     } catch (err) {
       console.error("Listening game answer error:", err.message);
@@ -193,25 +184,35 @@ export default function ListeningGame({ cards, API, authHeaders, onExit }) {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center px-6 text-center">
         <div className="text-6xl mb-6">🏆</div>
-        <h1 className="text-2xl font-bold text-white mb-2">All words mastered by ear!</h1>
-        <p className="text-slate-400 mb-8">
-          {masteredCount} word{masteredCount !== 1 ? "s" : ""} recognized correctly three times in a row.
+        <h1 className="text-2xl font-bold text-white mb-2">Round {round} Complete!</h1>
+        <p className="text-slate-400 mb-6">
+          All audio passages recognized and mastered by ear!
         </p>
-        <div className="w-full max-w-xs bg-slate-800 rounded-2xl p-6 mb-6" style={{ boxShadow: "0 20px 60px rgba(0,0,0,0.4)" }}>
+        <div className="w-full max-w-xs bg-slate-800 border border-slate-700 rounded-2xl p-5 mb-6">
           <p className="text-3xl font-bold text-cyan-400">{answeredCount}</p>
-          <p className="text-slate-400 text-sm mt-1">Words listened to</p>
+          <p className="text-slate-400 text-xs mt-1">Total Audio Challenges</p>
         </div>
-        <button
-          onClick={onExit}
-          className="px-6 py-3 rounded-xl bg-cyan-600 text-white font-semibold hover:bg-cyan-500 active:scale-95 transition-all"
-        >
-          Back to games
-        </button>
+        <div className="w-full max-w-xs flex flex-col gap-3">
+          {onNextRound && (
+            <button
+              onClick={onNextRound}
+              className="w-full py-3.5 rounded-xl bg-cyan-600 text-white font-semibold hover:bg-cyan-500 active:scale-95 transition-all text-sm shadow-lg shadow-cyan-600/30"
+            >
+              Advance to Round {round + 1} 🚀
+            </button>
+          )}
+          <button
+            onClick={onExit}
+            className="w-full py-3 rounded-xl bg-slate-800 border border-slate-700 text-slate-300 font-semibold hover:bg-slate-700 active:scale-95 transition-all text-xs"
+          >
+            Back to Game Hub
+          </button>
+        </div>
       </div>
     );
   }
 
-  // ── Feedback panel (reveals the word + full linguistic detail) ─────────────
+  // ── Feedback panel ────────────────────────────────────────────────────────
   if (feedback) {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center px-4 py-8 text-center max-w-sm mx-auto">
@@ -252,29 +253,12 @@ export default function ListeningGame({ cards, API, authHeaders, onExit }) {
             </p>
           )}
 
-          {feedback.synonyms && (
-            <p className="text-cyan-300">
-              <span className="text-slate-400 font-semibold">Synonyms:</span> {feedback.synonyms}
-            </p>
-          )}
-
           {feedback.explanation && (
             <p className="text-slate-300">
-              <span className="text-slate-400 font-semibold">Grammar Note:</span> {feedback.explanation}
+              <span className="text-slate-400 font-semibold">Note:</span> {feedback.explanation}
             </p>
           )}
-
-          {feedback.sentence && (
-            <div className="pt-2 border-t border-slate-700">
-              <p className="text-[11px] text-slate-400 font-semibold mb-0.5">Example in context:</p>
-              <p className="text-slate-300 italic" dangerouslySetInnerHTML={{ __html: feedback.sentence }} />
-            </div>
-          )}
         </div>
-
-        {feedback.mastered && (
-          <p className="text-cyan-400 font-semibold text-xs mb-3">🎉 Word mastered and archived to your learned vocabulary!</p>
-        )}
 
         <button
           onClick={handleContinue}
@@ -286,51 +270,61 @@ export default function ListeningGame({ cards, API, authHeaders, onExit }) {
     );
   }
 
-  // ── Question screen (no text — audio only until answered) ──────────────────
+  // ── Question screen ───────────────────────────────────────────────────────
   if (!current) return null;
-
   const displayWord = current.initial_form || current.word;
 
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center px-4 py-8">
-      <div className="w-full max-w-sm mb-4 text-center">
-        <p className="text-slate-400 text-xs">{queue.length} word{queue.length !== 1 ? "s" : ""} left to master</p>
+    <div className="min-h-screen flex flex-col items-center justify-center px-4 py-8 relative max-w-sm mx-auto">
+      {/* Top Exit Navigation Button */}
+      <div className="w-full flex items-center justify-between mb-4">
+        <button
+          onClick={onExit}
+          className="text-xs text-slate-400 hover:text-white flex items-center gap-1.5 transition py-1 px-2.5 rounded-lg bg-slate-800 border border-slate-700"
+        >
+          <ArrowLeft className="w-3.5 h-3.5" /> Back to Hub
+        </button>
+        <span className="text-[11px] font-semibold text-cyan-400 bg-cyan-950 px-2.5 py-0.5 rounded-full border border-cyan-800">
+          Round {round} &bull; {queue.length} left
+        </span>
+      </div>
+
+      <div className="w-full mb-3 text-center">
+        <span className="inline-block px-3 py-1 rounded-full text-[11px] font-bold tracking-wide bg-cyan-950 text-cyan-300 border border-cyan-800">
+          🎧 ПОСЛУШАЙТЕ И {questionType === "choice" ? "ВЫБЕРИТЕ ЗНАЧЕНИЕ" : "НАПИШИТЕ ПЕРЕВОД"}
+        </span>
       </div>
 
       <div
-        className="w-full max-w-sm rounded-2xl p-7 mb-6 bg-gradient-to-br from-cyan-600 to-blue-700 text-center flex flex-col items-center"
+        className="w-full rounded-2xl p-7 mb-6 bg-gradient-to-br from-cyan-600 to-blue-700 text-center flex flex-col items-center"
         style={{ boxShadow: "0 20px 60px rgba(0,0,0,0.4)" }}
       >
         <span className="text-xs uppercase tracking-widest text-cyan-200 mb-4">
-          Listen, then type or pick what it means
+          Tap speaker to listen to native pronunciation
         </span>
 
         <button
           type="button"
           onClick={() => speak(displayWord, current.language)}
-          className="w-24 h-24 rounded-full bg-white/10 border-2 border-white/30 hover:bg-white/20 active:scale-90 transition-all flex items-center justify-center text-5xl"
+          className="w-24 h-24 rounded-full bg-white/10 border-2 border-white/30 hover:bg-white/20 active:scale-90 transition-all flex items-center justify-center text-5xl shadow-lg"
           title="Play the word"
         >
-          🔊
+          <Volume2 className="w-10 h-10 text-white" />
         </button>
 
         <p className="mt-4 text-cyan-100 text-xs">
-          {playCount > 1 ? `Played ${playCount} times` : "Tap to replay"}
+          {playCount > 1 ? `Replayed ${playCount} times` : "Tap to replay"}
         </p>
       </div>
 
       {questionType === "choice" ? (
-        <div className="w-full max-w-sm flex flex-col gap-3"><div className="w-full max-w-sm mb-3 text-center">
-          <span className="inline-block px-3 py-1 rounded-full text-[11px] font-bold tracking-wide bg-cyan-950 text-cyan-300 border border-cyan-800">
-            🎧 ПОСЛУШАЙТЕ И {questionType === "choice" ? "ВЫБЕРИТЕ ЗНАЧЕНИЕ" : "НАПИШИТЕ ПЕРЕВОД"}
-          </span>
-        </div>
+        <div className="w-full flex flex-col gap-2.5">
           {options.map((opt, i) => (
             <button
               key={i}
               disabled={submitting}
               onClick={() => submitAnswer(opt)}
-              className="w-full py-3.5 rounded-xl bg-slate-800 border border-slate-700 text-white text-left px-4 hover:bg-slate-700 active:scale-95 transition-all disabled:opacity-50 text-sm"
+              className="w-full py-3.5 rounded-xl bg-slate-800 border border-slate-700 text-white text-left px-4 hover:bg-slate-700 active:scale-95 transition-all disabled:opacity-50 text-sm font-medium"
             >
               {opt}
             </button>
@@ -338,7 +332,7 @@ export default function ListeningGame({ cards, API, authHeaders, onExit }) {
         </div>
       ) : (
         <form
-          className="w-full max-w-sm flex flex-col gap-3"
+          className="w-full flex flex-col gap-3"
           onSubmit={(e) => {
             e.preventDefault();
             if (typedAnswer.trim()) submitAnswer(typedAnswer.trim());
@@ -350,7 +344,7 @@ export default function ListeningGame({ cards, API, authHeaders, onExit }) {
             onChange={(e) => setTypedAnswer(e.target.value)}
             disabled={submitting}
             autoFocus
-            placeholder="Type what you heard means in English..."
+            placeholder="Type meaning in Russian or English..."
             className="w-full py-3.5 px-4 rounded-xl bg-slate-800 border border-slate-700 text-white placeholder-slate-500 focus:outline-none focus:border-cyan-500 disabled:opacity-50 text-sm"
           />
           <button
@@ -358,7 +352,7 @@ export default function ListeningGame({ cards, API, authHeaders, onExit }) {
             disabled={submitting || !typedAnswer.trim()}
             className="w-full py-3.5 rounded-xl bg-cyan-600 text-white font-semibold hover:bg-cyan-500 active:scale-95 transition-all disabled:opacity-50 text-sm"
           >
-            {submitting ? "Judging Answer..." : "Submit"}
+            {submitting ? "Evaluating..." : "Submit Answer"}
           </button>
         </form>
       )}

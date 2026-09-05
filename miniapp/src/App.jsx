@@ -58,6 +58,38 @@ export default function App() {
 
   const effectiveUserId = tgUser?.id ? String(tgUser.id) : (urlParamId || localStorage.getItem("spk_user_id") || "8291613988");
 
+
+  const [newWord, setNewWord] = useState("");
+  const [newMeaning, setNewMeaning] = useState("");
+  const [showAddModal, setShowAddModal] = useState(false);
+
+  const handleAddCustomWord = async (e) => {
+    e.preventDefault();
+    if (!newWord.trim() || !newMeaning.trim()) return;
+
+    try {
+      const res = await fetch(`${BACKEND_URL}/api/vocabulary/add`, {
+        method: "POST",
+        headers: getHeaders(),
+        body: JSON.stringify({
+          userId: effectiveUserId,
+          word: newWord.trim(),
+          meaning: newMeaning.trim(),
+          language: targetLanguage,
+        }),
+      });
+      if (res.ok) {
+        showToast(`✅ «${newWord}» added to your deck!`);
+        setNewWord("");
+        setNewMeaning("");
+        setShowAddModal(false);
+        fetchFlashcards(targetLanguage);
+      }
+    } catch {
+      showToast("Failed to add word", "error");
+    }
+  };
+
   useEffect(() => {
     if (effectiveUserId && effectiveUserId !== "123456789") {
       localStorage.setItem("spk_user_id", effectiveUserId);
@@ -473,6 +505,12 @@ export default function App() {
                   >
                     <Send className="w-3.5 h-3.5" />
                     <span>{actionLoading === "tg-vocab" ? "Sending..." : "Send Vocab to TG"}</span>
+                  </button>
+                  <button
+                    onClick={() => setShowAddModal(true)}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs transition"
+                  >
+                    <span>➕ Add Custom Word</span>
                   </button>
                 </div>
               </div>

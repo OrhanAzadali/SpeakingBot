@@ -23,6 +23,10 @@ import {
   maybeGenerateRoadmap, generateRoadmap, cleanRoadmapText, checkSemanticAnswer, generateLevelTest, evaluateLevelTest,
   generateSkillDrill, evaluateSkillAnswer, generateGrammarGuide, generateGameSessionWords
 } from "./ai.js";
+import { GoogleGenAI } from "@google/genai";
+
+// Lazy Gemini client initialization (zero crash if key missing)
+let geminiClient = null;
 
 const bot = new Bot(process.env.BOT_TOKEN);
 const MINIAPP_URL = process.env.MINIAPP_URL;
@@ -42,6 +46,44 @@ const allowedOrigins = [
 ].filter(Boolean);
 
 const app = express();
+function getGemini() {
+  if (!geminiClient && process.env.GEMINI_API_KEY) {
+    geminiClient = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+  }
+  return geminiClient;
+}
+
+// Universal Model Fallback: Tries Gemini first, then cycles Groq production models!
+export async function withModelFallback(models, callFn) {
+  const gemini = getGemini();
+
+  // 1. Try free Gemini 2.5 Flash if GEMINI_API_KEY is declared
+  if (gemini) {
+    try {
+      const response = await gemini.models.generateContent({
+        model: "gemini-2.5-flash",
+        contents: [{ role: "user", parts: [{ text: prompt }] }],
+      });
+      const text = response.text;
+      if (text) return { choices: [{ message: { content: text } }] };
+    } catch (gErr) {
+      console.warn("Gemini API attempt passed to Groq:", gErr.message);
+    }
+  }
+
+  // 2. Cycle Groq models
+  let lastErr;
+  for (const model of models) {
+    try {
+      return await callFn(model);
+    } catch (err) {
+      lastErr = err;
+      console.warn(`Model "${model}" attempt failed (${err?.status || err?.message}). Cycling...`);
+      continue;
+    }
+  }
+  throw lastErr;
+}
 // ── Drill Question Presenter ──────────────────────────────────────────────────
 async function presentNextDrillQuestion(ctx, userId, question, index, total, skill, languageKey) {
   const header = `🎯 ${skill.toUpperCase()} DRILL [${index + 1}/${total}]\n\n`;
@@ -1306,6 +1348,37 @@ app.post("/api/grammar/generate", async (req, res) => {
   }
 });
 
+// ── POST: Manually Add a Word to User's Vocabulary & Flashcards ───────────────
+app.post("/api/vocabulary/add", async (req, res) => {
+  const rawUserId = req.body?.userId || req.headers["x-user-id"] || (req.telegramUser && req.telegramUser.id);
+  const userId = rawUserId ? Number(rawUserId) : null;
+  if (!userId) return res.status(401).json({ error: "Valid User ID required" });
+
+  const { word, meaning } = req.body;
+  if (!word || !meaning) {
+    return res.status(400).json({ error: "Both word and meaning are required" });
+  }
+
+  const user = await getUser(userId);
+  const lang = String(req.body.language || user?.language || "russian").toLowerCase();
+
+  try {
+    await addFlashcard(userId, {
+      word: word.trim(),
+      initial_form: word.trim(),
+      correction: meaning.trim(),
+      language: lang,
+      context: req.body.sentence || "User added word",
+      part_of_speech: req.body.part_of_speech || "word",
+    });
+
+    res.json({ success: true, message: `«${word}» added to your deck!` });
+  } catch (err) {
+    console.error("Add vocabulary error:", err);
+    res.status(500).json({ error: "Failed to add word" });
+  }
+});
+
 async function sendRoadmapPdfToUser(ctx, userId) {
   const user = await getUser(userId);
   const lang = user?.language || "russian";
@@ -1711,7 +1784,36 @@ bot.command("upgrade", async (ctx) => {
     [{ label: `Premium (${PREMIUM_DURATION_DAYS} days)`, amount: PREMIUM_PRICE_STARS }]
   );
 });
+bot.command(["add", "addword"], async (ctx) => {
+  const userId = ctx.from.id;
+  const user = await getUser(userId);
+  const text = ctx.message.text.replace(/^\/(add|addword)\s*/i, "").trim();
 
+  // Expected format: /add <word> - <translation>
+  if (!text || !text.includes("-")) {
+    await ctx.reply(
+      "📝 *Format to add a word:*\n`/add <word> - <translation>`\n\nExample:\n`/add book - книга`",
+      { parse_mode: "Markdown" }
+    );
+    return;
+  }
+
+  const [targetWord, translation] = text.split("-").map((s) => s.trim());
+  if (!targetWord || !translation) {
+    await ctx.reply("❌ Please provide both the word and translation separated by a dash (-).");
+    return;
+  }
+
+  await addFlashcard(userId, {
+    word: targetWord,
+    initial_form: targetWord,
+    correction: translation,
+    language: user?.language || "russian",
+    context: "Added via Telegram",
+  });
+
+  await ctx.reply(`✅ *Added to your vocabulary:* «${targetWord}» — ${translation}`);
+});
 bot.on("pre_checkout_query", async (ctx) => {
   await ctx.answerPreCheckoutQuery(true);
 });

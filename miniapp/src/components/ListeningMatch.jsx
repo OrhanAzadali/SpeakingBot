@@ -200,13 +200,14 @@ export default function ListeningMatch({ cards, API, authHeaders, onExit }) {
   }
 
   // ── Round complete screen ───────────────────────────────────────────────
-  if (finished) {
+  // Find the finished condition in ListeningMatch.jsx and ensure it has safe fallbacks:
+  if (finished || (roundCards.length > 0 && matchedIds.size === roundCards.length)) {
     const flawless = mistakes === 0;
     return (
-      <div className="min-h-screen flex flex-col items-center justify-center px-6 text-center py-8">
+      <div className="min-h-screen flex flex-col items-center justify-center px-6 text-center py-8 bg-slate-900 text-white">
         <div className="text-6xl mb-4 animate-bounce">{flawless ? "🏆" : "🎧"}</div>
         <h1 className="text-2xl font-bold text-white mb-1">
-          {flawless ? "Flawless round!" : "Round complete!"}
+          {flawless ? "Flawless round!" : `Round ${roundNumber} complete!`}
         </h1>
         <p className="text-slate-400 text-sm mb-6">
           {roundCards.length} pairs matched in {formatTime(elapsed)}
@@ -214,7 +215,6 @@ export default function ListeningMatch({ cards, API, authHeaders, onExit }) {
 
         <div
           className="w-full max-w-xs bg-slate-800/90 border border-slate-700/80 rounded-2xl p-6 mb-6 shadow-xl"
-          style={{ boxShadow: "0 20px 60px rgba(0,0,0,0.4)" }}
         >
           <div className="flex justify-around items-center mb-5">
             <div className="text-center">
@@ -234,23 +234,29 @@ export default function ListeningMatch({ cards, API, authHeaders, onExit }) {
           </div>
           <p className="text-slate-400 text-xs leading-relaxed">
             {flawless
-              ? "Perfect ears! Next round adds one more pair."
-              : "Nice work — try a flawless round to level up the difficulty."}
+              ? "Perfect ears! Ready for the next difficulty tier."
+              : "Good work! Keep practicing to increase accuracy."}
           </p>
         </div>
 
         <div className="w-full max-w-xs flex flex-col gap-3">
           <button
-            onClick={onNextRound ? onNextRound : handlePlayAgain}
+            onClick={() => {
+              if (onNextRound) {
+                onNextRound();
+              } else {
+                handlePlayAgain();
+              }
+            }}
             className="w-full py-3.5 rounded-xl bg-cyan-600 text-white font-semibold text-sm hover:bg-cyan-500 active:scale-95 transition-all shadow-lg shadow-cyan-600/30"
           >
-            Advance to Round {round + 1} 🚀
+            Advance to Round {roundNumber + 1} 🚀
           </button>
           <button
             onClick={onExit}
             className="w-full py-3.5 rounded-xl bg-slate-800 border border-slate-700 text-slate-200 font-semibold text-sm hover:bg-slate-700 active:scale-95 transition-all"
           >
-            Back to games
+            Back to Game Hub
           </button>
         </div>
       </div>
