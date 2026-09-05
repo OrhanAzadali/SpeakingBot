@@ -833,17 +833,30 @@ app.get("/api/grammar", requireTelegramAuth, async (req, res) => {
 });
 
 app.get("/api/grammar/:id", requireTelegramAuth, async (req, res) => {
-  const topic = await getGrammarTopicById(Number(req.params.id), req.telegramUser.id);
+  const topicId = parseInt(req.params.id, 10);
+  if (!topicId || isNaN(topicId)) {
+    return res.status(400).json({ error: "Invalid topic ID" });
+  }
+  const topic = await getGrammarTopicById(topicId, req.telegramUser.id);
   if (!topic) return res.status(404).json({ error: "Grammar topic not found" });
   res.json({ topic });
 });
 
 app.get("/api/grammar/:id/pdf", async (req, res) => {
-  const rawId = req.headers["x-user-id"] || req.query.userId || (req.telegramUser && req.telegramUser.id);
-  const userId = rawId ? Number(rawId) : null;
-  if (!userId) return res.status(401).json({ error: "Unauthorized: Missing userId" });
-
+  // 1. Extract Topic ID from params
   const topicId = parseInt(req.params.id, 10);
+  if (!topicId || isNaN(topicId)) {
+    return res.status(400).json({ error: "Invalid topic ID" });
+  }
+
+  // 2. Extract User ID from query, header, or body
+  const rawUserId = req.query?.userId || req.headers["x-user-id"] || req.body?.userId || (req.telegramUser && req.telegramUser.id);
+  const userId = rawUserId ? Number(rawUserId) : null;
+  if (!userId || userId === 123456789 || isNaN(userId)) {
+    return res.status(400).json({ error: "Valid UserID is required" });
+  }
+
+  // 3. Query topic and user
   const topic = await getGrammarTopicById(topicId, userId);
   if (!topic) return res.status(404).json({ error: "Topic not found" });
 
@@ -853,28 +866,37 @@ app.get("/api/grammar/:id/pdf", async (req, res) => {
 
   try {
     const filePath = await generateGrammarTopicPdf(userId, topic.language, topic, tempPath);
-
-    // Read the requested filename from query, or fall back to the topic's title
     const downloadName = req.query.filename || `${topic.title.replace(/[^\w\d\-]/g, "_")}.pdf`;
 
     res.setHeader("Content-Type", "application/pdf");
-    res.setHeader("Content-Disposition", `attachment; filename="${encodeURIComponent(downloadName)}"`);
-    res.download(filePath, downloadName, async () => {
+    res.setHeader("Content-Disposition", `attachment; filename="${encodeURIComponent(downloadName)}"; filename*=UTF-8''${encodeURIComponent(downloadName)}`);
+
+    const stream = fs.createReadStream(filePath);
+    stream.pipe(res);
+    stream.on("end", async () => {
       await cleanupFile(filePath);
+    });
+    stream.on("error", (sErr) => {
+      console.error("PDF stream error:", sErr);
+      if (!res.headersSent) res.status(500).json({ error: "Stream error" });
     });
   } catch (err) {
     console.error("PDF generation error:", err);
-    res.status(500).json({ error: "Failed to generate PDF" });
+    if (!res.headersSent) res.status(500).json({ error: "Failed to generate PDF" });
   }
 });
 
 // ── Full Grammar Book PDF Download Endpoint (Safe Stream Piping) ───────────
 
-app.get("/api/grammar/pdf", async (req, res) => {
-  const rawId = req.headers["x-user-id"] || req.query.userId || (req.telegramUser && req.telegramUser.id);
-  const userId = rawId ? Number(rawId) : null;
-  if (!userId) return res.status(401).json({ error: "Unauthorized: Missing userId" });
+// ── 1. Full Grammar Book PDF Download (Safe Stream Piping) ────────────────────
 
+app.get("/api/grammar/pdf", async (req, res) => {
+  const rawId = req.body?.userId || req.headers["x-user-id"] || req.query?.userId || (req.telegramUser && req.telegramUser.id);
+  const userId = rawId ? Number(rawId) : null;
+  if (userId === 123456789 || isNaN(userId)) { return res.status(400).json({ error: "Invalid UserID - Valid UserID is required!" }); }
+  if (!userId) {
+    return res.status(401).json({ error: "Unauthorized access! User ID is required!." });
+  }
   const user = await getUser(userId);
   const lang = String(req.query.language || user?.language || "russian").toLowerCase().trim();
   const mediator = String(user?.mediator_language || "english").toLowerCase().trim();
@@ -920,13 +942,14 @@ app.get("/api/grammar/pdf", async (req, res) => {
   }
 });
 
-
 app.post("/api/grammar/send-pdf", async (req, res) => {
-  const rawId = req.body.userId || req.headers["x-user-id"] || req.query.userId || (req.telegramUser && req.telegramUser.id);
+  const rawId = req.body?.userId || req.headers["x-user-id"] || req.query?.userId || (req.telegramUser && req.telegramUser.id);
   const userId = rawId ? Number(rawId) : null;
-  if (!userId || userId === 123456789 || isNaN(userId)) {
-    return res.status(400).json({ error: "Valid Telegram User ID is required." });
+  if (userId === 123456789 || isNaN(userId)) { return res.status(400).json({ error: "Invalid UserID - Valid UserID is required!" }); }
+  if (!userId) {
+    return res.status(401).json({ error: "Unauthorized access! User ID is required!." });
   }
+
 
   const { topicId } = req.body;
   try {
@@ -978,72 +1001,32 @@ app.post("/api/grammar/send-pdf", async (req, res) => {
   }
 });
 
-// ── 3. Vocabulary & Roadmap PDF Delivery ──────────────────────────────────────
-app.get("/api/vocabulary/pdf", requireTelegramAuth, async (req, res) => {
-  const rawId = req.headers["x-user-id"] || req.query.userId || (req.telegramUser && req.telegramUser.id);
-  const userId = rawId ? Number(rawId) : null;
-  if (!userId) return res.status(401).json({ error: "Unauthorized: Missing userId" });
-
-  const user = await getUser(userId);
-  const lang = req.query.language || user?.language || "russian";
-  const tempPath = path.join(tmpdir(), `vocab_web_${userId}_${Date.now()}.pdf`);
-
-  try {
-    const filePath = await generateVocabularyPdf(userId, lang, tempPath);
-    if (!filePath) return res.status(404).json({ error: "No vocabulary found to export." });
-
-    // Read the requested filename from query, or fall back to default
-    const downloadName = req.query.filename || `My_${lang}_Vocabulary.pdf`;
-
-    res.setHeader("Content-Type", "application/pdf");
-    res.setHeader("Content-Disposition", `attachment; filename="${encodeURIComponent(downloadName)}"`);
-    res.download(filePath, downloadName, async () => {
-      await cleanupFile(filePath);
-    });
-  } catch (err) {
-    console.error("Web PDF error:", err);
-    res.status(500).json({ error: "Failed to generate PDF" });
-  }
-});
-
-app.post("/api/vocabulary/send-pdf", requireTelegramAuth, async (req, res) => {
-  const userId = req.telegramUser.id;
-  try {
-    const success = await sendVocabularyPdfToUser(null, userId);
-    if (!success) return res.status(404).json({ error: "No vocabulary found to export" });
-    res.json({ ok: true, message: "Vocabulary PDF sent to your Telegram chat!" });
-  } catch (err) {
-    res.status(500).json({ error: "Failed to generate PDF" });
-  }
-});
 
 // ── 2. Roadmap PDF Download (Language & Level Aware with Safe Stream) ─────────
-app.get("/api/roadmap/pdf", requireTelegramAuth, async (req, res) => {
-  const rawId = req.headers["x-user-id"] || req.query.userId || (req.telegramUser && req.telegramUser.id);
-  const userId = rawId ? Number(rawId) : null;
-  if (!userId) return res.status(401).json({ error: "Unauthorized: Missing userId" });
 
+app.get("/api/roadmap/pdf", async (req, res) => {
+  const rawId = req.body?.userId || req.headers["x-user-id"] || req.query?.userId || (req.telegramUser && req.telegramUser.id);
+  const userId = rawId ? Number(rawId) : null;
+  if (userId === 123456789 || isNaN(userId)) { return res.status(400).json({ error: "Invalid UserID - Valid UserID is required!" }); }
+  if (!userId) {
+    return res.status(401).json({ error: "Unauthorized access! User ID is required!." });
+  }
   const user = await getUser(userId);
-  const lang = (req.query.language || user?.language || "russian").toLowerCase();
+  const lang = String(req.query.language || user?.language || "russian").toLowerCase().trim();
   const level = user?.level || "Beginner";
-  const mediator = user?.mediator_language || "english";
+  const mediator = String(user?.mediator_language || "english").toLowerCase().trim();
 
   let progress = await getRoadmap(userId);
   let roadmapText = progress?.roadmap;
 
-  // Invalidate roadmap if it does not contain the current language or level tag
-  const isLevelMismatch = !roadmapText ||
+  // Verify that cached roadmap matches current target language AND mediator language
+  const isMismatch = !roadmapText ||
     isCorruptedRoadmap(roadmapText) ||
     !roadmapText.toLowerCase().includes(lang) ||
-    !roadmapText.toLowerCase().includes(level.toLowerCase());
+    !roadmapText.toLowerCase().includes(mediator);
 
-  if (isLevelMismatch) {
-    roadmapText = await generateRoadmap(
-      userId,
-      LANGUAGES[lang] || lang,
-      level,
-      mediator
-    );
+  if (isMismatch) {
+    roadmapText = await generateRoadmap(userId, LANGUAGES[lang] || lang, level, mediator);
   }
 
   if (!roadmapText) return res.status(404).json({ error: "No roadmap available" });
@@ -1072,21 +1055,74 @@ app.get("/api/roadmap/pdf", requireTelegramAuth, async (req, res) => {
 });
 
 app.post("/api/roadmap/send-pdf", async (req, res) => {
-  const rawId = req.body.userId || req.headers["x-user-id"] || req.query.userId || (req.telegramUser && req.telegramUser.id);
+  const rawId = req.body?.userId || req.headers["x-user-id"] || req.query?.userId || (req.telegramUser && req.telegramUser.id);
   const userId = rawId ? Number(rawId) : null;
-  if (!userId || userId === 123456789 || isNaN(userId)) {
-    return res.status(400).json({ error: "Valid Telegram User ID is required." });
+  if (userId === 123456789 || isNaN(userId)) { return res.status(400).json({ error: "Invalid UserID - Valid UserID is required!" }); }
+  if (!userId) {
+    return res.status(401).json({ error: "Unauthorized access! User ID is required!." });
   }
-
   try {
     const success = await sendRoadmapPdfToUser(null, userId);
     if (!success) return res.status(404).json({ error: "No roadmap available to export." });
-    res.json({ success: true });
+    res.json({ success: true, message: "Roadmap PDF sent to your Telegram chat!" });
   } catch (err) {
     console.error("Send roadmap PDF error:", err);
     res.status(500).json({ error: err.message || "Failed to send Roadmap PDF to Telegram" });
   }
 });
+
+
+// ── 3. Vocabulary PDF Download (Safe Stream Piping, NO requireTelegramAuth) ───
+app.get("/api/vocabulary/pdf", async (req, res) => {
+  const rawId = req.body?.userId || req.headers["x-user-id"] || req.query?.userId || (req.telegramUser && req.telegramUser.id);
+  const userId = rawId ? Number(rawId) : null;
+  if (userId === 123456789 || isNaN(userId)) { return res.status(400).json({ error: "Invalid UserID - Valid UserID is required!" }); }
+  if (!userId) {
+    return res.status(401).json({ error: "Unauthorized access! User ID is required!." });
+  }
+
+  const user = await getUser(userId);
+  const lang = String(req.query.language || user?.language || "russian").toLowerCase().trim();
+  const tempPath = path.join(tmpdir(), `vocab_web_${userId}_${Date.now()}.pdf`);
+
+  try {
+    const filePath = await generateVocabularyPdf(userId, lang, tempPath);
+    if (!filePath) return res.status(404).json({ error: "No vocabulary found to export." });
+
+    const downloadName = req.query.filename || `My_${lang}_Vocabulary.pdf`;
+
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader("Content-Disposition", `attachment; filename="${encodeURIComponent(downloadName)}"; filename*=UTF-8''${encodeURIComponent(downloadName)}`);
+
+    const stream = fs.createReadStream(filePath);
+    stream.pipe(res);
+    stream.on("end", async () => {
+      await cleanupFile(filePath);
+    });
+    stream.on("error", () => {
+      if (!res.headersSent) res.status(500).json({ error: "Stream error" });
+    });
+  } catch (err) {
+    console.error("Web PDF error:", err);
+    if (!res.headersSent) res.status(500).json({ error: "Failed to generate PDF" });
+  }
+});
+
+app.post("/api/vocabulary/send-pdf", requireTelegramAuth, async (req, res) => {
+  const rawId = req.body?.userId || req.headers["x-user-id"] || req.query?.userId || (req.telegramUser && req.telegramUser.id);
+  const userId = rawId ? Number(rawId) : null;
+  if (userId === 123456789 || isNaN(userId)) { return res.status(400).json({ error: "Invalid UserID - Valid UserID is required!" }); }
+  if (!userId) {
+    return res.status(401).json({ error: "Unauthorized access! User ID is required!." });
+  } try {
+    const success = await sendVocabularyPdfToUser(null, userId);
+    if (!success) return res.status(404).json({ error: "No vocabulary found to export" });
+    res.json({ ok: true, message: "Vocabulary PDF sent to your Telegram chat!" });
+  } catch (err) {
+    res.status(500).json({ error: "Failed to generate PDF" });
+  }
+});
+
 
 async function sendRoadmapPdfToUser(ctx, userId) {
   const user = await getUser(userId);

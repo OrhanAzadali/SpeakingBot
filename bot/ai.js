@@ -1,4 +1,6 @@
-// ai.js — Full Pedagogical Language Immersion & Linguistic Engine
+// YOUR REVISED VERSION - YET STILL BROKEN:
+// ai.js — Complete, Un-truncated Language Immersion & Linguistic Engine
+// ai.js — Complete, Un-truncated Language Immersion & Linguistic Engine
 import Groq, { toFile } from "groq-sdk";
 import { addFlashcard, addHistory, getHistory, countUserMessages, saveRoadmap, saveGrammarTopic } from "./db.js";
 import { MsEdgeTTS, OUTPUT_FORMAT } from "msedge-tts";
@@ -7,17 +9,17 @@ import { tmpdir } from "os";
 
 const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
 
-// Active, high-throughput Groq production models with stable rate limits.
-// Non-existent or low-OTPM experimental models are removed to prevent 404/413/429 crashes.
+// Active, non-decommissioned Groq production models.
+// Decommissioned 'mixtral-8x7b-32768' and non-existent models are removed.
 const CHAT_MODELS = [
   "llama-3.3-70b-versatile",
   "llama-3.1-8b-instant",
-  "mixtral-8x7b-32768"
+  "gemma2-9b-it",
+  "llama3-70b-8192",
+  "llama3-8b-8192"
 ];
 const STT_MODELS = ["whisper-large-v3", "whisper-large-v3-turbo"];
 
-// Tries each model in order, falling back on an actual rate-limit (429) or transient
-// failure. Logs a warning and continues down the list, re-throwing only if all models fail.
 async function withModelFallback(models, callFn) {
   let lastErr;
   for (const model of models) {
@@ -119,7 +121,7 @@ Structure your breakdown cleanly:
     ? `BEGINNER SCAFFOLDING & AUDIO SEPARATION MANDATE:
 - The student is a complete BEGINNER. Their mediator language is ${mediatorLanguage.toUpperCase()}.
 - If the student expresses confusion (e.g. "не понимаю", "i don't understand", "помоги"), asks for translation, or requests help in ${mediatorLanguage}:
-  1. Bridge the gap using ${mediatorLanguage}: explain what the phrase meant, translate it clearly, and give an easy template to reply.
+  1. NEVER stubbornly stay only in ${language}! Use ${mediatorLanguage} to bridge the gap: explain what the phrase meant, translate it clearly, and give an easy template to reply.
 - AUDIO/TEXT SEPARATION (CRITICAL):
   To prevent the ${language} Text-to-Speech voice engine from mispronouncing ${mediatorLanguage} words, wrap the pure ${language} sentences to be read aloud inside [SPEECH]...[/SPEECH] tags!`
     : (isIntermediate
@@ -134,9 +136,7 @@ The student's level is ${level}.
 The student's mediator language is ${mediatorLanguage}.
 
 ${linguisticAccuracyBlock(language)}
-
 ${grammarBreakdownEngine}
-
 ${scaffoldingDirective}
 
 Keep conversational turns natural and supportive. Plain text only: no markdown formatting that disrupts TTS.`;
@@ -154,10 +154,14 @@ Mediator language: ${mediatorLanguage}.
 LANGUAGE MANDATE:
 Write all explanations, corrections, meanings, and linguistic rules strictly in ${responseLang.toUpperCase()}.
 
+META-COMMUNICATION & HELP REQUEST HANDLING:
+- If the student wrote in ${mediatorLanguage} to ask for help, request translation, or state that they don't understand:
+  * Set "correctionText" to a supportive acknowledgment in ${mediatorLanguage}.
+  * Set "mistakes": [].
+
 CRITICAL GRAMMAR TOPIC EXTRACTION MANDATE:
 - Whenever the student asks to explain grammar, words, conjugations, declensions, syntax, or cases, OR whenever this turn explains a grammatical rule/table:
-  YOU MUST POPULATE "grammar_topic" with a complete, structured breakdown!
-  DO NOT set "grammar_topic": null if grammar was explained!
+  YOU MUST POPULATE "grammar_topic" with a complete, structured breakdown! Otherwise, set "grammar_topic": null.
 
 FORMATTING RULES:
 - "explanation": Write clean Markdown headers (###) and tables. NEVER output raw JSON curly braces or string objects like {"target": ...} inside the explanation text!
@@ -192,7 +196,6 @@ export async function generateSkillDrill(skill, targetLanguage, mediatorLanguage
   const count = drillType === "huge" ? 10 : 5;
   const isAdvanced = level.toLowerCase().includes("advanced");
   const isIntermediate = level.toLowerCase().includes("intermediate");
-
   const promptLang = (isAdvanced || isIntermediate) ? targetLanguage : mediatorLanguage;
 
   const prompt = `You are an elite CEFR curriculum designer creating a ${drillType.toUpperCase()} ${skill.toUpperCase()} drill.
@@ -213,7 +216,6 @@ SKILL PURITY MANDATE:
   * EVERY QUESTION MUST test LISTENING COMPREHENSION of an audio passage.
   * "audio_script": Spoken narrative/dialogue 100% in ${targetLanguage} (30-50 words) to be read via TTS audio.
   * "prompt": Comprehension question in ${promptLang} asking about a concrete detail from that audio.
-  * FORBIDDEN: Never ask to write an email or describe personal weekends in a listening drill!
 - If skill is "reading":
   * "reading_passage": 100% in ${targetLanguage} (50-80 words).
   * "prompt": Comprehension question in ${promptLang}.
@@ -951,6 +953,9 @@ export async function transcribeAudio(audioBuffer, filename = "audio.ogg") {
     })
   );
 }
+
+
+//INITIAL CODE:
 // // ai.js
 // import Groq, { toFile } from "groq-sdk";
 // import { addFlashcard, addHistory, getHistory, countUserMessages, saveRoadmap, saveGrammarTopic } from "./db.js";
