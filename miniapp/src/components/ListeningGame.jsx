@@ -21,7 +21,7 @@ function shuffle(arr) {
   return a;
 }
 
-export default function ListeningGame({ cards, API, authHeaders, round = 1, onNextRound, onExit }) {
+export default function ListeningGame({ cards, API, authHeaders, round = 1, onNextRound, onSaveWord, onExit }) {
   const [queue, setQueue] = useState(() => shuffle(cards || []));
   const [current, setCurrent] = useState(null);
   const [questionType, setQuestionType] = useState("choice"); // "type" | "choice"
@@ -37,13 +37,18 @@ export default function ListeningGame({ cards, API, authHeaders, round = 1, onNe
   const [savedWords, setSavedWords] = useState(() => new Set());
 
   const handleSaveCurrentWord = async (card) => {
-    const wordId = card.id || card.word;
-    if (savedWords.has(wordId)) return;
+    if (!card) return;
+    const wordKey = card.id || card.word;
+    if (savedWords.has(wordKey)) return;
 
-    if (onSaveWord) {
-      const success = await onSaveWord(card);
+    if (typeof onSaveWord === "function") {
+      const success = await onSaveWord({
+        ...card,
+        word: card.initial_form || card.word,
+        correction: card.correction || card.meaning
+      });
       if (success) {
-        setSavedWords((prev) => new Set(prev).add(wordId));
+        setSavedWords((prev) => new Set(prev).add(wordKey));
       }
     }
   };

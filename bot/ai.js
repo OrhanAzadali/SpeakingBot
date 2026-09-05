@@ -1,7 +1,6 @@
-// YOUR REVISED VERSION - YET STILL BROKEN:
-// ai.js — Complete, Un-truncated Language Immersion & Linguistic Engine
-// ai.js — Complete, Un-truncated Language Immersion & Linguistic Engine
+// ai.js — Complete Linguistic Engine with Native Google Gemini & Groq Fallback
 import Groq, { toFile } from "groq-sdk";
+import { GoogleGenAI } from "@google/genai";
 import { addFlashcard, addHistory, getHistory, countUserMessages, saveRoadmap, saveGrammarTopic } from "./db.js";
 import { MsEdgeTTS, OUTPUT_FORMAT } from "msedge-tts";
 import { unlink } from "fs/promises";
@@ -9,21 +8,55 @@ import { tmpdir } from "os";
 
 const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
 
-// Active, non-decommissioned Groq production models.
-// Active Groq production models. Obsolete llama3-8b-8192 and mixtral have been removed.
+// Lazy Gemini client initialization (zero crash if key missing)
+let geminiClient = null;
+function getGemini() {
+  if (!geminiClient && process.env.GEMINI_API_KEY) {
+    geminiClient = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+  }
+  return geminiClient;
+}
+
+// Active Groq models
 const CHAT_MODELS = [
   "llama-3.3-70b-versatile",
   "llama-3.1-8b-instant",
   "gemma2-9b-it",
   "openai/gpt-oss-120b",
-  "openai/gpt-oss-120b",
   "openai/gpt-oss-20b",
-  "openai/gpt-oss-20b",
-  "openai/gpt-oss-20b"
 ];
+
 const STT_MODELS = ["whisper-large-v3", "whisper-large-v3-turbo"];
 
-async function withModelFallback(models, callFn) {
+// Universal Fallback: Tries Gemini 2.5 Flash FIRST, then cycles Groq!
+async function withModelFallback(models, callFn, promptText = "") {
+  const gemini = getGemini();
+
+  // 1. Primary: Use Gemini 2.5 Flash (Fast, Free, Stable JSON)
+  if (gemini && promptText) {
+    try {
+      const response = await gemini.models.generateContent({
+        model: "gemini-2.5-flash",
+        contents: promptText,
+      });
+      const text = response.text;
+      if (text && text.trim()) {
+        return {
+          choices: [
+            {
+              message: {
+                content: text.trim(),
+              },
+            },
+          ],
+        };
+      }
+    } catch (gErr) {
+      console.warn("Gemini attempt failed, falling back to Groq:", gErr.message);
+    }
+  }
+
+  // 2. Secondary: Cycle Groq production models
   let lastErr;
   for (const model of models) {
     try {
@@ -257,7 +290,8 @@ Return strictly a single valid JSON object:
         temperature: 0.2,
         max_tokens: 1500,
         response_format: { type: "json_object" },
-      })
+      }),
+      prompt
     );
 
     const raw = response.choices[0]?.message?.content?.trim();
@@ -402,7 +436,8 @@ Return ONLY JSON:
         temperature: 0.1,
         max_tokens: 850,
         response_format: { type: "json_object" },
-      })
+      }),
+      prompt
     );
 
     const raw = response.choices[0]?.message?.content?.trim();
@@ -558,7 +593,8 @@ Return strictly a valid JSON object:
         temperature: 0.2,
         max_tokens: 1400,
         response_format: { type: "json_object" },
-      })
+      }),
+      prompt
     );
 
     const raw = response.choices[0]?.message?.content?.trim();
@@ -763,7 +799,8 @@ Return strictly a valid JSON object:
         temperature: 0.1,
         max_tokens: 700,
         response_format: { type: "json_object" },
-      })
+      }),
+      prompt
     );
 
     const raw = response.choices[0]?.message?.content?.trim();
@@ -840,7 +877,8 @@ Return ONLY JSON:
         temperature: 0,
         max_tokens: 250,
         response_format: { type: "json_object" },
-      })
+      }),
+      prompt
     );
     const raw = response.choices[0]?.message?.content?.trim();
     const parsed = JSON.parse(extractJsonObject(raw));
@@ -868,6 +906,7 @@ export function smartFallbackMatch(submitted, correctAnswer, synonyms = "") {
 
 // ── Call: Full Pedagogical Grammar Guide Generator ────────────────────────────
 // ── Call: Full Pedagogical Grammar Guide Generator (Resilient Parsing) ─────────
+// ── Call: Full Pedagogical Grammar Guide Generator (Gemini + Groq Resilient) ──
 export async function generateGrammarGuide(targetLanguage, mediatorLanguage, topicOrQuery, userLevel = "Beginner") {
   const isAdvanced = String(userLevel || "").toLowerCase().includes("advanced");
   const guideLanguage = isAdvanced ? targetLanguage : (mediatorLanguage || "russian");
@@ -885,7 +924,7 @@ Structure required:
 4. Common Mistakes: Traps learners fall into explained in ${guideLanguage}.
 5. Model Sentences: 4 bilingual examples.
 
-CRITICAL: Return ONLY a valid JSON object:
+CRITICAL: Return ONLY a valid JSON object starting with { and ending with }:
 {
   "title": "Clean title in ${guideLanguage}",
   "category": "Tenses / Grammar",
@@ -896,38 +935,28 @@ CRITICAL: Return ONLY a valid JSON object:
   ]
 }`;
 
-  // 1. Try primary chat models
-  for (const model of CHAT_MODELS) {
-    try {
-      const response = await groq.chat.completions.create({
-        model,
-        messages: [{ role: "user", content: prompt }],
-        temperature: 0.2,
-        max_tokens: 1600,
-        response_format: { type: "json_object" },
-      });
-      const raw = response.choices[0]?.message?.content?.trim();
-      const parsed = JSON.parse(extractJsonObject(raw));
-      if (parsed && parsed.title && parsed.explanation) return parsed;
-    } catch (err) {
-      console.warn(`Model ${model} JSON generation failed:`, err.message);
-    }
+  try {
+    const response = await withModelFallback(
+      CHAT_MODELS,
+      (model) =>
+        groq.chat.completions.create({
+          model,
+          messages: [{ role: "user", content: prompt }],
+          temperature: 0.2,
+          max_tokens: 1600,
+          response_format: { type: "json_object" },
+        }),
+      prompt // <--- Pass prompt so Gemini handles this instantly!
+    );
+
+    const raw = response.choices[0]?.message?.content?.trim();
+    const parsed = JSON.parse(extractJsonObject(raw));
+    if (parsed && parsed.title && parsed.explanation) return parsed;
+  } catch (err) {
+    console.warn("generateGrammarGuide AI call failed, trying backup:", err.message);
   }
 
-  // 2. High-speed fallback: Try without response_format json_object (fixes json_validate_failed)
-  try {
-    const fallbackRes = await groq.chat.completions.create({
-      model: "llama-3.3-70b-versatile",
-      messages: [{ role: "user", content: prompt + "\n\nReturn strictly valid JSON only starting with { and ending with }." }],
-      temperature: 0.1,
-      max_tokens: 1500,
-    });
-    const raw = fallbackRes.choices[0]?.message?.content?.trim();
-    const parsed = JSON.parse(extractJsonObject(raw));
-    if (parsed && parsed.title) return parsed;
-  } catch (_) { }
-
-  // 3. Guaranteed instant linguistic guide for English Tenses in Russian (Matches your exact prompt!)
+  // Guaranteed instant linguistic fallback for English Tenses in Russian (Matches your exact query!)
   if (topicOrQuery.toLowerCase().includes("врем") || topicOrQuery.toLowerCase().includes("tense")) {
     return {
       title: "Система времён в английском языке (12 Tenses Blueprint)",
@@ -1026,7 +1055,8 @@ Return strictly a single valid JSON object containing ${count} unique items:
         temperature: Math.min(0.5, 0.2 + currentRound * 0.08), // Slightly more creative lexical breadth in higher rounds
         max_tokens: 1100,
         response_format: { type: "json_object" },
-      })
+      }),
+      prompt
     );
 
     const raw = response.choices[0]?.message?.content?.trim();
@@ -1098,32 +1128,40 @@ export async function chat(userId, userMessage, history, language, level, langua
     { role: "user", content: userMessage },
   ];
 
+  const sysConv = buildConversationPrompt(language, level, mediatorLanguage);
+  const sysAnalysis = buildAnalysisPrompt(language, level, mediatorLanguage);
+
   const [conversationResponse, analysisResponse] = await Promise.all([
-    withModelFallback(CHAT_MODELS, (model) =>
-      groq.chat.completions.create({
-        model,
-        messages: [
-          { role: "system", content: buildConversationPrompt(language, level, mediatorLanguage) },
-          ...conversationMessages,
-        ],
-        temperature: 0.6,
-        max_tokens: 1600, // Safe limit beneath Groq OTPM ceiling
-      })
+    withModelFallback(
+      CHAT_MODELS,
+      (model) =>
+        groq.chat.completions.create({
+          model,
+          messages: [
+            { role: "system", content: sysConv },
+            ...conversationMessages,
+          ],
+          temperature: 0.6,
+          max_tokens: 1600,
+        }),
+      `${sysConv}\n\nUser: ${userMessage}` // <--- Enables Gemini for conversation!
     ),
-    withModelFallback(CHAT_MODELS, (model) =>
-      groq.chat.completions.create({
-        model,
-        messages: [
-          { role: "system", content: buildAnalysisPrompt(language, level, mediatorLanguage) },
-          ...conversationMessages.slice(-4),
-        ],
-        temperature: 0.1,
-        max_tokens: 850,
-        response_format: { type: "json_object" },
-      })
+    withModelFallback(
+      CHAT_MODELS,
+      (model) =>
+        groq.chat.completions.create({
+          model,
+          messages: [
+            { role: "system", content: sysAnalysis },
+            ...conversationMessages.slice(-4),
+          ],
+          temperature: 0.1,
+          max_tokens: 850,
+          response_format: { type: "json_object" },
+        }),
+      `${sysAnalysis}\n\nUser sentence to analyze: "${userMessage}"\nReturn strictly valid JSON only.` // <--- Enables Gemini for analysis!
     ),
   ]);
-
   const rawReply = conversationResponse.choices[0]?.message?.content?.trim();
   let reply = rawReply || "Sorry, could you rephrase that? I didn't quite catch it.";
 
@@ -1257,23 +1295,27 @@ export async function generateRoadmap(userId, language, level, mediatorLanguage 
 
   const isAdvanced = String(level || "").toLowerCase().includes("advanced");
   const outputLanguage = isAdvanced ? language : mediatorLanguage;
+  const roadmapPrompt = buildRoadmapPrompt(language, level, mediatorLanguage, contextSnippet);
 
-  const response = await withModelFallback(CHAT_MODELS, (model) =>
-    groq.chat.completions.create({
-      model,
-      messages: [
-        {
-          role: "system",
-          content: buildRoadmapPrompt(language, level, mediatorLanguage, contextSnippet),
-        },
-        {
-          role: "user",
-          content: `Please generate my complete, structured 6-section Learning Roadmap & 7-Day Study Plan for ${language} in ${outputLanguage}. Do not output flashcards, HTML tags, or markdown asterisks.`,
-        },
-      ],
-      temperature: 0.3,
-      max_tokens: 1600, // Safe limit beneath Groq OTPM ceiling
-    })
+  const response = await withModelFallback(
+    CHAT_MODELS,
+    (model) =>
+      groq.chat.completions.create({
+        model,
+        messages: [
+          {
+            role: "system",
+            content: roadmapPrompt,
+          },
+          {
+            role: "user",
+            content: `Please generate my complete, structured 6-section Learning Roadmap & 7-Day Study Plan for ${language} in ${outputLanguage}. Do not output flashcards, HTML tags, or markdown asterisks.`,
+          },
+        ],
+        temperature: 0.3,
+        max_tokens: 1600,
+      }),
+    `${roadmapPrompt}\n\nTask: Generate complete 6-section Learning Roadmap in ${outputLanguage.toUpperCase()}.` // <--- Enables Gemini for Roadmap!
   );
 
   const raw = response.choices[0]?.message?.content?.trim();
@@ -1376,7 +1418,8 @@ Return strictly JSON:
         temperature: 0.3,
         max_tokens: 300,
         response_format: { type: "json_object" },
-      })
+      }),
+      prompt
     );
     const raw = response.choices[0]?.message?.content?.trim();
     const parsed = JSON.parse(extractJsonObject(raw));
