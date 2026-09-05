@@ -42,6 +42,47 @@ const allowedOrigins = [
 ].filter(Boolean);
 
 const app = express();
+// ── Drill Question Presenter ──────────────────────────────────────────────────
+async function presentNextDrillQuestion(ctx, userId, question, index, total, skill, languageKey) {
+  const header = `🎯 ${skill.toUpperCase()} DRILL [${index + 1}/${total}]\n\n`;
+
+  if (skill === "listening" && question.audio_script) {
+    try {
+      const audioPath = await textToSpeech(question.audio_script, languageKey);
+      if (audioPath) {
+        await bot.api.sendVoice(userId, new InputFile(audioPath), {
+          caption: `🎧 Voice passage for Question ${index + 1}. Listen carefully!`,
+        });
+        await cleanupFile(audioPath);
+      }
+    } catch (e) {
+      console.warn("TTS drill audio error:", e.message);
+    }
+  }
+
+  let passageText = "";
+  if (skill === "reading" && question.reading_passage) {
+    passageText = `📖 Passage:\n"${question.reading_passage}"\n\n`;
+  }
+
+  const cleanPrompt = String(question.prompt || "").replace(/_____/g, "[ ... ]");
+
+  if (question.type === "choice" && Array.isArray(question.options)) {
+    const kb = new InlineKeyboard();
+    question.options.forEach((opt, optIdx) => {
+      kb.text(opt, `drillopt_${index}_${optIdx}`).row();
+    });
+
+    const body = `${header}${passageText}${cleanPrompt}\n\n👉 Select your answer:`;
+    await bot.api.sendMessage(userId, body, { reply_markup: kb });
+  } else if (skill === "speaking") {
+    const body = `${header}${cleanPrompt}\n\n🎙 Hold the microphone button and SEND A VOICE MESSAGE with your response!`;
+    await bot.api.sendMessage(userId, body);
+  } else {
+    const body = `${header}${passageText}${cleanPrompt}\n\n✍️ Type your answer in the chat below:`;
+    await bot.api.sendMessage(userId, body);
+  }
+}
 app.use(cors({
   origin: (origin, callback) => {
     if (!origin) return callback(null, true);
@@ -1844,7 +1885,10 @@ bot.callbackQuery(/^drillsize_(listening|speaking|reading|writing)_(short|huge)$
 
 
 async function presentNextTestQuestion(ctx, userId, question, index, total) {
-  const header = `📝 *Question ${index + 1} of ${total}* [Target: ${question.cefr_target} • ${question.skill}]\n\n`;
+  const header = `📝 Question ${index + 1} of ${total} [Target: ${question.cefr_target} • ${question.skill}]\n\n`;
+
+  // Sanitize any stray Markdown characters that crash Telegram parser
+  const cleanPrompt = String(question.prompt || "").replace(/_____/g, "[ ... ]");
 
   if (question.type === "choice" && Array.isArray(question.options)) {
     const kb = new InlineKeyboard();
@@ -1852,18 +1896,27 @@ async function presentNextTestQuestion(ctx, userId, question, index, total) {
       kb.text(opt, `testopt_${index}_${optIdx}`).row();
     });
 
-    const body = `${header}${question.prompt}\n\n👉 *Select the best variant below:*`;
-    if (ctx.callbackQuery) {
-      await ctx.editMessageText(body, { parse_mode: "Markdown", reply_markup: kb });
-    } else {
-      await ctx.reply(body, { parse_mode: "Markdown", reply_markup: kb });
+    const body = `${header}${cleanPrompt}\n\n👉 Select the best variant below:`;
+    try {
+      if (ctx.callbackQuery) {
+        await ctx.editMessageText(body, { reply_markup: kb });
+      } else {
+        await ctx.reply(body, { reply_markup: kb });
+      }
+    } catch {
+      // Fallback: send as a fresh plain-text message if edit fails
+      await bot.api.sendMessage(userId, body, { reply_markup: kb });
     }
   } else {
-    const body = `${header}${question.prompt}\n\n✍️ *Please type your answer in the chat:*`;
-    if (ctx.callbackQuery) {
-      await ctx.editMessageText(body, { parse_mode: "Markdown" });
-    } else {
-      await ctx.reply(body, { parse_mode: "Markdown" });
+    const body = `${header}${cleanPrompt}\n\n✍️ Please type your answer directly in the chat:`;
+    try {
+      if (ctx.callbackQuery) {
+        await ctx.editMessageText(body);
+      } else {
+        await ctx.reply(body);
+      }
+    } catch {
+      await bot.api.sendMessage(userId, body);
     }
   }
 }

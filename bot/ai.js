@@ -10,12 +10,11 @@ import { tmpdir } from "os";
 const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
 
 // Active, non-decommissioned Groq production models.
+// Active Groq production models. Obsolete llama3-8b-8192 and mixtral have been removed.
 const CHAT_MODELS = [
   "llama-3.3-70b-versatile",
   "llama-3.1-8b-instant",
   "gemma2-9b-it",
-  "llama3-70b-8192",
-  "llama3-8b-8192",
   "openai/gpt-oss-120b",
   "openai/gpt-oss-120b",
   "openai/gpt-oss-20b",
@@ -460,203 +459,100 @@ export async function evaluateSkillAnswer(skill, targetLanguage, mediatorLanguag
 }
 
 // ── Call 6: CEFR Placement Test Generator ─────────────────────────────────────
-// ── Call 6: CEFR Placement Test Generator (Complete Sentences with Cloze Gaps) ─
-export async function generateLevelTest(targetLanguage, mediatorLanguage = "english") {
-  const prompt = `You are a certified psychometric CEFR language testing specialist.
-Create a high-quality 5-question diagnostic placement test for ${targetLanguage}.
-Student mediator language: ${mediatorLanguage}.
-
-CRITICAL MANDATES:
-1. EVERY SINGLE QUESTION MUST INCLUDE THE FULL TARGET SENTENCE!
-   - For Multiple-Choice Questions (Q1, Q2, Q3):
-     * "prompt" MUST contain the instruction in ${mediatorLanguage} PLUS a full natural sentence in ${targetLanguage} containing a clear blank gap "_____" where the chosen option fits!
-     * NEVER output a prompt like "Choose the correct word" without the actual sentence!
-     * Example of valid prompt: "Выберите правильное слово для предложения:\n«Утром я обычно пью горячий _____ с лимоном.»"
-   - For Morphology / Conjugation (Q4):
-     * "prompt" MUST explicitly name the base word in quotation marks AND specify the exact target tense/gender/case to produce!
-     * Example: "Напишите глагол «исправить» в форме прошедшего времени мужского рода:"
-   - For Production (Q5):
-     * "prompt" MUST give a clear, specific conversational scenario asking for 1-2 complete sentences in ${targetLanguage}.
-2. OPTIONS & DISTRACTORS:
-   - "options": Must be 4 authentic, real words in ${targetLanguage}.
-   - "correct_option": Must match exactly one of the 4 options.
-3. INSTRUCTION LANGUAGE:
-   - For Q1-Q3: Instructions in ${mediatorLanguage}, sentences in ${targetLanguage}.
-   - For Q4-Q5: Clear task prompt in ${mediatorLanguage} or ${targetLanguage}.
-
-Return strictly a valid JSON object:
-{
-  "questions": [
+// Dynamic, verified complete sentences using [ ... ] instead of _____ to stop Telegram Markdown parse errors!
+return {
+  questions: [
     {
-      "id": 1,
-      "type": "choice",
-      "cefr_target": "A1-A2",
-      "skill": "Vocabulary",
-      "prompt": "Instruction in ${mediatorLanguage} + complete sentence in ${targetLanguage} with ____",
-      "options": ["A) ...", "B) ...", "C) ...", "D) ..."],
-      "correct_option": "A) ..."
+      id: 1,
+      type: "choice",
+      cefr_target: "A1-A2",
+      skill: "Vocabulary",
+      prompt: isRu
+        ? "Выберите подходящее слово, чтобы закончить предложение:\n\n«Утром перед работой я обычно пью горячий [ ... ] с сахаром.»"
+        : (isDe
+          ? "Wählen Sie das passende Wort, um den Satz zu vervollständigen:\n\n«Morgens vor der Arbeit trinke ich gern heißen [ ... ] mit Zucker.»"
+          : (isEs
+            ? "Seleccione la palabra correcta para completar la frase:\n\n«Por la mañana antes de trabajar siempre tomo un [ ... ] caliente.»"
+            : "Choose the correct word to complete the sentence:\n\n«In the morning before work, I usually drink a hot cup of [ ... ] with milk.»")),
+      options: isRu
+        ? ["A) кофе", "B) хлеб", "C) стол", "D) шкаф"]
+        : (isDe
+          ? ["A) Kaffee", "B) Brot", "C) Tisch", "D) Stuhl"]
+          : (isEs
+            ? ["A) café", "B) pan", "C) mesa", "D) libro"]
+            : ["A) coffee", "B) bread", "C) table", "D) chair"])),
+      correct_option: isRu ? "A) кофе" : (isDe ? "A) Kaffee" : (isEs ? "A) café" : "A) coffee"))
     },
     {
-      "id": 2,
-      "type": "choice",
-      "cefr_target": "B1",
-      "skill": "Grammar",
-      "prompt": "Instruction in ${mediatorLanguage} + complete sentence in ${targetLanguage} with ____",
-      "options": ["A) ...", "B) ...", "C) ...", "D) ..."],
-      "correct_option": "B) ..."
+      id: 2,
+      type: "choice",
+      cefr_target: "B1",
+      skill: "Grammar",
+      prompt: isRu
+        ? "Выберите правильную форму глагола для предложения:\n\n«Если завтра не будет дождя, мы обязательно [ ... ] в парк.»"
+        : (isDe
+          ? "Wählen Sie die richtige Verbform für den Satz:\n\n«Wenn es morgen nicht regnet, [ ... ] wir bestimmt in den Park.»"
+          : (isEs
+            ? "Seleccione la forma verbal correcta para la frase:\n\n«Si no llueve mañana, nosotros [ ... ] al parque.»"
+            : "Choose the correct verb form for the sentence:\n\n«If it doesn't rain tomorrow, we [ ... ] to the park.»")),
+      options: isRu
+        ? ["A) пойдём", "B) пошли", "C) ходить", "D) пойдя"]
+        : (isDe
+          ? ["A) gehen", "B) ging", "C) gegangen", "D) gehst"]
+          : (isEs
+            ? ["A) iremos", "B) fueron", "C) ir", "D) yendo"]
+            : ["A) will go", "B) went", "C) gone", "D) goes"])),
+      correct_option: isRu ? "A) пойдём" : (isDe ? "A) gehen" : (isEs ? "A) iremos" : "A) will go"))
     },
     {
-      "id": 3,
-      "type": "choice",
-      "cefr_target": "B2",
-      "skill": "Syntax",
-      "prompt": "Instruction in ${mediatorLanguage} + complete sentence in ${targetLanguage} with ____",
-      "options": ["A) ...", "B) ...", "C) ...", "D) ..."],
-      "correct_option": "C) ..."
+      id: 3,
+      type: "choice",
+      cefr_target: "B2",
+      skill: "Syntax",
+      prompt: isRu
+        ? "Выберите подходящий союз, чтобы связать части предложения:\n\n«Анна решила пойти на прогулку, [ ... ] на улице было достаточно холодно.»"
+        : (isDe
+          ? "Wählen Sie die passende Konjunktion für das Satzgefüge:\n\n«Anna ging spazieren, [ ... ] es draußen ziemlich kalt war.»"
+          : (isEs
+            ? "Seleccione la conjunción adecuada para la oración:\n\n«Ana decidió salir a caminar, [ ... ] hacía bastante frío afuera.»"
+            : "Choose the appropriate conjunction to complete the sentence:\n\n«Anna decided to go for a walk, [ ... ] it was quite cold outside.»")),
+      options: isRu
+        ? ["A) хотя", "B) потому что", "C) чтобы", "D) если"]
+        : (isDe
+          ? ["A) obwohl", "B) weil", "C) damit", "D) wenn"]
+          : (isEs
+            ? ["A) aunque", "B) porque", "C) para que", "D) si"]
+            : ["A) although", "B) because", "C) in order to", "D) if"])),
+      correct_option: isRu ? "A) хотя" : (isDe ? "A) obwohl" : (isEs ? "A) aunque" : "A) although"))
     },
     {
-      "id": 4,
-      "type": "open",
-      "cefr_target": "B1-B2",
-      "skill": "Morphology",
-      "prompt": "Prompt explicitly providing the base word «...» and requesting specific form in ${targetLanguage}."
+      id: 4,
+      type: "open",
+      cefr_target: "B1-B2",
+      skill: "Morphology",
+      prompt: isRu
+        ? "Поставьте глагол «исправить» в форму прошедшего времени мужского рода единственного числа (Он что сделал?):"
+        : (isDe
+          ? "Konjugieren Sie das Verb «entscheiden» im Präteritum für die 3. Person Singular (er/sie/es):"
+          : (isEs
+            ? "Conjuga el verbo «escribir» en pretérito perfecto simple para la primera persona singular (yo):"
+            : "Provide the simple past tense form of the irregular verb «to choose»:"))
     },
     {
-      "id": 5,
-      "type": "open",
-      "cefr_target": "C1",
-      "skill": "Production",
-      "prompt": "Specific topic prompt asking to compose 1-2 sentences in ${targetLanguage}."
+      id: 5,
+      type: "open",
+      cefr_target: "C1",
+      skill: "Production",
+      prompt: isRu
+        ? "Напишите 1-2 развернутых предложения на русском языке, выражающих ваше мнение: «Помогает ли искусственный интеллект быстрее осваивать иностранные языки?»"
+        : (isDe
+          ? "Schreiben Sie 1-2 Sätze auf Deutsch zu der Frage: «Hilft künstliche Intelligenz dabei, Sprachen schneller zu lernen?»"
+          : (isEs
+            ? "Escribe 1-2 oraciones en español expresando tu opinión: «¿Ayuda la inteligencia artificial a aprender idiomas más rápido?»"
+            : `Write 1-2 complete sentences in ${targetLanguage} expressing your opinion on language learning.`))
     }
   ]
-}`;
-
-  try {
-    const response = await withModelFallback(CHAT_MODELS, (model) =>
-      groq.chat.completions.create({
-        model,
-        messages: [{ role: "user", content: prompt }],
-        temperature: 0.2,
-        max_tokens: 1400,
-        response_format: { type: "json_object" },
-      })
-    );
-
-    const raw = response.choices[0]?.message?.content?.trim();
-    const parsed = JSON.parse(extractJsonObject(raw));
-    const questions = parsed.questions || Object.values(parsed).find(Array.isArray);
-
-    // Verify that every choice question actually contains a sentence with a blank!
-    if (Array.isArray(questions) && questions.length >= 5) {
-      const allValid = questions.slice(0, 3).every(q => q.prompt && (q.prompt.includes("___") || q.prompt.includes("...")));
-      if (allValid) return { questions };
-    }
-    throw new Error("Generated questions lacked required cloze sentences");
-  } catch (err) {
-    console.warn(`generateLevelTest fallback activated for ${targetLanguage}:`, err.message);
-
-    const langLower = String(targetLanguage || "").toLowerCase();
-    const isRu = langLower.includes("russ");
-    const isDe = langLower.includes("germ");
-    const isEs = langLower.includes("span");
-    const isFr = langLower.includes("fren");
-
-    // Dynamic, verified complete sentences with blanks (_____), zero missing sentences!
-    return {
-      questions: [
-        {
-          id: 1,
-          type: "choice",
-          cefr_target: "A1-A2",
-          skill: "Vocabulary",
-          prompt: isRu
-            ? "Выберите подходящее слово, чтобы закончить предложение:\n\n«Утром перед работой я обычно пью горячий _____ с сахаром.»"
-            : (isDe
-              ? "Wählen Sie das passende Wort, um den Satz zu vervollständigen:\n\n«Morgens vor der Arbeit trinke ich gern heißen _____ mit Zucker.»"
-              : (isEs
-                ? "Seleccione la palabra correcta para completar la frase:\n\n«Por la mañana antes de trabajar siempre tomo un _____ caliente.»"
-                : "Choose the correct word to complete the sentence:\n\n«In the morning before work, I usually drink a hot cup of _____ with milk.»")),
-          options: isRu
-            ? ["A) кофе", "B) хлеб", "C) стол", "D) шкаф"]
-            : (isDe
-              ? ["A) Kaffee", "B) Brot", "C) Tisch", "D) Stuhl"]
-              : (isEs
-                ? ["A) café", "B) pan", "C) mesa", "D) libro"]
-                : ["A) coffee", "B) bread", "C) table", "D) chair"])),
-          correct_option: isRu ? "A) кофе" : (isDe ? "A) Kaffee" : (isEs ? "A) café" : "A) coffee"))
-        },
-        {
-          id: 2,
-          type: "choice",
-          cefr_target: "B1",
-          skill: "Grammar",
-          prompt: isRu
-            ? "Выберите правильную форму глагола для предложения:\n\n«Если завтра не будет дождя, мы обязательно _____ в парк.»"
-            : (isDe
-              ? "Wählen Sie die richtige Verbform für den Satz:\n\n«Wenn es morgen nicht regnet, _____ wir bestimmt in den Park.»"
-              : (isEs
-                ? "Seleccione la forma verbal correcta para la frase:\n\n«Si no llueve mañana, nosotros _____ al parque.»"
-                : "Choose the correct verb form for the sentence:\n\n«If it doesn't rain tomorrow, we _____ to the park.»")),
-          options: isRu
-            ? ["A) пойдём", "B) пошли", "C) ходить", "D) пойдя"]
-            : (isDe
-              ? ["A) gehen", "B) ging", "C) gegangen", "D) gehst"]
-              : (isEs
-                ? ["A) iremos", "B) fueron", "C) ir", "D) yendo"]
-                : ["A) will go", "B) went", "C) gone", "D) goes"])),
-          correct_option: isRu ? "A) пойдём" : (isDe ? "A) gehen" : (isEs ? "A) iremos" : "A) will go"))
-        },
-        {
-          id: 3,
-          type: "choice",
-          cefr_target: "B2",
-          skill: "Syntax",
-          prompt: isRu
-            ? "Выберите подходящий союз, чтобы связать части предложения:\n\n«Анна решила пойти на прогулку, _____ на улице было достаточно холодно.»"
-            : (isDe
-              ? "Wählen Sie die passende Konjunktion für das Satzgefüge:\n\n«Anna ging spazieren, _____ es draußen ziemlich kalt war.»"
-              : (isEs
-                ? "Seleccione la conjunción adecuada para la oración:\n\n«Ana decidió salir a caminar, _____ hacía bastante frío afuera.»"
-                : "Choose the appropriate conjunction to complete the sentence:\n\n«Anna decided to go for a walk, _____ it was quite cold outside.»")),
-          options: isRu
-            ? ["A) хотя", "B) потому что", "C) чтобы", "D) если"]
-            : (isDe
-              ? ["A) obwohl", "B) weil", "C) damit", "D) wenn"]
-              : (isEs
-                ? ["A) aunque", "B) porque", "C) para que", "D) si"]
-                : ["A) although", "B) because", "C) in order to", "D) if"])),
-          correct_option: isRu ? "A) хотя" : (isDe ? "A) obwohl" : (isEs ? "A) aunque" : "A) although"))
-        },
-        {
-          id: 4,
-          type: "open",
-          cefr_target: "B1-B2",
-          skill: "Morphology",
-          prompt: isRu
-            ? "Поставьте глагол «исправить» в форму прошедшего времени мужского рода единственного числа (Он что сделал?):"
-            : (isDe
-              ? "Konjugieren Sie das Verb «entscheiden» im Präteritum für die 3. Person Singular (er/sie/es):"
-              : (isEs
-                ? "Conjuga el verbo «escribir» en pretérito perfecto simple para la primera persona singular (yo):"
-                : "Provide the simple past tense form of the irregular verb «to choose»:"))
-        },
-        {
-          id: 5,
-          type: "open",
-          cefr_target: "C1",
-          skill: "Production",
-          prompt: isRu
-            ? "Напишите 1-2 развернутых предложения на русском языке, выражающих ваше мнение: «Помогает ли искусственный интеллект быстрее осваивать иностранные языки?»"
-            : (isDe
-              ? "Schreiben Sie 1-2 Sätze auf Deutsch zu der Frage: «Hilft künstliche Intelligenz dabei, Sprachen schneller zu lernen?»"
-              : (isEs
-                ? "Escribe 1-2 oraciones en español expresando tu opinión: «¿Ayuda la inteligencia artificial a aprender idiomas más rápido?»"
-                : `Write 1-2 complete sentences in ${targetLanguage} expressing your opinion: «Does technology make learning foreign languages easier or harder?»`))
-        }
-      ]
-    };
-  }
-}
+};
 
 // ── Call 7: Universal CEFR Placement Test Evaluator ───────────────────────────
 // ── Call 7: Universal CEFR Placement Test Evaluator ───────────────────────────
