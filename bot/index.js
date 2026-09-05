@@ -1823,38 +1823,28 @@ bot.callbackQuery(/^drillsize_(listening|speaking|reading|writing)_(short|huge)$
   }
 });
 
-async function presentNextDrillQuestion(ctx, userId, question, index, total, skill, languageKey) {
-  const header = `🎯 ${skill.toUpperCase()} DRILL [${index + 1}/${total}]\n\n`;
-
-  if (skill === "listening" && question.audio_script) {
-    const audioPath = await textToSpeech(question.audio_script, languageKey);
-    if (audioPath) {
-      await bot.api.sendVoice(userId, new InputFile(audioPath), {
-        caption: `🎧 Voice passage for Question ${index + 1}. Listen carefully!`,
-      });
-      await cleanupFile(audioPath);
-    }
-  }
-
-  let passageText = "";
-  if (skill === "reading" && question.reading_passage) {
-    passageText = `📖 Passage:\n"${question.reading_passage}"\n\n`;
-  }
+async function presentNextTestQuestion(ctx, userId, question, index, total) {
+  const header = `📝 *Question ${index + 1} of ${total}* [Target: ${question.cefr_target} • ${question.skill}]\n\n`;
 
   if (question.type === "choice" && Array.isArray(question.options)) {
     const kb = new InlineKeyboard();
     question.options.forEach((opt, optIdx) => {
-      kb.text(opt, `drillopt_${index}_${optIdx}`).row();
+      kb.text(opt, `testopt_${index}_${optIdx}`).row();
     });
 
-    const body = `${header}${passageText}${question.prompt}\n\n👉 Select your answer:`;
-    await bot.api.sendMessage(userId, body, { reply_markup: kb });
-  } else if (skill === "speaking") {
-    const body = `${header}${question.prompt}\n\n🎙 Hold the microphone button and SEND A VOICE MESSAGE with your response!`;
-    await bot.api.sendMessage(userId, body);
+    const body = `${header}${question.prompt}\n\n👉 *Select the best variant below:*`;
+    if (ctx.callbackQuery) {
+      await ctx.editMessageText(body, { parse_mode: "Markdown", reply_markup: kb });
+    } else {
+      await ctx.reply(body, { parse_mode: "Markdown", reply_markup: kb });
+    }
   } else {
-    const body = `${header}${passageText}${question.prompt}\n\n✍️ Type your answer in the chat below:`;
-    await bot.api.sendMessage(userId, body);
+    const body = `${header}${question.prompt}\n\n✍️ *Please type your answer in the chat:*`;
+    if (ctx.callbackQuery) {
+      await ctx.editMessageText(body, { parse_mode: "Markdown" });
+    } else {
+      await ctx.reply(body, { parse_mode: "Markdown" });
+    }
   }
 }
 
