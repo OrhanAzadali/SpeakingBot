@@ -20,12 +20,12 @@ import {
 } from "lucide-react";
 
 import GrammarBook from "./components/GrammarBook.jsx";
-import FlashcardDeck from "./FlashcardDeck.jsx";
-import Quiz from "./Quiz.jsx";
-import ListeningGame from "./ListeningGame.jsx";
-import ListeningMatch from "./ListeningMatch.jsx";
-import SpeakingGame from "./SpeakingGame.jsx";
-import Summary from "./Summary.jsx";
+import FlashcardDeck from "./components/FlashcardDeck.jsx";
+import Quiz from "./components/Quiz.jsx";
+import ListeningGame from "./components/ListeningGame.jsx";
+import ListeningMatch from "./components/ListeningMatch.jsx";
+import SpeakingGame from "./components/SpeakingGame.jsx";
+import Summary from "./components/Summary.jsx";
 
 export default function App() {
   // Point directly to your Render backend
@@ -168,6 +168,7 @@ export default function App() {
       });
     } catch (_) { }
 
+    // Advance queue
     setFlashcards((prev) => {
       const rest = prev.slice(1);
       if (rest.length === 0) {
@@ -594,3 +595,4 @@ export default function App() {
     </div>
   );
 }
+
