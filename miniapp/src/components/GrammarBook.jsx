@@ -21,20 +21,50 @@ export default function GrammarBook({ API, authHeaders, effectiveUserId, onExit 
     const [topics, setTopics] = useState([]);
     const [language, setLanguage] = useState("");
     const [loading, setLoading] = useState(true);
+    // Inside GrammarBook.jsx, right above the Search Bar:
+    const [customTopicPrompt, setCustomTopicPrompt] = useState("");
+    const [generatingTopic, setGeneratingTopic] = useState(false);
+
     const [searchQuery, setSearchQuery] = useState("");
     const [selectedCategory, setSelectedCategory] = useState("All");
     const [selectedTopic, setSelectedTopic] = useState(null);
     const [actionLoading, setActionLoading] = useState(null);
     const [toast, setToast] = useState(null);
+    const handleCreateCustomTopic = async (e) => {
+        e.preventDefault();
+        if (!customTopicPrompt.trim() || generatingTopic) return;
+        setGeneratingTopic(true);
+        showToast(`🤖 Generating comprehensive guide for «${customTopicPrompt}»...`);
+
+        try {
+            const res = await fetch(`${BACKEND_URL}/api/grammar/generate`, {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                    ...authHeaders
+                },
+                body: JSON.stringify({ userId: effectiveUserId, topicPrompt: customTopicPrompt.trim() })
+            });
+            const data = await res.json();
+            if (res.ok && data.topic) {
+                showToast("✨ New Grammar Rule generated and saved!");
+                setTopics((prev) => [data.topic, ...prev]);
+                setCustomTopicPrompt("");
+                setSelectedTopic(data.topic); // open immediately
+            } else {
+                showToast(data.error || "Generation failed");
+            }
+        } catch {
+            showToast("Network error creating topic");
+        } finally {
+            setGeneratingTopic(false);
+        }
+    };
 
     const showToast = (message) => {
         setToast(message);
         setTimeout(() => setToast(null), 3500);
     };
-
-    useEffect(() => {
-        fetchTopics();
-    }, []);
 
     const fetchTopics = async () => {
         setLoading(true);
@@ -53,6 +83,10 @@ export default function GrammarBook({ API, authHeaders, effectiveUserId, onExit 
             setLoading(false);
         }
     };
+    useEffect(() => {
+        fetchTopics();
+    }, []);
+
 
     const handleDownloadTopicPdf = (topicId, title) => {
         showToast(`Preparing PDF: ${title}`);
@@ -146,6 +180,8 @@ export default function GrammarBook({ API, authHeaders, effectiveUserId, onExit 
         }
         return [];
     };
+
+
     return (
         <div className="min-h-screen bg-slate-900 text-white flex flex-col p-4 sm:p-6 font-sans">
             {/* Toast Notification */}
@@ -184,7 +220,25 @@ export default function GrammarBook({ API, authHeaders, effectiveUserId, onExit 
                     <span className="hidden sm:inline">Download Book</span> (PDF)
                 </button>
             </div>
-
+            {/* Quick AI Rule Generator Input */}
+            <form onSubmit={handleCreateCustomTopic} className="max-w-4xl w-full mx-auto mb-4 flex gap-2">
+                <input
+                    type="text"
+                    placeholder="Enter any grammar topic (e.g. «Subjunctive mood», «Present Perfect vs Past Simple», «Conjugation of haben»)..."
+                    value={customTopicPrompt}
+                    onChange={(e) => setCustomTopicPrompt(e.target.value)}
+                    disabled={generatingTopic}
+                    className="flex-1 px-4 py-2.5 bg-slate-800 border border-slate-700 rounded-xl text-white text-xs focus:outline-none focus:border-indigo-500 disabled:opacity-50"
+                />
+                <button
+                    type="submit"
+                    disabled={generatingTopic || !customTopicPrompt.trim()}
+                    className="px-4 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-semibold text-xs transition disabled:opacity-50 flex items-center gap-1.5 shrink-0"
+                >
+                    <Sparkles className="w-4 h-4" />
+                    <span>{generatingTopic ? "Generating..." : "Generate AI Rule"}</span>
+                </button>
+            </form>
             {/* Search & Categories */}
             <div className="max-w-4xl w-full mx-auto my-4 flex flex-col sm:flex-row gap-2.5">
                 <div className="relative flex-1">

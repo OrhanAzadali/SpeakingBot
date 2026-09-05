@@ -40,6 +40,9 @@ export default function App() {
   const [availableLanguages, setAvailableLanguages] = useState([]);
   const [grammarTopics, setGrammarTopics] = useState([]);
   const [flashcards, setFlashcards] = useState([]);
+  // Dedicated cards generated live by AI for practice games
+  const [aiGameCards, setAiGameCards] = useState([]);
+  const [loadingAiGame, setLoadingAiGame] = useState(false);
   const [sessionStats, setSessionStats] = useState({ remembered: 0, forgot: 0 });
 
   // Notifications & Loaders
@@ -75,7 +78,7 @@ export default function App() {
     setTimeout(() => setToast(null), 4000);
   };
 
-  // 1. Initial boot: query the user's active database language
+  // 1. Initial boot: query the user's active database language  
   useEffect(() => {
     if (window.Telegram?.WebApp?.ready) {
       window.Telegram.WebApp.ready();
@@ -104,7 +107,6 @@ export default function App() {
     fetchFlashcards("russian");
     fetchGrammarTopics("russian");
   };
-
 
   const fetchGrammarTopics = async (lang = targetLanguage) => {
     try {
@@ -217,6 +219,33 @@ export default function App() {
       }
       return rest;
     });
+  };
+
+  const startAiGame = async (gameType) => {
+    setLoadingAiGame(true);
+    showToast(`🤖 Generating live ${gameType} practice with AI...`, "info");
+
+    try {
+      const res = await fetch(`${BACKEND_URL}/api/games/ai-cards?userId=${effectiveUserId}`, {
+        headers: getHeaders(),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (Array.isArray(data.cards) && data.cards.length > 0) {
+          setAiGameCards(data.cards);
+          setActiveGame(gameType);
+          setLoadingAiGame(false);
+          return;
+        }
+      }
+    } catch (e) {
+      console.warn("AI game generation error, falling back to local flashcards:", e.message);
+    }
+
+    // Fallback: If network drops or AI fails, use existing saved flashcards if available
+    setAiGameCards([]);
+    setActiveGame(gameType);
+    setLoadingAiGame(false);
   };
 
   return (
@@ -353,28 +382,37 @@ export default function App() {
 
         {activeGame === "listening" && (
           <ListeningGame
-            cards={flashcards}
+            cards={aiGameCards.length > 0 ? aiGameCards : flashcards}
             API={BACKEND_URL}
             authHeaders={getHeaders()}
-            onExit={() => setActiveGame(null)}
+            onExit={() => {
+              setActiveGame(null);
+              setAiGameCards([]);
+            }}
           />
         )}
 
         {activeGame === "match" && (
           <ListeningMatch
-            cards={flashcards}
+            cards={aiGameCards.length > 0 ? aiGameCards : flashcards}
             API={BACKEND_URL}
             authHeaders={getHeaders()}
-            onExit={() => setActiveGame(null)}
+            onExit={() => {
+              setActiveGame(null);
+              setAiGameCards([]);
+            }}
           />
         )}
 
         {activeGame === "speaking" && (
           <SpeakingGame
-            cards={flashcards}
+            cards={aiGameCards.length > 0 ? aiGameCards : flashcards}
             API={BACKEND_URL}
             authHeaders={getHeaders()}
-            onExit={() => setActiveGame(null)}
+            onExit={() => {
+              setActiveGame(null);
+              setAiGameCards([]);
+            }}
           />
         )}
 
@@ -479,8 +517,7 @@ export default function App() {
               {/* 3. Listening Quiz */}
               <div
                 onClick={() => {
-                  if (flashcards.length > 0) setActiveGame("listening");
-                  else showToast("Save words to enable Listening Drill!", "error");
+                  if (!loadingAiGame) startAiGame("listening");
                 }}
                 className="cursor-pointer bg-slate-800/80 hover:bg-slate-800 border border-slate-700 hover:border-cyan-500 p-5 rounded-2xl transition shadow-md flex flex-col justify-between group"
               >
@@ -502,8 +539,7 @@ export default function App() {
               {/* 4. Sound Match */}
               <div
                 onClick={() => {
-                  if (flashcards.length >= 3) setActiveGame("match");
-                  else showToast("Needs at least 3 saved words to play Sound Match!", "error");
+                  if (!loadingAiGame) startAiGame("match");
                 }}
                 className="cursor-pointer bg-slate-800/80 hover:bg-slate-800 border border-slate-700 hover:border-amber-500 p-5 rounded-2xl transition shadow-md flex flex-col justify-between group"
               >
@@ -525,8 +561,7 @@ export default function App() {
               {/* 5. Speaking Drill */}
               <div
                 onClick={() => {
-                  if (flashcards.length > 0) setActiveGame("speaking");
-                  else showToast("Save words to practice speaking!", "error");
+                  if (!loadingAiGame) startAiGame("speaking");
                 }}
                 className="cursor-pointer bg-slate-800/80 hover:bg-slate-800 border border-slate-700 hover:border-rose-500 p-5 rounded-2xl transition shadow-md flex flex-col justify-between group"
               >

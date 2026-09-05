@@ -1188,6 +1188,19 @@ app.get("/api/vocabulary/pdf", async (req, res) => {
   }
 });
 
+app.get("/api/games/ai-cards", async (req, res) => {
+  const rawUserId = req.query?.userId || req.headers["x-user-id"] || (req.telegramUser && req.telegramUser.id);
+  const userId = rawUserId ? Number(rawUserId) : null;
+  const user = userId ? await getUser(userId) : null;
+
+  const targetLang = LANGUAGES[user?.language] || user?.language || "Russian";
+  const mediatorLang = LANGUAGES[user?.mediator_language] || user?.mediator_language || "English";
+  const level = user?.level || "Beginner";
+
+  const cards = await generateGameSessionWords(targetLang, mediatorLang, level, 6);
+  res.json({ cards });
+});
+
 app.post("/api/vocabulary/send-pdf", requireTelegramAuth, async (req, res) => {
   const rawId = req.body?.userId || req.headers["x-user-id"] || req.query?.userId || (req.telegramUser && req.telegramUser.id);
   const userId = rawId ? Number(rawId) : null;
@@ -1200,6 +1213,42 @@ app.post("/api/vocabulary/send-pdf", requireTelegramAuth, async (req, res) => {
     res.json({ ok: true, message: "Vocabulary PDF sent to your Telegram chat!" });
   } catch (err) {
     res.status(500).json({ error: "Failed to generate PDF" });
+  }
+});
+
+// ── POST: Generate a Brand New Grammar Topic from Prompt ──────────────────────
+app.post("/api/grammar/generate", async (req, res) => {
+  const rawUserId = req.body?.userId || req.headers["x-user-id"] || (req.telegramUser && req.telegramUser.id);
+  const userId = rawUserId ? Number(rawUserId) : null;
+  if (!userId) return res.status(401).json({ error: "Valid UserID required" });
+
+  const { topicPrompt } = req.body;
+  if (!topicPrompt || !topicPrompt.trim()) {
+    return res.status(400).json({ error: "Topic prompt is required" });
+  }
+
+  const user = await getUser(userId);
+  const lang = user?.language || "russian";
+  const mediator = user?.mediator_language || "english";
+  const level = user?.level || "Beginner";
+
+  try {
+    const guide = await generateGrammarGuide(
+      LANGUAGES[lang] || lang,
+      mediator,
+      topicPrompt.trim(),
+      level
+    );
+
+    if (!guide || !guide.title) {
+      return res.status(500).json({ error: "AI could not generate this rule." });
+    }
+
+    const saved = await saveGrammarTopic(userId, lang, guide, mediator);
+    res.json({ success: true, topic: saved });
+  } catch (err) {
+    console.error("API grammar generation error:", err);
+    res.status(500).json({ error: "Failed to generate grammar topic" });
   }
 });
 
@@ -2300,35 +2349,47 @@ bot.on("message:text", async (ctx) => {
     return;
   }
 
-  const isPdfGrammarRequest =
-    (lower.includes("pdf") || lower.includes("пдф")) &&
-    (lower.includes("урез") || lower.includes("ответ") || lower.includes("правил") || lower.includes("грамматик") || lower.includes("всегда") || lower.includes("дай") || lower.includes("скинь"));
+  // ── Intelligent Grammar Query & PDF Generation Detector ────────────────────
+  const isGrammarExplanationRequest =
+    lower.includes("объясни") || lower.includes("расскажи") || lower.includes("как использовать") ||
+    lower.includes("как спрягается") || lower.includes("правило") || lower.includes("грамматик") ||
+    lower.includes("explain") || lower.includes("how to use") || lower.includes("grammar") ||
+    lower.includes("qayda") || lower.includes("izah et") || lower.includes("düstur");
 
-  if (isPdfGrammarRequest) {
-    const latest = await getLatestGrammarTopic(userId, user.language);
-    if (latest) {
-      await ctx.reply("📄 *Конечно! Все грамматические правила и разъяснения теперь сохраняются в отдельные PDF файлы без урезания.* Вот ваше последнее правило в PDF:", { parse_mode: "Markdown" });
-      await sendGrammarPdfToUser(ctx, userId, latest.id);
-      return;
-    } else {
-      const history = await getHistory(userId, 4);
-      const recentContext = history.map((h) => h.content).join(" \n ");
-      const thinking = await ctx.reply("⏳ Генерирую полное грамматическое руководство в формате PDF без каких-либо сокращений...");
+  const wantsPdf = lower.includes("pdf") || lower.includes("пдф") || lower.includes("файл") || lower.includes("документ");
+
+  // If the user asks about a specific grammar topic OR explicitly asks for a grammar PDF:
+  if (isGrammarExplanationRequest && (wantsPdf || text.length > 10)) {
+    const thinking = await ctx.reply(`⏳ ИИ анализирует тему «${text.slice(0, 50)}» и составляет специализированное руководство в PDF...`);
+
+    try {
       const guide = await generateGrammarGuide(
         LANGUAGES[user.language] || user.language,
-        user.mediator_language || "russian",
-        recentContext || "Основы построения предложений и спряжение глаголов",
+        user.mediator_language || "english",
+        text, // Pass the EXACT user prompt/topic to the AI
         user.level || "Beginner"
       );
 
-      if (guide) {
-        const saved = await saveGrammarTopic(userId, user.language, guide);
+      if (guide && guide.title) {
+        // Save the freshly generated rule in the DB tagged with the current mediator language
+        const saved = await saveGrammarTopic(userId, user.language, guide, user.mediator_language || "english");
+
         try {
           await ctx.api.deleteMessage(ctx.chat.id, thinking.message_id);
         } catch (_) { }
-        await sendGrammarPdfToUser(ctx, userId, saved?.id);
-        return;
+
+        // Compile and deliver the brand-new PDF instantly!
+        if (saved) {
+          await ctx.reply(`✨ *Новое правило готово:* «${guide.title}»\n${guide.rule_summary || ""}`, { parse_mode: "Markdown" });
+          await sendGrammarPdfToUser(ctx, userId, saved.id);
+          return;
+        }
       }
+    } catch (gErr) {
+      console.error("Custom grammar generation error:", gErr);
+      try {
+        await ctx.api.deleteMessage(ctx.chat.id, thinking.message_id);
+      } catch (_) { }
     }
   }
 

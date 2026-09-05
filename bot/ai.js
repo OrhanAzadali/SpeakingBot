@@ -898,7 +898,69 @@ Return ONLY a valid JSON object:
     return null;
   }
 }
+// ── Call: Dynamic AI Content Generator for Games (No Database dependency) ───
+export async function generateGameSessionWords(targetLanguage, mediatorLanguage, level = "Beginner", count = 6) {
+  const prompt = `You are a curriculum specialist for ${targetLanguage}.
+Generate ${count} essential, natural vocabulary items or short phrases for a ${level.toUpperCase()} student.
+The student's mediator language is ${mediatorLanguage.toUpperCase()}.
 
+CRITICAL MANDATE:
+- Return real, practical words/phrases appropriate for ${level} level.
+- "word": uninflected dictionary lemma in ${targetLanguage} native script.
+- "meaning": accurate definition/translation in ${mediatorLanguage}.
+- "transcription": IPA phonetic transcription.
+- "pronunciation_rule": 1 short sentence describing key pronunciation point.
+- "part_of_speech": noun | verb | adjective | adverb | phrase.
+
+Return strictly a single JSON object:
+{
+  "items": [
+    {
+      "word": "...",
+      "meaning": "...",
+      "transcription": "...",
+      "pronunciation_rule": "...",
+      "part_of_speech": "..."
+    }
+  ]
+}`;
+
+  try {
+    const response = await withModelFallback(CHAT_MODELS, (model) =>
+      groq.chat.completions.create({
+        model,
+        messages: [{ role: "user", content: prompt }],
+        temperature: 0.3,
+        max_tokens: 900,
+        response_format: { type: "json_object" },
+      })
+    );
+    const raw = response.choices[0]?.message?.content?.trim();
+    const parsed = JSON.parse(extractJsonObject(raw));
+    if (Array.isArray(parsed.items) && parsed.items.length > 0) {
+      return parsed.items.map((item, idx) => ({
+        id: `ai_${Date.now()}_${idx}`,
+        word: item.word,
+        initial_form: item.word,
+        correction: item.meaning,
+        transcription: item.transcription || "",
+        pronunciation_rule: item.pronunciation_rule || "",
+        part_of_speech: item.part_of_speech || "word",
+        language: targetLanguage.toLowerCase()
+      }));
+    }
+  } catch (err) {
+    console.warn("generateGameSessionWords fallback:", err.message);
+  }
+
+  // Multi-lingual fallback
+  return [
+    { id: `ai_1`, word: "вода", initial_form: "вода", correction: "water", transcription: "[vɐˈda]", language: "russian" },
+    { id: `ai_2`, word: "хлеб", initial_form: "хлеб", correction: "bread", transcription: "[xlʲep]", language: "russian" },
+    { id: `ai_3`, word: "друг", initial_form: "друг", correction: "friend", transcription: "[druk]", language: "russian" },
+    { id: `ai_4`, word: "время", initial_form: "время", correction: "time", transcription: "[ˈvrʲemʲə]", language: "russian" }
+  ];
+}
 // ── Chat Pipeline ─────────────────────────────────────────────────────────────
 export async function chat(userId, userMessage, history, language, level, languageKey, mediatorLanguage = "english") {
   const conversationMessages = [
