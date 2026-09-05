@@ -1188,6 +1188,7 @@ app.get("/api/vocabulary/pdf", async (req, res) => {
   }
 });
 
+// ── GET: Dynamic AI Game Cards with Intra-Level Round Scaling ────────────────
 app.get("/api/games/ai-cards", async (req, res) => {
   const rawUserId = req.query?.userId || req.headers["x-user-id"] || (req.telegramUser && req.telegramUser.id);
   const userId = rawUserId ? Number(rawUserId) : null;
@@ -1196,9 +1197,16 @@ app.get("/api/games/ai-cards", async (req, res) => {
   const targetLang = LANGUAGES[user?.language] || user?.language || "Russian";
   const mediatorLang = LANGUAGES[user?.mediator_language] || user?.mediator_language || "English";
   const level = user?.level || "Beginner";
+  const round = parseInt(req.query?.round, 10) || 1;
+  const count = parseInt(req.query?.count, 10) || 6;
 
-  const cards = await generateGameSessionWords(targetLang, mediatorLang, level, 6);
-  res.json({ cards });
+  try {
+    const cards = await generateGameSessionWords(targetLang, mediatorLang, level, round, count);
+    res.json({ cards, round, level });
+  } catch (err) {
+    console.error("AI game cards route error:", err);
+    res.status(500).json({ error: "Failed to generate session words" });
+  }
 });
 
 app.post("/api/vocabulary/send-pdf", requireTelegramAuth, async (req, res) => {

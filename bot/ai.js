@@ -918,28 +918,60 @@ Return ONLY a valid JSON object:
   }
 }
 // ── Call: Dynamic AI Content Generator for Games (No Database dependency) ───
-export async function generateGameSessionWords(targetLanguage, mediatorLanguage, level = "Beginner", count = 6) {
-  const prompt = `You are a curriculum specialist for ${targetLanguage}.
-Generate ${count} essential, natural vocabulary items or short phrases for a ${level.toUpperCase()} student.
-The student's mediator language is ${mediatorLanguage.toUpperCase()}.
+// ── Call: Dynamic AI Intra-Level Progression Generator ───────────────────────
+export async function generateGameSessionWords(targetLanguage, mediatorLanguage = "english", level = "Beginner", round = 1, count = 6) {
+  const currentRound = Math.max(1, parseInt(round, 10) || 1);
+  const normalizedLevel = String(level || "Beginner").toLowerCase();
 
-CRITICAL MANDATE:
-- Return real, practical words/phrases appropriate for ${level} level.
-- "word": uninflected dictionary lemma in ${targetLanguage} native script.
-- "meaning": accurate definition/translation in ${mediatorLanguage}.
-- "transcription": IPA phonetic transcription.
-- "pronunciation_rule": 1 short sentence describing key pronunciation point.
-- "part_of_speech": noun | verb | adjective | adverb | phrase.
+  const isBeginner = normalizedLevel.includes("beginner") || normalizedLevel.includes("a1") || normalizedLevel.includes("a2");
+  const isIntermediate = normalizedLevel.includes("intermediate") || normalizedLevel.includes("b1") || normalizedLevel.includes("b2");
+  const isAdvanced = normalizedLevel.includes("advanced") || normalizedLevel.includes("c1") || normalizedLevel.includes("c2");
 
-Return strictly a single JSON object:
+  // Define exact intra-level difficulty calibration for this round
+  let progressionTier = "";
+  if (isBeginner) {
+    if (currentRound === 1) {
+      progressionTier = `TIER 1 (A1 Baseline): High-frequency individual concrete nouns, cardinal numbers, and basic infinitive verbs.`;
+    } else if (currentRound === 2) {
+      progressionTier = `TIER 2 (A1+ Expansion): Descriptive adjective-noun combinations and practical daily objects with gender articles/endings.`;
+    } else {
+      progressionTier = `TIER 3 (A2 Everyday Functional): Unordinary yet strictly beginner communicative micro-phrases, polite requests, and essential conversational fragments. DO NOT cross into B2/C1 grammar.`;
+    }
+  } else if (isIntermediate) {
+    if (currentRound === 1) {
+      progressionTier = `TIER 1 (B1 Core): Key situational vocabulary, regular social interactions, and essential connective words.`;
+    } else if (currentRound === 2) {
+      progressionTier = `TIER 2 (B1+ Idiomatic): Phrasal expressions, contextual collocations, and expressive descriptors.`;
+    } else {
+      progressionTier = `TIER 3 (B2 Precision): Conceptual terms, nuanced synonyms, and complex conversational connectors.`;
+    }
+  } else {
+    // Advanced
+    progressionTier = `ROUND ${currentRound} (C1-C2): Stylistic precision, culturally rooted idioms, professional discourse collocations, and sophisticated lexical nuances.`;
+  }
+
+  const prompt = `You are an elite CEFR curriculum architect designing an adaptive gamified language drill for ${targetLanguage}.
+Student level: ${level.toUpperCase()}.
+Current Game Round: ${currentRound}.
+Student's mediator language for definitions: ${mediatorLanguage.toUpperCase()}.
+
+ROUND DIFFICULTY CALIBRATION:
+${progressionTier}
+
+CRITICAL PEDAGOGICAL BOUNDARY:
+- YOU MUST RESPECT THE CEFR CEILING: If the student is BEGINNER, NEVER introduce abstract C1 vocabulary, archaic idioms, or complex subjunctives!
+- Even at Round 3+, a Beginner must receive accessible, practical words or phrases (e.g. "Where is the pharmacy?", "cold morning", "to buy a ticket"), NOT literary poetry.
+- As rounds progress, increase lexical interest, depth, and communicative richness.
+
+Return strictly a single valid JSON object containing ${count} unique items:
 {
   "items": [
     {
-      "word": "...",
-      "meaning": "...",
-      "transcription": "...",
-      "pronunciation_rule": "...",
-      "part_of_speech": "..."
+      "word": "Target word or natural micro-phrase in ${targetLanguage}",
+      "meaning": "Clear translation / definition in ${mediatorLanguage}",
+      "transcription": "IPA phonetic transcription with stress marks",
+      "pronunciation_rule": "1 brief sentence explaining the phonetic key",
+      "part_of_speech": "noun | verb | adjective | phrase | idiom"
     }
   ]
 }`;
@@ -949,36 +981,73 @@ Return strictly a single JSON object:
       groq.chat.completions.create({
         model,
         messages: [{ role: "user", content: prompt }],
-        temperature: 0.3,
-        max_tokens: 900,
+        temperature: Math.min(0.5, 0.2 + currentRound * 0.08), // Slightly more creative lexical breadth in higher rounds
+        max_tokens: 1100,
         response_format: { type: "json_object" },
       })
     );
+
     const raw = response.choices[0]?.message?.content?.trim();
     const parsed = JSON.parse(extractJsonObject(raw));
     if (Array.isArray(parsed.items) && parsed.items.length > 0) {
       return parsed.items.map((item, idx) => ({
-        id: `ai_${Date.now()}_${idx}`,
+        id: `ai_r${currentRound}_${Date.now()}_${idx}`,
         word: item.word,
         initial_form: item.word,
         correction: item.meaning,
         transcription: item.transcription || "",
         pronunciation_rule: item.pronunciation_rule || "",
         part_of_speech: item.part_of_speech || "word",
-        language: targetLanguage.toLowerCase()
+        language: targetLanguage.toLowerCase(),
+        round: currentRound
       }));
     }
   } catch (err) {
-    console.warn("generateGameSessionWords fallback:", err.message);
+    console.warn(`generateGameSessionWords (Round ${currentRound}) fallback activated:`, err.message);
   }
 
-  // Multi-lingual fallback
-  return [
-    { id: `ai_1`, word: "вода", initial_form: "вода", correction: "water", transcription: "[vɐˈda]", language: "russian" },
-    { id: `ai_2`, word: "хлеб", initial_form: "хлеб", correction: "bread", transcription: "[xlʲep]", language: "russian" },
-    { id: `ai_3`, word: "друг", initial_form: "друг", correction: "friend", transcription: "[druk]", language: "russian" },
-    { id: `ai_4`, word: "время", initial_form: "время", correction: "time", transcription: "[ˈvrʲemʲə]", language: "russian" }
-  ];
+  // Graceful multi-language fallback respecting round depth
+  const isRu = targetLanguage.toLowerCase().includes("russ");
+  if (isRu) {
+    if (currentRound === 1) {
+      return [
+        { id: `r1_1`, word: "вода", initial_form: "вода", correction: "water", transcription: "[vɐˈda]", language: "russian" },
+        { id: `r1_2`, word: "хлеб", initial_form: "хлеб", correction: "bread", transcription: "[xlʲep]", language: "russian" },
+        { id: `r1_3`, word: "друг", initial_form: "друг", correction: "friend", transcription: "[druk]", language: "russian" }
+      ];
+    } else if (currentRound === 2) {
+      return [
+        { id: `r2_1`, word: "холодная вода", initial_form: "холодная вода", correction: "cold water", transcription: "[xɐˈlodnəjə vɐˈda]", language: "russian" },
+        { id: `r2_2`, word: "свежий хлеб", initial_form: "свежий хлеб", correction: "fresh bread", transcription: "[ˈsvʲeʐɨj xlʲep]", language: "russian" },
+        { id: `r2_3`, word: "лучший друг", initial_form: "лучший друг", correction: "best friend", transcription: "[ˈlut͡ɕʂɨj druk]", language: "russian" }
+      ];
+    } else {
+      return [
+        { id: `r3_1`, word: "Где находится вокзал?", initial_form: "Где находится вокзал?", correction: "Where is the train station?", transcription: "[ɡdʲe nɐˈxodʲɪt͡sə vɐɡˈzaɫ]", language: "russian" },
+        { id: `r3_2`, word: "Сколько это стоит?", initial_form: "Сколько это стоит?", correction: "How much does this cost?", transcription: "[ˈskolʲkə ˈɛtə ˈstoɪt]", language: "russian" },
+        { id: `r3_3`, word: "Приятного аппетита!", initial_form: "Приятного аппетита!", correction: "Enjoy your meal!", transcription: "[prʲɪˈjatnəvə ɐpʲɪˈtʲitə]", language: "russian" }
+      ];
+    }
+  }
+
+  // English target fallback
+  if (currentRound === 1) {
+    return [
+      { id: `en_1`, word: "apple", initial_form: "apple", correction: "alma / яблоко", transcription: "[ˈæp.əl]", language: "english" },
+      { id: `en_2`, word: "book", initial_form: "book", correction: "kitab / книга", transcription: "[bʊk]", language: "english" },
+      { id: `en_3`, word: "water", initial_form: "water", correction: "su / вода", transcription: "[ˈwɔː.tər]", language: "english" }
+    ];
+  } else if (currentRound === 2) {
+    return [
+      { id: `en_r2_1`, word: "green apple", initial_form: "green apple", correction: "yaşıl alma / зеленое яблоко", transcription: "[ɡriːn ˈæp.əl]", language: "english" },
+      { id: `en_r2_2`, word: "interesting book", initial_form: "interesting book", correction: "maraqlı kitab / интересная книга", transcription: "[ˈɪn.trɪ.stɪŋ bʊk]", language: "english" }
+    ];
+  } else {
+    return [
+      { id: `en_r3_1`, word: "Can you help me?", initial_form: "Can you help me?", correction: "Mənə kömək edə bilərsiniz? / Можете мне помочь?", transcription: "[kæn juː help miː]", language: "english" },
+      { id: `en_r3_2`, word: "Have a nice day!", initial_form: "Have a nice day!", correction: "Gününüz xoş keçsin! / Хорошего дня!", transcription: "[hæv ə naɪs deɪ]", language: "english" }
+    ];
+  }
 }
 // ── Chat Pipeline ─────────────────────────────────────────────────────────────
 export async function chat(userId, userMessage, history, language, level, languageKey, mediatorLanguage = "english") {

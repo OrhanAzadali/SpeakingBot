@@ -43,6 +43,8 @@ export default function App() {
   // Dedicated cards generated live by AI for practice games
   const [aiGameCards, setAiGameCards] = useState([]);
   const [loadingAiGame, setLoadingAiGame] = useState(false);
+  // Tracks the progressive round number for AI games
+  const [gameRound, setGameRound] = useState(1);
   const [sessionStats, setSessionStats] = useState({ remembered: 0, forgot: 0 });
 
   // Notifications & Loaders
@@ -221,14 +223,16 @@ export default function App() {
     });
   };
 
-  const startAiGame = async (gameType) => {
+  const startAiGame = async (gameType, nextRound = 1) => {
     setLoadingAiGame(true);
-    showToast(`🤖 Generating live ${gameType} practice with AI...`, "info");
+    setGameRound(nextRound);
+    showToast(`🤖 Level ${targetLanguage.toUpperCase()}: Round ${nextRound} loading...`, "info");
 
     try {
-      const res = await fetch(`${BACKEND_URL}/api/games/ai-cards?userId=${effectiveUserId}`, {
-        headers: getHeaders(),
-      });
+      const res = await fetch(
+        `${BACKEND_URL}/api/games/ai-cards?userId=${effectiveUserId}&round=${nextRound}`,
+        { headers: getHeaders() }
+      );
       if (res.ok) {
         const data = await res.json();
         if (Array.isArray(data.cards) && data.cards.length > 0) {
@@ -239,10 +243,9 @@ export default function App() {
         }
       }
     } catch (e) {
-      console.warn("AI game generation error, falling back to local flashcards:", e.message);
+      console.warn("AI game generation error:", e.message);
     }
 
-    // Fallback: If network drops or AI fails, use existing saved flashcards if available
     setAiGameCards([]);
     setActiveGame(gameType);
     setLoadingAiGame(false);
@@ -385,9 +388,12 @@ export default function App() {
             cards={aiGameCards.length > 0 ? aiGameCards : flashcards}
             API={BACKEND_URL}
             authHeaders={getHeaders()}
+            round={gameRound}
+            onNextRound={() => startAiGame("listening", gameRound + 1)}
             onExit={() => {
               setActiveGame(null);
               setAiGameCards([]);
+              setGameRound(1);
             }}
           />
         )}
@@ -397,9 +403,12 @@ export default function App() {
             cards={aiGameCards.length > 0 ? aiGameCards : flashcards}
             API={BACKEND_URL}
             authHeaders={getHeaders()}
+            round={gameRound}
+            onNextRound={() => startAiGame("match", gameRound + 1)}
             onExit={() => {
               setActiveGame(null);
               setAiGameCards([]);
+              setGameRound(1);
             }}
           />
         )}
@@ -409,9 +418,12 @@ export default function App() {
             cards={aiGameCards.length > 0 ? aiGameCards : flashcards}
             API={BACKEND_URL}
             authHeaders={getHeaders()}
+            round={gameRound}
+            onNextRound={() => startAiGame("speaking", gameRound + 1)}
             onExit={() => {
               setActiveGame(null);
               setAiGameCards([]);
+              setGameRound(1);
             }}
           />
         )}

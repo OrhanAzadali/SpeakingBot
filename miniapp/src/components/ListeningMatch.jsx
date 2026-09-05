@@ -241,10 +241,10 @@ export default function ListeningMatch({ cards, API, authHeaders, onExit }) {
 
         <div className="w-full max-w-xs flex flex-col gap-3">
           <button
-            onClick={handlePlayAgain}
+            onClick={onNextRound ? onNextRound : handlePlayAgain}
             className="w-full py-3.5 rounded-xl bg-cyan-600 text-white font-semibold text-sm hover:bg-cyan-500 active:scale-95 transition-all shadow-lg shadow-cyan-600/30"
           >
-            Play Round {roundNumber + 1}
+            Advance to Round {round + 1} 🚀
           </button>
           <button
             onClick={onExit}
