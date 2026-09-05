@@ -1883,12 +1883,9 @@ bot.callbackQuery(/^drillsize_(listening|speaking|reading|writing)_(short|huge)$
   }
 });
 
-
 async function presentNextTestQuestion(ctx, userId, question, index, total) {
   const header = `📝 Question ${index + 1} of ${total} [Target: ${question.cefr_target} • ${question.skill}]\n\n`;
-
-  // Sanitize any stray Markdown characters that crash Telegram parser
-  const cleanPrompt = String(question.prompt || "").replace(/_____/g, "[ ... ]");
+  const cleanPrompt = String(question.prompt || "").replace(/_{2,}/g, "[ ... ]");
 
   if (question.type === "choice" && Array.isArray(question.options)) {
     const kb = new InlineKeyboard();
@@ -1904,7 +1901,7 @@ async function presentNextTestQuestion(ctx, userId, question, index, total) {
         await ctx.reply(body, { reply_markup: kb });
       }
     } catch {
-      // Fallback: send as a fresh plain-text message if edit fails
+      // Guaranteed delivery: if editing or markdown parsing ever fails, send as fresh plain text message!
       await bot.api.sendMessage(userId, body, { reply_markup: kb });
     }
   } else {
