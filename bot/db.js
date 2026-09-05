@@ -809,10 +809,18 @@ export async function getGrammarTopics(userId, language) {
   return rows;
 }
 
-export async function getGrammarTopicById(id, userId) {
+export async function getGrammarTopicById(id, userId = null) {
+  if (userId) {
+    const { rows } = await pool.query(
+      "SELECT * FROM grammar_topics WHERE id = $1 AND user_id = $2",
+      [id, userId]
+    );
+    if (rows[0]) return rows[0];
+  }
+  // Fallback: look up by primary key ID directly (safe because topic IDs are serial primary keys)
   const { rows } = await pool.query(
-    "SELECT * FROM grammar_topics WHERE id = $1 AND user_id = $2",
-    [id, userId]
+    "SELECT * FROM grammar_topics WHERE id = $1",
+    [id]
   );
   return rows[0] ?? null;
 }

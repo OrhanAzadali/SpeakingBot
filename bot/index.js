@@ -761,19 +761,20 @@ app.get("/api/grammar/:id/pdf", async (req, res) => {
   }
 
   const topicId = parseInt(req.params.id, 10);
-  const topic = await getGrammarTopicById(topicId);
+  const topic = await getGrammarTopicById(topicId, userId); // <--- Pass userId!
   if (!topic) {
     return res.status(404).json({ error: "Topic not found" });
   }
 
   const user = await getUser(userId);
+  const lang = user?.language || topic.language || "german";
   const tempPath = path.join(tmpdir(), `grammar_${topicId}_${Date.now()}.pdf`);
 
   try {
-    const filePath = await generateGrammarTopicPdf(userId, user?.language, topic, tempPath);
+    const filePath = await generateGrammarTopicPdf(userId, lang, topic, tempPath);
     res.setHeader("Content-Type", "application/pdf");
     res.setHeader("Content-Disposition", `attachment; filename="${encodeURIComponent(topic.title)}.pdf"`);
-    res.download(filePath, `${topic.title.replace(/\s+/g, "_")}.pdf`, async () => {
+    res.download(filePath, `${topic.title.replace(/[^\w\d\-]/g, "_")}.pdf`, async () => {
       await cleanupFile(filePath);
     });
   } catch (err) {
@@ -781,7 +782,6 @@ app.get("/api/grammar/:id/pdf", async (req, res) => {
     res.status(500).json({ error: "Failed to generate PDF" });
   }
 });
-
 // ── 2. Full Grammar Book PDF Download Endpoint ────────────────────────────────
 app.get("/api/grammar/pdf", async (req, res) => {
   const userId = req.headers["x-user-id"] || req.query.userId || (req.telegramUser && req.telegramUser.id);
@@ -809,50 +809,6 @@ app.get("/api/grammar/pdf", async (req, res) => {
 });
 
 // ── 3. Send PDF Directly to Telegram Chat Endpoint ───────────────────────────
-app.post("/api/grammar/send-pdf", async (req, res) => {
-  const userId = req.body.userId || req.headers["x-user-id"] || req.query.userId || (req.telegramUser && req.telegramUser.id);
-  if (!userId || userId === "123456789") {
-    return res.status(400).json({ error: "Valid Telegram User ID is required to send to chat." });
-  }
-
-  const { topicId } = req.body;
-  try {
-    const user = await getUser(userId);
-    const lang = user?.language || "german";
-
-    if (topicId) {
-      const topic = await getGrammarTopicById(topicId);
-      if (!topic) return res.status(404).json({ error: "Topic not found" });
-
-      const tempPath = path.join(tmpdir(), `grammar_${topicId}_${Date.now()}.pdf`);
-      const filePath = await generateGrammarTopicPdf(userId, lang, topic, tempPath);
-
-      await bot.api.sendDocument(userId, new InputFile(filePath, `${topic.title.replace(/[^\w\d\-]/g, "_")}.pdf`), {
-        caption: `📖 *${topic.title}* (Grammar Rule PDF)`,
-        parse_mode: "Markdown"
-      });
-      await cleanupFile(filePath);
-    } else {
-      const tempPath = path.join(tmpdir(), `grammar_full_${userId}_${Date.now()}.pdf`);
-      const filePath = await generateFullGrammarNotebookPdf(userId, lang, tempPath);
-      if (!filePath) {
-        return res.status(404).json({ error: "No grammar topics found to export." });
-      }
-
-      await bot.api.sendDocument(userId, new InputFile(filePath, `Complete_Grammar_Notebook_${lang}.pdf`), {
-        caption: `📚 *Complete Grammar Reference Notebook*`,
-        parse_mode: "Markdown"
-      });
-      await cleanupFile(filePath);
-    }
-    res.json({ success: true });
-  } catch (err) {
-    console.error("Send to TG error:", err);
-    res.status(500).json({ error: "Failed to send PDF to Telegram" });
-  }
-});
-
-// 3. Vocabulary & Roadmap PDF Delivery
 app.get("/api/vocabulary/pdf", requireTelegramAuth, async (req, res) => {
   const user = await getUser(req.telegramUser.id);
   const tempPath = path.join(tmpdir(), `vocab_web_${req.telegramUser.id}_${Date.now()}.pdf`);
