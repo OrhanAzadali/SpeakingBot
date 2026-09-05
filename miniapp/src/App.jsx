@@ -168,7 +168,6 @@ export default function App() {
       });
     } catch (_) { }
 
-    // Advance queue
     setFlashcards((prev) => {
       const rest = prev.slice(1);
       if (rest.length === 0) {
@@ -595,4 +594,3 @@ export default function App() {
     </div>
   );
 }
-
