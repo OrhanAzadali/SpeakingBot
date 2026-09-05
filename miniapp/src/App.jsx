@@ -19,7 +19,7 @@ import {
   RotateCcw
 } from "lucide-react";
 
-import GrammarBook from "./GrammarBook.jsx";
+import GrammarBook from "./components/GrammarBook.jsx";
 import FlashcardDeck from "./FlashcardDeck.jsx";
 import Quiz from "./Quiz.jsx";
 import ListeningGame from "./ListeningGame.jsx";
