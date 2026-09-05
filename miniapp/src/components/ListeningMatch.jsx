@@ -259,6 +259,29 @@ export default function ListeningMatch({ cards, API, authHeaders, onExit }) {
             Back to Game Hub
           </button>
         </div>
+        {/* In ListeningMatch.jsx Round Complete Screen */}
+        <div className="w-full max-w-xs mb-4 text-left">
+          <p className="text-slate-400 text-xs font-semibold mb-2">Round Vocabulary:</p>
+          <div className="space-y-1.5 max-h-36 overflow-y-auto pr-1">
+            {roundCards.map((c) => (
+              <div
+                key={c.id}
+                className="flex items-center justify-between p-2 rounded-lg bg-slate-800 border border-slate-700 text-xs"
+              >
+                <span className="text-cyan-300 font-semibold">{c.initial_form || c.word}</span>
+                <span className="text-slate-300 text-[11px] truncate max-w-[120px]">{c.correction}</span>
+                <button
+                  type="button"
+                  onClick={() => onSaveWord && onSaveWord(c)}
+                  className="p-1 rounded text-amber-400 hover:text-amber-300 text-xs"
+                  title="Save word to deck"
+                >
+                  ⭐ Save
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
       </div>
     );
   }

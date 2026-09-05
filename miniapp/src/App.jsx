@@ -89,7 +89,41 @@ export default function App() {
       showToast("Failed to add word", "error");
     }
   };
+  // App.jsx — One-tap save for any word encountered in games
+  const handleSaveWordToDeck = async (card) => {
+    if (!card) return;
+    const targetWord = card.initial_form || card.word;
+    const meaning = card.correction || card.meaning;
+    if (!targetWord || !meaning) return;
 
+    try {
+      const res = await fetch(`${BACKEND_URL}/api/vocabulary/add`, {
+        method: "POST",
+        headers: getHeaders(),
+        body: JSON.stringify({
+          userId: effectiveUserId,
+          word: targetWord,
+          meaning: meaning,
+          language: card.language || targetLanguage,
+          part_of_speech: card.part_of_speech || "word",
+          sentence: card.sentence || card.context || "",
+          transcription: card.transcription || "",
+          pronunciation_rule: card.pronunciation_rule || "",
+          grammar_rule: card.grammar_rule || "",
+        }),
+      });
+
+      if (res.ok) {
+        showToast(`⭐ «${targetWord}» saved to your permanent deck!`);
+        fetchFlashcards(targetLanguage); // Refresh count
+        return true;
+      }
+    } catch (err) {
+      console.error("Save word error:", err);
+      showToast("Failed to save word", "error");
+    }
+    return false;
+  };
   useEffect(() => {
     if (effectiveUserId && effectiveUserId !== "123456789") {
       localStorage.setItem("spk_user_id", effectiveUserId);
@@ -412,6 +446,7 @@ export default function App() {
             API={BACKEND_URL}
             authHeaders={getHeaders()}
             onExit={() => setActiveGame(null)}
+            onSaveWord={handleSaveWordToDeck}
           />
         )}
 
@@ -427,6 +462,7 @@ export default function App() {
               setAiGameCards([]);
               setGameRound(1);
             }}
+            onSaveWord={handleSaveWordToDeck}
           />
         )}
 
@@ -442,6 +478,7 @@ export default function App() {
               setAiGameCards([]);
               setGameRound(1);
             }}
+            onSaveWord={handleSaveWordToDeck}
           />
         )}
 
@@ -457,6 +494,7 @@ export default function App() {
               setAiGameCards([]);
               setGameRound(1);
             }}
+            onSaveWord={handleSaveWordToDeck}
           />
         )}
 
@@ -507,7 +545,7 @@ export default function App() {
                     <span>{actionLoading === "tg-vocab" ? "Sending..." : "Send Vocab to TG"}</span>
                   </button>
                   <button
-                    onClick={() => setShowAddModal(true)}
+                    onClick={handleAddCustomWord}
                     className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs transition"
                   >
                     <span>➕ Add Custom Word</span>

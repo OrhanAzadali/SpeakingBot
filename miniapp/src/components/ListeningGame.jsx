@@ -33,7 +33,20 @@ export default function ListeningGame({ cards, API, authHeaders, round = 1, onNe
   const [answeredCount, setAnsweredCount] = useState(0);
   const [playCount, setPlayCount] = useState(0);
   const hasAutoPlayedRef = useRef(false);
+  // Inside ListeningGame.jsx:
+  const [savedWords, setSavedWords] = useState(() => new Set());
 
+  const handleSaveCurrentWord = async (card) => {
+    const wordId = card.id || card.word;
+    if (savedWords.has(wordId)) return;
+
+    if (onSaveWord) {
+      const success = await onSaveWord(card);
+      if (success) {
+        setSavedWords((prev) => new Set(prev).add(wordId));
+      }
+    }
+  };
   useEffect(() => {
     if (Array.isArray(cards) && cards.length > 0) {
       setQueue(shuffle(cards));
@@ -259,7 +272,29 @@ export default function ListeningGame({ cards, API, authHeaders, round = 1, onNe
             </p>
           )}
         </div>
-
+        {/* In-Game Save to Deck Button */}
+        <div className="w-full flex items-center justify-between mb-3 px-1">
+          <button
+            type="button"
+            onClick={() => handleSaveCurrentWord(current)}
+            className={`w-full py-2.5 px-3 rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 transition-all shadow-sm ${savedWords.has(current.id || current.word)
+              ? "bg-emerald-900/60 border border-emerald-500/50 text-emerald-300 cursor-default"
+              : "bg-slate-700/80 hover:bg-slate-700 text-slate-200 border border-slate-600 active:scale-95"
+              }`}
+          >
+            {savedWords.has(current.id || current.word) ? (
+              <>
+                <span>✅</span>
+                <span>Saved to Flashcards Deck</span>
+              </>
+            ) : (
+              <>
+                <span>⭐</span>
+                <span>Save this word to my Flashcards</span>
+              </>
+            )}
+          </button>
+        </div>
         <button
           onClick={handleContinue}
           className="w-full py-3.5 rounded-xl bg-cyan-600 text-white font-semibold hover:bg-cyan-500 active:scale-95 transition-all text-sm"

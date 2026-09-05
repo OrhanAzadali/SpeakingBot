@@ -20,7 +20,20 @@ export default function Quiz({ cards, API, authHeaders, onExit }) {
   const [submitting, setSubmitting] = useState(false);
   const [masteredCount, setMasteredCount] = useState(0);
   const [answeredCount, setAnsweredCount] = useState(0);
+  // Inside Quiz.jsx:
+  const [savedWords, setSavedWords] = useState(() => new Set());
 
+  const handleSaveCurrentWord = async (card) => {
+    const wordId = card.id || card.word;
+    if (savedWords.has(wordId)) return;
+
+    if (onSaveWord) {
+      const success = await onSaveWord(card);
+      if (success) {
+        setSavedWords((prev) => new Set(prev).add(wordId));
+      }
+    }
+  };
   // Automatically prepend brand-new words from background polling to the top of the queue
   useEffect(() => {
     setQueue((prev) => {
@@ -266,7 +279,27 @@ export default function Quiz({ cards, API, authHeaders, onExit }) {
         {feedback.mastered && (
           <p className="text-indigo-400 font-semibold text-xs mb-3">🎉 Word mastered and archived to your learned vocabulary!</p>
         )}
-
+        {/* In-Game Save to Deck Button in Quiz */}
+        <button
+          type="button"
+          onClick={() => handleSaveCurrentWord(current)}
+          className={`w-full py-2.5 px-3 rounded-xl text-xs font-semibold mb-3 flex items-center justify-center gap-1.5 transition-all shadow-sm ${savedWords.has(current.id || current.word)
+            ? "bg-emerald-900/60 border border-emerald-500/50 text-emerald-300"
+            : "bg-slate-700 hover:bg-slate-600 text-slate-200 border border-slate-600 active:scale-95"
+            }`}
+        >
+          {savedWords.has(current.id || current.word) ? (
+            <>
+              <span>✅</span>
+              <span>Saved to Flashcards Deck</span>
+            </>
+          ) : (
+            <>
+              <span>⭐</span>
+              <span>Save to Flashcards for Quiz</span>
+            </>
+          )}
+        </button>
         <button
           onClick={handleContinue}
           className="w-full py-3.5 rounded-xl bg-indigo-600 text-white font-semibold hover:bg-indigo-500 active:scale-95 transition-all text-sm"

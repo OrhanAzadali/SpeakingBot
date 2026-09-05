@@ -11,6 +11,7 @@ const SPEECH_LANG_CODES = {
     czech: "cs-CZ", hungarian: "hu-HU", azerbaijani: "az-AZ"
 };
 
+
 function normalize(str) {
     return String(str || "")
         .toLowerCase()
@@ -48,6 +49,19 @@ export default function SpeakingGame({ cards, API, authHeaders, onExit }) {
     const recognitionRef = useRef(null);
 
     const current = cards[index];
+
+    const [savedInSession, setSavedInSession] = useState(() => new Set());
+
+    const handleSaveWord = async (card) => {
+        if (savedInSession.has(card.id || card.word)) return;
+        if (onSaveWord) {
+            const ok = await onSaveWord(card);
+            if (ok) {
+                setSavedInSession((prev) => new Set(prev).add(card.id || card.word));
+            }
+        }
+    };
+
 
     useEffect(() => {
         const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -189,7 +203,26 @@ export default function SpeakingGame({ cards, API, authHeaders, onExit }) {
                     <span>🔊</span> Listen to Native
                 </button>
             </div>
-
+            <div className="flex justify-center gap-2 mt-3">
+                <button
+                    type="button"
+                    onClick={playTargetAudio}
+                    className="py-2 px-3 rounded-xl bg-white/20 hover:bg-white/30 active:scale-95 text-white text-xs font-semibold flex items-center gap-1.5"
+                >
+                    <span>🔊</span> Listen
+                </button>
+                <button
+                    type="button"
+                    onClick={() => handleSaveWord(current)}
+                    className={`py-2 px-3 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-all ${savedInSession.has(current.id || current.word)
+                        ? "bg-emerald-800/80 text-emerald-200 border border-emerald-500/40"
+                        : "bg-white/10 hover:bg-white/20 text-indigo-100 border border-white/20 active:scale-95"
+                        }`}
+                >
+                    <span>{savedInSession.has(current.id || current.word) ? "✅" : "⭐"}</span>
+                    <span>{savedInSession.has(current.id || current.word) ? "Saved" : "Save Word"}</span>
+                </button>
+            </div>
             {/* Voice Recording Control */}
             {!feedback ? (
                 <div className="w-full flex flex-col items-center gap-4">
