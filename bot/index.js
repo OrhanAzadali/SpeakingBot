@@ -175,12 +175,12 @@ async function sendSafeChunkedMessage(ctx, fullText, options = {}) {
 // ── Unicode Font Detection for Cyrillic, Umlauts & Accents in PDF ──────────────
 function findSystemUnicodeFont() {
   const potentialFonts = [
-    "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
+    path.join(process.cwd(), "fonts", "DejaVuSans.ttf"),
+    path.join(process.cwd(), "fonts", "Roboto-Regular.ttf"),
     "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+    "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
     "/usr/share/fonts/truetype/freefont/FreeSans.ttf",
     "C:\\Windows\\Fonts\\arial.ttf",
-    path.join(process.cwd(), "fonts", "Roboto-Regular.ttf"),
-    path.join(process.cwd(), "fonts", "DejaVuSans.ttf")
   ];
 
   for (const fontPath of potentialFonts) {
@@ -191,8 +191,10 @@ function findSystemUnicodeFont() {
 
 function findSystemBoldFont() {
   const potentialFonts = [
-    "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
+    path.join(process.cwd(), "fonts", "DejaVuSans-Bold.ttf"),
+    path.join(process.cwd(), "fonts", "Roboto-Bold.ttf"),
     "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+    "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
     "/usr/share/fonts/truetype/freefont/FreeSansBold.ttf",
     "C:\\Windows\\Fonts\\arialbd.ttf"
   ];
@@ -202,22 +204,59 @@ function findSystemBoldFont() {
   return null;
 }
 
-// ── Clean Text Utilities for PDF Generation ──────────────────────────────────
+// ── Ensure Unicode TrueType Font Exists on Server Startup ─────────────────────
+async function ensureUnicodeFontExists() {
+  const fontDir = path.join(process.cwd(), "fonts");
+  const fontPath = path.join(fontDir, "DejaVuSans.ttf");
+  if (!fs.existsSync(fontPath)) {
+    try {
+      if (!fs.existsSync(fontDir)) fs.mkdirSync(fontDir, { recursive: true });
+      console.log("⏳ Downloading DejaVuSans.ttf for perfect Unicode & Cyrillic PDF rendering...");
+      const res = await fetch("https://cdn.jsdelivr.net/gh/marnen/dejavu-fonts@master/ttf/DejaVuSans.ttf");
+      if (res.ok) {
+        const buffer = Buffer.from(await res.arrayBuffer());
+        fs.writeFileSync(fontPath, buffer);
+        console.log("✅ DejaVuSans.ttf installed successfully in ./fonts/");
+      }
+    } catch (err) {
+      console.warn("Could not auto-download DejaVu font:", err.message);
+    }
+  }
+}
+ensureUnicodeFontExists();
+
+// ── Clean & Sanitize Text for PDFKit (Eliminates [] Window Frames) ────────────
 function cleanPdfText(text) {
   if (!text) return "";
-  return text
+  return String(text)
     .replace(/<[^>]+>/g, "")
     .replace(/\*\*(.*?)\*\*/g, "$1")
     .replace(/\*(.*?)\*/g, "$1")
     .replace(/__(.*?)__/g, "$1")
     .replace(/_(.*?)_/g, "$1")
     .replace(/^#{1,6}\s*/gm, "")
+    // Normalize unicode non-breaking hyphens, en/em dashes to standard characters
+    .replace(/[\u2010\u2011\u2012]/g, "-")
+    .replace(/[\u2013\u2014]/g, " — ")
+    .replace(/\u2212/g, "-")
+    .replace(/\u00A0/g, " ") // Non-breaking space
+    .replace(/[\u2018\u2019\u02BC]/g, "'") // Smart single quotes
+    .replace(/[\u201C\u201D\u201E\u201F]/g, '"') // Smart double quotes
     .replace(/--+/g, " — ")
+    // Convert common IPA phonetic extensions that trigger [] in standard fonts
+    .replace(/χ/g, "kh")
+    .replace(/ɪ/g, "i")
+    .replace(/ɐ/g, "a")
+    .replace(/ə/g, "e")
+    .replace(/ʃ/g, "sh")
+    .replace(/ʒ/g, "zh")
+    .replace(/ç/g, "ch")
+    .replace(/ŋ/g, "ng")
     .replace(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{2190}-\u{21FF}\u{2B00}-\u{2BFF}\u{FE00}-\u{FE0F}]/gu, "")
     .trim();
 }
 
-// ── Fixed Table & Markdown Renderer for PDFKit ───────────────────────────────
+// ── Graceful Markdown & JSON-Object Parser for PDFKit ─────────────────────────
 function renderMarkdownContentToPdf(doc, markdownText, setFont) {
   if (!markdownText) return;
   const lines = markdownText.split("\n");
@@ -271,9 +310,35 @@ function renderMarkdownContentToPdf(doc, markdownText, setFont) {
     doc.moveDown(0.5);
   };
 
-  for (const rawLine of lines) {
-    const line = rawLine.trim();
+  for (let rawLine of lines) {
+    let line = rawLine.trim();
     if (!line) continue;
+
+    // Detect if the line contains a serialized JSON example object (e.g. {"target": ...})
+    if (line.includes('{"target"') || line.includes("{'target'")) {
+      try {
+        const jsonMatch = line.match(/\{[\s\S]*\}/);
+        if (jsonMatch) {
+          const obj = JSON.parse(jsonMatch[0]);
+          if (doc.y > 720) { doc.addPage(); doc.x = 40; }
+          const itemY = doc.y;
+          doc.roundedRect(40, itemY, 515, 34, 4).fill("#f8fafc");
+          setFont("bold");
+          doc.fontSize(9.5).fillColor("#15803d").text(`• ${cleanPdfText(obj.target || "")}`, 50, itemY + 6, { continued: Boolean(obj.translation) });
+          if (obj.translation) {
+            setFont("regular");
+            doc.fillColor("#1e293b").text(`  —  ${cleanPdfText(obj.translation)}`);
+          }
+          if (obj.note) {
+            setFont("regular");
+            doc.fontSize(8.5).fillColor("#64748b").text(`    Note: ${cleanPdfText(obj.note)}`, 50, itemY + 20);
+          }
+          doc.x = 40;
+          doc.y = itemY + 38;
+          continue;
+        }
+      } catch (_) { }
+    }
 
     if (line.startsWith("|") && line.endsWith("|")) {
       const cells = line.split("|").slice(1, -1).map((c) => c.trim());
@@ -316,6 +381,7 @@ function renderMarkdownContentToPdf(doc, markdownText, setFont) {
   }
   flushTable();
 }
+
 
 // ── PDF 1: Individual Grammar Rule PDF Generator ──────────────────────────────
 async function generateGrammarTopicPdf(userId, language, topic, outputPath) {
@@ -799,20 +865,20 @@ app.get("/api/grammar/:id/pdf", async (req, res) => {
   }
 });
 
-// ── Full Grammar Book PDF Download Endpoint (Self-Healing on Empty) ───────────
+// ── 1. Full Grammar Book PDF Download (Safe Stream Piping) ──────────────── 
 app.get("/api/grammar/pdf", async (req, res) => {
   const rawId = req.headers["x-user-id"] || req.query.userId || (req.telegramUser && req.telegramUser.id);
   const userId = rawId ? Number(rawId) : null;
   if (!userId) return res.status(401).json({ error: "Unauthorized: Missing userId" });
 
   const user = await getUser(userId);
-  const lang = req.query.language || user?.language || "russian";
+  const lang = (req.query.language || user?.language || "russian").toLowerCase();
   const tempPath = path.join(tmpdir(), `grammar_full_${userId}_${Date.now()}.pdf`);
 
   try {
     let filePath = await generateFullGrammarNotebookPdf(userId, lang, tempPath);
 
-    // If no topics exist for this language yet, generate starter guide right now!
+    // Self-heal: If no rules exist for this language yet, generate one immediately!
     if (!filePath) {
       const guide = await generateGrammarGuide(
         LANGUAGES[lang] || lang,
@@ -826,21 +892,27 @@ app.get("/api/grammar/pdf", async (req, res) => {
       }
     }
 
-    if (!filePath) {
+    if (!filePath || !fs.existsSync(filePath)) {
       return res.status(404).json({ error: `No grammar topics found for ${lang}.` });
     }
 
-    // Read the requested filename from query, or fall back to default
     const downloadName = req.query.filename || `Complete_Grammar_Notebook_${lang}.pdf`;
 
     res.setHeader("Content-Type", "application/pdf");
-    res.setHeader("Content-Disposition", `attachment; filename="${encodeURIComponent(downloadName)}"`);
-    res.download(filePath, downloadName, async () => {
+    res.setHeader("Content-Disposition", `attachment; filename="${encodeURIComponent(downloadName)}"; filename*=UTF-8''${encodeURIComponent(downloadName)}`);
+
+    const stream = fs.createReadStream(filePath);
+    stream.pipe(res);
+    stream.on("end", async () => {
       await cleanupFile(filePath);
+    });
+    stream.on("error", (sErr) => {
+      console.error("PDF stream error:", sErr);
+      if (!res.headersSent) res.status(500).json({ error: "Stream error" });
     });
   } catch (err) {
     console.error("Full grammar PDF error:", err);
-    res.status(500).json({ error: "Failed to generate Grammar Notebook PDF" });
+    if (!res.headersSent) res.status(500).json({ error: "Failed to generate Grammar Notebook PDF" });
   }
 });
 
@@ -940,42 +1012,58 @@ app.post("/api/vocabulary/send-pdf", requireTelegramAuth, async (req, res) => {
   }
 });
 
+
+// ── 2. Roadmap PDF Download (Language & Level Aware with Safe Stream) ─────────
 app.get("/api/roadmap/pdf", requireTelegramAuth, async (req, res) => {
   const rawId = req.headers["x-user-id"] || req.query.userId || (req.telegramUser && req.telegramUser.id);
   const userId = rawId ? Number(rawId) : null;
   if (!userId) return res.status(401).json({ error: "Unauthorized: Missing userId" });
 
   const user = await getUser(userId);
-  const lang = req.query.language || user?.language || "russian";
+  const lang = (req.query.language || user?.language || "russian").toLowerCase();
+  const level = user?.level || "Beginner";
+  const mediator = user?.mediator_language || "english";
+
   let progress = await getRoadmap(userId);
   let roadmapText = progress?.roadmap;
 
-  // Language check: if cached roadmap mentions another language, regenerate!
-  if (!roadmapText || isCorruptedRoadmap(roadmapText) || (roadmapText && !roadmapText.includes(LANGUAGES[lang] || lang))) {
+  // Invalidate roadmap if it does not contain the current language or level tag
+  const isLevelMismatch = !roadmapText ||
+    isCorruptedRoadmap(roadmapText) ||
+    !roadmapText.toLowerCase().includes(lang) ||
+    !roadmapText.toLowerCase().includes(level.toLowerCase());
+
+  if (isLevelMismatch) {
     roadmapText = await generateRoadmap(
       userId,
       LANGUAGES[lang] || lang,
-      user?.level || "Beginner",
-      user?.mediator_language || "english"
+      level,
+      mediator
     );
   }
+
+  if (!roadmapText) return res.status(404).json({ error: "No roadmap available" });
 
   const tempPath = path.join(tmpdir(), `roadmap_web_${userId}_${Date.now()}.pdf`);
   try {
     const clean = cleanRoadmapText(roadmapText);
     const filePath = await generateRoadmapPdf(userId, lang, clean, tempPath);
-
-    // Read the requested filename from query, or fall back to default
-    const downloadName = req.query.filename || `My_${lang}_Roadmap.pdf`;
+    const downloadName = req.query.filename || `My_${lang}_Roadmap_${level}.pdf`;
 
     res.setHeader("Content-Type", "application/pdf");
-    res.setHeader("Content-Disposition", `attachment; filename="${encodeURIComponent(downloadName)}"`);
-    res.download(filePath, downloadName, async () => {
+    res.setHeader("Content-Disposition", `attachment; filename="${encodeURIComponent(downloadName)}"; filename*=UTF-8''${encodeURIComponent(downloadName)}`);
+
+    const stream = fs.createReadStream(filePath);
+    stream.pipe(res);
+    stream.on("end", async () => {
       await cleanupFile(filePath);
+    });
+    stream.on("error", () => {
+      if (!res.headersSent) res.status(500).json({ error: "Stream error" });
     });
   } catch (err) {
     console.error("Roadmap PDF error:", err);
-    res.status(500).json({ error: "Failed to generate Roadmap PDF" });
+    if (!res.headersSent) res.status(500).json({ error: "Failed to generate Roadmap PDF" });
   }
 });
 
@@ -1099,13 +1187,13 @@ async function sendGrammarPdfToUser(ctx, userId, topicId = null) {
 }
 async function sendVocabularyPdfToUser(ctx, userId) {
   const user = await getUser(userId);
-  const lang = user?.language || "russian";
+  const lang = (user?.language || "russian").toLowerCase();
   const tempPath = path.join(tmpdir(), `vocabulary_${userId}_${Date.now()}.pdf`);
 
   try {
     const filePath = await generateVocabularyPdf(userId, lang, tempPath);
     if (!filePath) {
-      await bot.api.sendMessage(userId, "📭 У вас пока нет сохраненных карточек для этого языка. Пообщайтесь с ботом, чтобы добавить слова!");
+      await bot.api.sendMessage(userId, `📭 У вас пока нет сохраненных карточек для языка ${LANGUAGES[lang] || lang}. Пообщайтесь с ботом, чтобы добавить слова!`);
       return false;
     }
 
@@ -1117,6 +1205,7 @@ async function sendVocabularyPdfToUser(ctx, userId) {
     return true;
   } catch (err) {
     console.error("Vocabulary PDF export error:", err);
+    await bot.api.sendMessage(userId, "❌ Ошибка при формировании словаря в PDF.");
     return false;
   }
 }
@@ -1825,8 +1914,8 @@ async function finishSkillDrillSession(ctx, userId, drill) {
   const kb = new InlineKeyboard()
     .text(`Train ${nextRecommended.toUpperCase()} 🚀`, `train_${nextRecommended}`)
     .row()
-    .text("📖 Правила в PDF", "download_all_grammar_pdf")
-    .text("📥 Vocabulary PDF", "download_pdf_direct");
+    .text("📖 Правила в PDF", `dl_all_grammar_${drill.language}`)
+    .text("📥 Vocabulary PDF", `dl_all_vocab_${drill.language}`);
 
   const summary =
     `🎉 *${drill.skill.toUpperCase()} DRILL COMPLETE!*\n\n` +
@@ -1900,6 +1989,16 @@ bot.callbackQuery("download_pdf_direct", async (ctx) => {
 bot.callbackQuery("download_roadmap_pdf", async (ctx) => {
   await ctx.answerCallbackQuery({ text: "Compiling your Roadmap PDF..." });
   await sendRoadmapPdfToUser(ctx, ctx.from.id);
+});
+bot.callbackQuery(/^dl_all_grammar_(.+)$/, async (ctx) => {
+  await ctx.answerCallbackQuery({ text: "Compiling full Grammar Book PDF..." });
+  const lang = ctx.match[1];
+  await sendGrammarPdfToUser(ctx, ctx.from.id, null);
+});
+
+bot.callbackQuery(/^dl_all_vocab_(.+)$/, async (ctx) => {
+  await ctx.answerCallbackQuery({ text: "Compiling your Vocabulary PDF..." });
+  await sendVocabularyPdfToUser(ctx, ctx.from.id);
 });
 
 // ── Voice Messages ────────────────────────────────────────────────────────────

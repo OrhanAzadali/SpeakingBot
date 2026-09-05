@@ -860,25 +860,23 @@ export async function chat(userId, userMessage, history, language, level, langua
 }
 
 // ── Call 9: Pedagogically Comprehensive Roadmap Builder ──────────────────────
-// ── Call 9: Pedagogically Comprehensive Roadmap Builder ──────────────────────
+
+// In ai.js:
 
 export function cleanRoadmapText(raw) {
   if (!raw) return "";
   return raw
-    // Strip raw HTML tags (e.g. <br>, <u>, <span>)
     .replace(/<[^>]+>/g, "")
-    // Strip markdown bold/italic asterisks & underscores without dropping words
     .replace(/\*\*(.*?)\*\*/g, "$1")
     .replace(/\*(.*?)\*/g, "$1")
     .replace(/__(.*?)__/g, "$1")
     .replace(/_(.*?)_/g, "$1")
-    // Replace double dashes with clean em-dashes
+    .replace(/[\u2010\u2011]/g, "-") // Convert non-breaking hyphens to regular hyphens
+    .replace(/[\u2013\u2014]/g, " — ") // Convert en/em dashes
+    .replace(/\u00A0/g, " ") // Non-breaking space
     .replace(/--+/g, " — ")
-    // Convert dash/plus/asterisk bullets to clean unicode bullets
     .replace(/^[\s]*[-*+]\s+/gm, "• ")
-    // Remove isolated stray asterisks or backticks
     .replace(/[`*]/g, "")
-    // Normalize excessive blank lines
     .replace(/\n{3,}/g, "\n\n")
     .trim();
 }
@@ -886,36 +884,76 @@ export function cleanRoadmapText(raw) {
 function buildRoadmapPrompt(language, level, mediatorLanguage = "english", recentContext = "") {
   const isAdvanced = String(level || "").toLowerCase().includes("advanced");
   // For Advanced learners: 100% Target Language immersion
-  // For Beginners & Intermediates: Mediator Language so they can comprehend their study plan!
+  // For Beginners & Intermediates: Mediator Language so they understand their curriculum!
   const outputLanguage = isAdvanced ? language : (mediatorLanguage || "english");
 
-  return `You are a certified senior language acquisition curriculum specialist and CEFR diagnostic coach.
-Analyze the student's recent conversation and study history to create an in-depth, structured, and actionable Learning Roadmap.
-Language to write the entire roadmap in: ${outputLanguage.toUpperCase()}.
+  return `You are a senior CEFR curriculum specialist.
+Create a structured, in-depth 6-section Learning Roadmap & 7-Day Study Plan for a student learning ${language}.
+The student's CEFR level is ${level.toUpperCase()}.
+The language you MUST write the entire report and all instructions in: ${outputLanguage.toUpperCase()}.
 
 ${isAdvanced
-      ? `CRITICAL ADVANCED IMMERSION: The student is ADVANCED. Write the entire 7-day roadmap and all study instructions strictly in ${language.toUpperCase()}.`
-      : `CRITICAL BEGINNER/INTERMEDIATE PEDAGOGY: The student is ${level.toUpperCase()}. Write all instructions, analysis, and goals in the student's native/mediator language: ${outputLanguage.toUpperCase()}, while citing vocabulary items in ${language}.`}
+      ? `CRITICAL ADVANCED IMMERSION: The student is ADVANCED. Write 100% of the text, headings, and explanations in ${language.toUpperCase()}.`
+      : `CRITICAL BEGINNER/INTERMEDIATE PEDAGOGY: The student is ${level.toUpperCase()}. Write all instructions, analysis, and goals in their mediator language: ${outputLanguage.toUpperCase()}, quoting specific words in ${language}.`}
 
-CRITICAL SCOPE & ANTI-CORRUPTION MANDATE:
-- This is a formal LEARNING ROADMAP and 7-DAY STUDY PLAN, NOT a vocabulary flashcard deck!
-- NEVER output a flashcard set, never output "Front / Back" tables, and never output bare lemma lists!
-- NEVER output raw HTML tags like <br>, <u>, <b>, <span>, or <table>.
-- DO NOT use markdown punctuation noise like double asterisks (**), double dashes (--), or raw angle brackets (< >).
-- Use clear uppercase headings and clean bullet points ("•").
-- Complete all sections thoroughly without cutting off or truncating mid-sentence.
+CRITICAL FORMATTING RULES:
+- Never output raw HTML tags (<br>, <u>, <span>, <table>).
+- Never output markdown punctuation noise (** or --).
+- Use uppercase section headers and clean bullet points ("•").
+- Do NOT output flashcard lists or Front/Back tables.
 
 ${recentContext ? `STUDENT'S RECENT STUDY CONTEXT:\n${recentContext}\n` : ""}
 
-Structure the report into these rich pedagogical sections:
-1. 🎯 Current CEFR Standing & Trajectory
+Structure required:
+1. 🎯 Current CEFR Standing & Trajectory (${level})
 2. 📈 Recently Demonstrated Strengths
 3. 🔍 Diagnostics & Weak Areas Under Repair
 4. 🔄 Active Vocabulary to Recycle
 5. 🚀 Actionable Milestone Goals (Next 1-2 Weeks)
-6. 🗓 7-Day Targeted Practice Regimen
+6. 🗓 7-Day Targeted Practice Regimen`;
+}
 
-Keep the tone encouraging, professional, and precise. Format with clean section headers and bullet points.`;
+export async function generateGrammarGuide(targetLanguage, mediatorLanguage, topicOrQuery, userLevel = "Beginner") {
+  const isAdvanced = String(userLevel || "").toLowerCase().includes("advanced");
+  const guideLanguage = isAdvanced ? targetLanguage : (mediatorLanguage || "english");
+
+  const prompt = `You are an expert university professor of ${targetLanguage} linguistics.
+Create a comprehensive, publication-grade Grammar Reference Guide for a student at ${userLevel} level.
+Language to write explanations in: ${guideLanguage.toUpperCase()}.
+Topic: "${topicOrQuery}"
+
+CRITICAL ANTI-CORRUPTION RULES:
+- "explanation" MUST BE plain readable text and markdown tables. NEVER output raw JSON syntax or curly braces like {"target": ...} inside the explanation!
+- "examples" MUST BE a real JSON array of objects.
+
+Return strictly JSON:
+{
+  "title": "Clear concise topic title",
+  "category": "Grammar category",
+  "rule_summary": "1-2 sentence core takeaway",
+  "explanation": "Full comprehensive explanation with clean tables and structural rules (NO raw JSON inside this text!)",
+  "examples": [
+    { "target": "Natural sentence in ${targetLanguage}", "translation": "Accurate translation", "note": "Grammatical point" }
+  ]
+}`;
+
+  try {
+    const response = await withModelFallback(CHAT_MODELS, (model) =>
+      groq.chat.completions.create({
+        model,
+        messages: [{ role: "user", content: prompt }],
+        temperature: 0.2,
+        max_tokens: 3500,
+        response_format: { type: "json_object" },
+        ...reasoningParams(model),
+      })
+    );
+    const raw = response.choices[0]?.message?.content?.trim();
+    return JSON.parse(extractJsonObject(raw));
+  } catch (err) {
+    console.error("Grammar guide generation error:", err);
+    return null;
+  }
 }
 
 export async function generateRoadmap(userId, language, level, mediatorLanguage = "english") {

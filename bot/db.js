@@ -754,13 +754,14 @@ export async function getLearnedWords(userId, language) {
   return rows;
 }
 
+
 export async function getAllUserVocabulary(userId, language = null) {
   const params = [userId];
   let langFilter = "";
 
   if (language) {
     params.push(language);
-    langFilter = "AND language = $2";
+    langFilter = "AND LOWER(language) = LOWER($2)";
   }
 
   const flashcardsQuery = pool.query(
@@ -801,13 +802,15 @@ export async function saveGrammarTopic(userId, language, topicData) {
   return rows[0] ?? null;
 }
 
+// In db.js:
 export async function getGrammarTopics(userId, language) {
   const { rows } = await pool.query(
-    "SELECT * FROM grammar_topics WHERE user_id = $1 AND language = $2 ORDER BY updated_at DESC, id DESC",
+    "SELECT * FROM grammar_topics WHERE user_id = $1 AND LOWER(language) = LOWER($2) ORDER BY updated_at DESC, id DESC",
     [userId, language]
   );
   return rows;
 }
+
 
 export async function getGrammarTopicById(id, userId = null) {
   if (userId) {
