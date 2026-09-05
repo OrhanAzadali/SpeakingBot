@@ -205,7 +205,7 @@ function findSystemBoldFont() {
   return null;
 }
 
-// ── PDF 1: Individual Grammar Rule / Topic PDF Generator ──────────────────────
+// ── PDF 1: Individual Grammar Rule PDF Generator ──────────────────────────────
 // ── Clean Text Utilities for PDF Generation ──────────────────────────────────
 function cleanPdfText(text) {
   if (!text) return "";
@@ -226,7 +226,7 @@ function cleanPdfText(text) {
     .trim();
 }
 
-// ── PDF 1: Individual Grammar Rule / Topic PDF Generator ──────────────────────
+
 async function generateGrammarTopicPdf(userId, language, topic, outputPath) {
   return new Promise((resolve, reject) => {
     const doc = new PDFDocument({ size: "A4", margin: 40 });
@@ -247,31 +247,47 @@ async function generateGrammarTopicPdf(userId, language, topic, outputPath) {
       doc.font("RegularFont");
     }
 
-    // Top Header Banner
-    const startY = doc.y;
-    doc.roundedRect(40, startY, 515, 65, 8).fill("#1e1b4b");
+    // Dynamic Title Measurement to Prevent Any Overlap
     setFont("bold");
-    doc.fontSize(18).fillColor("#ffffff").text(cleanPdfText(topic.title), 55, startY + 14, { width: 485 });
+    doc.fontSize(17);
+    const cleanTitle = cleanPdfText(topic.title);
+    const titleHeight = doc.heightOfString(cleanTitle, { width: 485 });
+    const bannerHeight = Math.max(70, titleHeight + 38);
+
+    const startY = doc.y;
+    doc.roundedRect(40, startY, 515, bannerHeight, 8).fill("#1e1b4b");
+    doc.fillColor("#ffffff").text(cleanTitle, 55, startY + 12, { width: 485 });
+
     setFont("regular");
     const langName = language ? (LANGUAGES[language] || language) : "Target Language";
-    doc.fontSize(9.5).fillColor("#a5b4fc").text(
+    doc.fontSize(9).fillColor("#a5b4fc").text(
       `Language: ${langName}  |  Category: ${cleanPdfText(topic.category || "Grammar")}  |  Date: ${new Date().toLocaleDateString()}`,
-      55, startY + 42
+      55, startY + titleHeight + 16, { width: 485 }
     );
-    doc.y = startY + 78;
+
+    doc.x = 40;
+    doc.y = startY + bannerHeight + 14;
 
     // Summary Box
     if (topic.rule_summary) {
+      const summaryText = cleanPdfText(topic.rule_summary);
+      setFont("regular");
+      doc.fontSize(9.5);
+      const textH = doc.heightOfString(summaryText, { width: 490 });
+      const sumH = Math.max(44, textH + 26);
+
       const sumY = doc.y;
-      doc.roundedRect(40, sumY, 515, 42, 6).fillAndStroke("#f1f5f9", "#cbd5e1");
+      doc.roundedRect(40, sumY, 515, sumH, 6).fillAndStroke("#f1f5f9", "#cbd5e1");
       setFont("bold");
       doc.fillColor("#0f172a").fontSize(10).text("CORE RULE TAKEAWAY", 52, sumY + 8);
       setFont("regular");
-      doc.fillColor("#334155").fontSize(9.5).text(cleanPdfText(topic.rule_summary), 52, sumY + 22, { width: 490 });
-      doc.y = sumY + 52;
+      doc.fillColor("#334155").fontSize(9.5).text(summaryText, 52, sumY + 22, { width: 490 });
+
+      doc.x = 40;
+      doc.y = sumY + sumH + 12;
     }
 
-    // Process Content
+    // Process Markdown Content
     renderMarkdownContentToPdf(doc, topic.explanation, setFont);
 
     // Examples Section
@@ -281,27 +297,34 @@ async function generateGrammarTopicPdf(userId, language, topic, outputPath) {
     } catch (_) { }
 
     if (Array.isArray(examplesList) && examplesList.length > 0) {
-      if (doc.y > 640) doc.addPage();
+      if (doc.y > 640) {
+        doc.addPage();
+        doc.x = 40;
+      }
       doc.moveDown(0.6);
       setFont("bold");
-      doc.fontSize(12).fillColor("#047857").text("Model Sentences & Context Examples:");
+      doc.fontSize(12).fillColor("#047857").text("Model Sentences & Context Examples:", 40, doc.y);
       doc.moveDown(0.3);
 
       examplesList.forEach((ex, idx) => {
-        if (doc.y > 720) doc.addPage();
+        if (doc.y > 720) {
+          doc.addPage();
+          doc.x = 40;
+        }
         const cardY = doc.y;
-        doc.roundedRect(40, cardY, 515, 32, 4).fill("#f8fafc");
+        doc.roundedRect(40, cardY, 515, 34, 4).fill("#f8fafc");
         setFont("bold");
-        doc.fontSize(9.5).fillColor("#15803d").text(`${idx + 1}. ${cleanPdfText(ex.target || "")}`, 50, cardY + 6, { continued: Boolean(ex.translation) });
+        doc.fontSize(9.5).fillColor("#15803d").text(`${idx + 1}. ${cleanPdfText(ex.target || "")}`, 50, cardY + 7, { continued: Boolean(ex.translation) });
         if (ex.translation) {
           setFont("regular");
           doc.fillColor("#1e293b").text(`  —  ${cleanPdfText(ex.translation)}`);
         }
         if (ex.note) {
           setFont("regular");
-          doc.fontSize(8.5).fillColor("#64748b").text(`    Note: ${cleanPdfText(ex.note)}`, 50, cardY + 18);
+          doc.fontSize(8.5).fillColor("#64748b").text(`    Note: ${cleanPdfText(ex.note)}`, 50, cardY + 20);
         }
-        doc.y = cardY + 36;
+        doc.x = 40;
+        doc.y = cardY + 38;
       });
     }
 
@@ -312,7 +335,6 @@ async function generateGrammarTopicPdf(userId, language, topic, outputPath) {
 }
 
 // ── PDF 2: Consolidated Multi-Topic Grammar Reference Book ────────────────────
-
 async function generateFullGrammarNotebookPdf(userId, language, outputPath) {
   const topics = await getAllUserGrammar(userId, language);
   if (!topics || topics.length === 0) return null;
@@ -390,6 +412,7 @@ async function generateFullGrammarNotebookPdf(userId, language, outputPath) {
 }
 
 // ── Shared Table & Markdown Renderer for PDFKit ──────────────────────────────
+// ── Fixed & Tested Table & Markdown Renderer for PDFKit ────────────────────────
 function renderMarkdownContentToPdf(doc, markdownText, setFont) {
   if (!markdownText) return;
   const lines = markdownText.split("\n");
@@ -398,32 +421,48 @@ function renderMarkdownContentToPdf(doc, markdownText, setFont) {
   const flushTable = () => {
     if (tableRows.length === 0) return;
     const numCols = Math.max(...tableRows.map((r) => r.length));
-    const colWidth = 515 / numCols;
+    const startX = 40;
+    const totalWidth = 515;
+    const colWidth = totalWidth / numCols;
 
     tableRows.forEach((row, rowIdx) => {
-      if (doc.y > 730) doc.addPage();
+      if (doc.y > 720) {
+        doc.addPage();
+        doc.x = startX;
+      }
       const currentY = doc.y;
       const isHeader = rowIdx === 0;
 
+      // Draw row background
       if (isHeader) {
-        doc.rect(40, currentY, 515, 20).fill("#4338ca");
+        doc.rect(startX, currentY, totalWidth, 22).fill("#3730a3"); // Rich Indigo Header
         setFont("bold");
         doc.fillColor("#ffffff").fontSize(9);
       } else {
-        doc.rect(40, currentY, 515, 19).fill(rowIdx % 2 === 0 ? "#f8fafc" : "#ffffff");
-        doc.rect(40, currentY, 515, 19).stroke("#e2e8f0");
+        doc.rect(startX, currentY, totalWidth, 20).fill(rowIdx % 2 === 0 ? "#f8fafc" : "#ffffff");
+        doc.rect(startX, currentY, totalWidth, 20).stroke("#e2e8f0");
         setFont("regular");
-        doc.fillColor("#1e293b").fontSize(8.5);
+        doc.fillColor("#0f172a").fontSize(8.5);
       }
 
+      // Draw each cell
       row.forEach((cellText, cIdx) => {
-        doc.text(cleanPdfText(cellText), 45 + cIdx * colWidth, currentY + 5, { width: colWidth - 8, align: "left" });
+        doc.text(
+          cleanPdfText(cellText),
+          startX + 8 + cIdx * colWidth,
+          currentY + 5.5,
+          { width: colWidth - 14, align: "left", lineBreak: false }
+        );
       });
-      doc.y = currentY + (isHeader ? 21 : 20);
+
+      // CRITICAL FIX: Reset X to page margin after table cell rendering!
+      doc.x = startX;
+      doc.y = currentY + (isHeader ? 23 : 21);
     });
 
     tableRows = [];
-    doc.moveDown(0.4);
+    doc.x = startX; // Reset X
+    doc.moveDown(0.5);
   };
 
   for (const rawLine of lines) {
@@ -440,34 +479,41 @@ function renderMarkdownContentToPdf(doc, markdownText, setFont) {
       flushTable();
     }
 
-    if (doc.y > 720) doc.addPage();
+    if (doc.y > 720) {
+      doc.addPage();
+      doc.x = 40;
+    }
+
+    // Always ensure doc.x is at the left margin
+    doc.x = 40;
 
     // Section Headings
     if (line.startsWith("###")) {
       doc.moveDown(0.4);
       setFont("bold");
-      doc.fontSize(11).fillColor("#4338ca").text(cleanPdfText(line));
+      doc.fontSize(11).fillColor("#4338ca").text(cleanPdfText(line), 40, doc.y, { width: 515 });
       doc.moveDown(0.2);
     } else if (line.startsWith("##")) {
       doc.moveDown(0.5);
       setFont("bold");
-      doc.fontSize(13).fillColor("#1e293b").text(cleanPdfText(line));
+      doc.fontSize(13).fillColor("#1e1b4b").text(cleanPdfText(line), 40, doc.y, { width: 515 });
       doc.moveDown(0.2);
     } else if (line.startsWith("#")) {
       doc.moveDown(0.6);
       setFont("bold");
-      doc.fontSize(15).fillColor("#0f172a").text(cleanPdfText(line));
+      doc.fontSize(15).fillColor("#0f172a").text(cleanPdfText(line), 40, doc.y, { width: 515 });
       doc.moveDown(0.3);
     } else if (line.startsWith("-") || line.startsWith("•") || line.startsWith("* ")) {
       setFont("regular");
-      doc.fontSize(9.5).fillColor("#334155").text(`  •  ${cleanPdfText(line.replace(/^[-•*]\s*/, ""))}`, { lineGap: 2.5 });
+      doc.fontSize(9.5).fillColor("#334155").text(`  •  ${cleanPdfText(line.replace(/^[-•*]\s*/, ""))}`, 40, doc.y, { width: 515, lineGap: 2.5 });
     } else {
       setFont("regular");
-      doc.fontSize(9.5).fillColor("#1e293b").text(cleanPdfText(line), { lineGap: 3 });
+      doc.fontSize(9.5).fillColor("#0f172a").text(cleanPdfText(line), 40, doc.y, { width: 515, lineGap: 3.5 });
     }
   }
   flushTable();
 }
+
 
 // ── PDF 4: Learning Roadmap Generator ─────────────────────────────────────────
 async function generateRoadmapPdf(userId, language, roadmapText, outputPath) {
@@ -609,51 +655,100 @@ app.get("/api/grammar/:id", requireTelegramAuth, async (req, res) => {
   res.json({ topic });
 });
 
-app.get("/api/grammar/:id/pdf", requireTelegramAuth, async (req, res) => {
-  const topic = await getGrammarTopicById(Number(req.params.id), req.telegramUser.id);
-  if (!topic) return res.status(404).json({ error: "Grammar topic not found" });
+// ── 1. Individual Topic PDF Download Endpoint ─────────────────────────────────
+app.get("/api/grammar/:id/pdf", async (req, res) => {
+  // Accepts userId from Telegram initData headers OR from ?userId= query parameter
+  const userId = req.headers["x-user-id"] || req.query.userId || (req.telegramUser && req.telegramUser.id);
+  if (!userId) {
+    return res.status(401).json({ error: "Unauthorized: Missing userId" });
+  }
 
-  const tempPath = path.join(tmpdir(), `grammar_topic_${topic.id}_${Date.now()}.pdf`);
+  const topicId = parseInt(req.params.id, 10);
+  const topic = await getGrammarTopicById(topicId);
+  if (!topic) {
+    return res.status(404).json({ error: "Topic not found" });
+  }
+
+  const user = await getUser(userId);
+  const tempPath = path.join(tmpdir(), `grammar_${topicId}_${Date.now()}.pdf`);
+
   try {
-    const filePath = await generateGrammarTopicPdf(req.telegramUser.id, topic.language, topic, tempPath);
-    const cleanName = topic.title.replace(/[^\w\d\-]/g, "_");
-    res.download(filePath, `Grammar_${cleanName}.pdf`, async () => {
+    const filePath = await generateGrammarTopicPdf(userId, user?.language, topic, tempPath);
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader("Content-Disposition", `attachment; filename="${encodeURIComponent(topic.title)}.pdf"`);
+    res.download(filePath, `${topic.title.replace(/\s+/g, "_")}.pdf`, async () => {
       await cleanupFile(filePath);
     });
   } catch (err) {
-    console.error("Single Grammar PDF error:", err);
-    res.status(500).json({ error: "Failed to compile topic PDF" });
+    console.error("PDF generation error:", err);
+    res.status(500).json({ error: "Failed to generate PDF" });
   }
 });
 
-app.get("/api/grammar/pdf", requireTelegramAuth, async (req, res) => {
-  const user = await getUser(req.telegramUser.id);
-  const lang = req.query.language || user?.language;
-  const tempPath = path.join(tmpdir(), `full_grammar_${req.telegramUser.id}_${Date.now()}.pdf`);
+// ── 2. Full Grammar Book PDF Download Endpoint ────────────────────────────────
+app.get("/api/grammar/pdf", async (req, res) => {
+  const userId = req.headers["x-user-id"] || req.query.userId || (req.telegramUser && req.telegramUser.id);
+  if (!userId) {
+    return res.status(401).json({ error: "Unauthorized: Missing userId" });
+  }
+
+  const user = await getUser(userId);
+  const tempPath = path.join(tmpdir(), `grammar_full_${userId}_${Date.now()}.pdf`);
 
   try {
-    const filePath = await generateFullGrammarNotebookPdf(req.telegramUser.id, lang, tempPath);
-    if (!filePath) return res.status(404).json({ error: "No grammar rules saved yet for this language" });
-
-    res.download(filePath, `My_${lang || "Language"}_Grammar_Notebook.pdf`, async () => {
+    const filePath = await generateFullGrammarNotebookPdf(userId, user?.language, tempPath);
+    if (!filePath) {
+      return res.status(404).json({ error: "No grammar topics found to export." });
+    }
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader("Content-Disposition", `attachment; filename="Complete_Grammar_Notebook.pdf"`);
+    res.download(filePath, `Complete_Grammar_Notebook.pdf`, async () => {
       await cleanupFile(filePath);
     });
   } catch (err) {
-    console.error("Full Grammar PDF error:", err);
-    res.status(500).json({ error: "Failed to generate Grammar Notebook PDF" });
+    console.error("Full grammar PDF error:", err);
+    res.status(500).json({ error: "Failed to generate Complete Grammar Notebook PDF" });
   }
 });
 
-app.post("/api/grammar/send-pdf", requireTelegramAuth, async (req, res) => {
-  const userId = req.telegramUser.id;
-  const topicId = req.body?.topicId || null;
+// ── 3. Send PDF Directly to Telegram Chat Endpoint ───────────────────────────
+app.post("/api/grammar/send-pdf", async (req, res) => {
+  const userId = req.headers["x-user-id"] || req.body.userId || req.query.userId || (req.telegramUser && req.telegramUser.id);
+  if (!userId) {
+    return res.status(401).json({ error: "Unauthorized: Missing userId" });
+  }
+
+  const { topicId } = req.body;
   try {
-    const success = await sendGrammarPdfToUser(null, userId, topicId);
-    if (!success) return res.status(404).json({ error: "No grammar rules to export" });
-    res.json({ ok: true, message: "Grammar PDF sent to your Telegram chat!" });
+    if (topicId) {
+      const topic = await getGrammarTopicById(topicId);
+      const user = await getUser(userId);
+      const tempPath = path.join(tmpdir(), `grammar_${topicId}_${Date.now()}.pdf`);
+      const filePath = await generateGrammarTopicPdf(userId, user?.language, topic, tempPath);
+
+      await bot.api.sendDocument(userId, new InputFile(filePath, `${topic.title}.pdf`), {
+        caption: `📖 *${topic.title}* (Grammar Rule PDF)`,
+        parse_mode: "Markdown"
+      });
+      await cleanupFile(filePath);
+    } else {
+      const user = await getUser(userId);
+      const tempPath = path.join(tmpdir(), `grammar_full_${userId}_${Date.now()}.pdf`);
+      const filePath = await generateFullGrammarNotebookPdf(userId, user?.language, tempPath);
+      if (!filePath) {
+        return res.status(404).json({ error: "No grammar topics found to export." });
+      }
+
+      await bot.api.sendDocument(userId, new InputFile(filePath, "Complete_Grammar_Notebook.pdf"), {
+        caption: `📚 *Complete Grammar Reference Notebook*`,
+        parse_mode: "Markdown"
+      });
+      await cleanupFile(filePath);
+    }
+    res.json({ success: true });
   } catch (err) {
-    console.error("API send grammar PDF error:", err);
-    res.status(500).json({ error: "Failed to send PDF" });
+    console.error("Send to TG error:", err);
+    res.status(500).json({ error: "Failed to send PDF to Telegram" });
   }
 });
 
