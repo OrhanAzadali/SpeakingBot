@@ -172,11 +172,13 @@ async function sendSafeChunkedMessage(ctx, fullText, options = {}) {
   return lastSent;
 }
 
-// ── Unicode Font Detection for Cyrillic, Umlauts & Accents in PDF ──────────────
+// ── Unicode Font Detection & Auto-Download for Cyrillic, Accents & Math ───────
+
 function findSystemUnicodeFont() {
+  const fontDir = path.join(process.cwd(), "fonts");
   const potentialFonts = [
-    path.join(process.cwd(), "fonts", "DejaVuSans.ttf"),
-    path.join(process.cwd(), "fonts", "Roboto-Regular.ttf"),
+    path.join(fontDir, "DejaVuSans.ttf"),
+    path.join(fontDir, "Roboto-Regular.ttf"),
     "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
     "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
     "/usr/share/fonts/truetype/freefont/FreeSans.ttf",
@@ -190,9 +192,10 @@ function findSystemUnicodeFont() {
 }
 
 function findSystemBoldFont() {
+  const fontDir = path.join(process.cwd(), "fonts");
   const potentialFonts = [
-    path.join(process.cwd(), "fonts", "DejaVuSans-Bold.ttf"),
-    path.join(process.cwd(), "fonts", "Roboto-Bold.ttf"),
+    path.join(fontDir, "DejaVuSans-Bold.ttf"),
+    path.join(fontDir, "Roboto-Bold.ttf"),
     "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
     "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
     "/usr/share/fonts/truetype/freefont/FreeSansBold.ttf",
@@ -204,7 +207,8 @@ function findSystemBoldFont() {
   return null;
 }
 
-// ── Ensure Unicode TrueType Font Exists on Server Startup ─────────────────────
+// ── Ensure Unicode TrueType Font Exists on Server Startup ──────────────────── 
+
 async function ensureUnicodeFontExists() {
   const fontDir = path.join(process.cwd(), "fonts");
   const fontPath = path.join(fontDir, "DejaVuSans.ttf");
@@ -223,9 +227,11 @@ async function ensureUnicodeFontExists() {
     }
   }
 }
+
 ensureUnicodeFontExists();
 
 // ── Clean & Sanitize Text for PDFKit (Eliminates [] Window Frames) ────────────
+
 function cleanPdfText(text) {
   if (!text) return "";
   return String(text)
@@ -381,7 +387,6 @@ function renderMarkdownContentToPdf(doc, markdownText, setFont) {
   }
   flushTable();
 }
-
 
 // ── PDF 1: Individual Grammar Rule PDF Generator ──────────────────────────────
 async function generateGrammarTopicPdf(userId, language, topic, outputPath) {
@@ -865,14 +870,15 @@ app.get("/api/grammar/:id/pdf", async (req, res) => {
   }
 });
 
-// ── 1. Full Grammar Book PDF Download (Safe Stream Piping) ──────────────── 
+
+// ── 1. Full Grammar Book PDF Download (Bulletproof Stream Piping) ─────────────
 app.get("/api/grammar/pdf", async (req, res) => {
   const rawId = req.headers["x-user-id"] || req.query.userId || (req.telegramUser && req.telegramUser.id);
   const userId = rawId ? Number(rawId) : null;
   if (!userId) return res.status(401).json({ error: "Unauthorized: Missing userId" });
 
   const user = await getUser(userId);
-  const lang = (req.query.language || user?.language || "russian").toLowerCase();
+  const lang = String(req.query.language || user?.language || "russian").toLowerCase().trim();
   const tempPath = path.join(tmpdir(), `grammar_full_${userId}_${Date.now()}.pdf`);
 
   try {

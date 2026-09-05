@@ -167,7 +167,9 @@ function buildAnalysisPrompt(language, level, mediatorLanguage = "english") {
 
   const explanationDirective = isAdvanced
     ? `Since the student is ADVANCED, all fields ("meaning", "synonyms", "explanation", "pronunciation_rule", "grammar_rule", "orthography_rule", "syntax_rule", "semantics_note") MUST be written 100% in ${language} (monolingual immersion). Do NOT use any mediator language.`
-    : `Since the student is ${level}, write all explanations, meanings, transcriptions, and linguistic rules strictly in the student's mediator language: ${mediatorLanguage.toUpperCase()}. Do NOT introduce any third language, and NEVER copy the target word into the meaning field.`;
+    : `Since the student is ${level}, write all explanations, meanings, transcriptions, and linguistic rules and all your response strictly in the student's mediator language: ${mediatorLanguage.toUpperCase()}. Do NOT introduce any third language, and NEVER copy the target word into the meaning field.`;
+
+  // In ai.js, inside buildAnalysisPrompt:
 
   return `You are a master ${language} lexicographer, syntactician, and grammar analyst.
 Student level: ${level}.
@@ -175,43 +177,27 @@ Mediator language: ${mediatorLanguage}.
 ${explanationDirective}
 ${linguisticAccuracyBlock(language)}
 
-META-COMMUNICATION & HELP REQUEST HANDLING:
-- If the student wrote in ${mediatorLanguage} to ask for help, request translation, or state that they don't understand (e.g. "не понимаю", "я не понимаю тебя", "нет, на русском", "help", "i don't understand", "russich", "sprach russo", "объясни слова"):
-  * DO NOT mark it as "✅ Perfect!" (it is not a valid ${language} sentence).
-  * DO NOT treat it as a broken attempt at ${language} and invent a grammar correction for it.
-  * Set "correctionText" to a supportive acknowledgment in ${mediatorLanguage} (e.g. "ℹ️ Понятно, разбираем по-${mediatorLanguage}!").
-  * Set "mistakes": [] (do NOT save flashcards for help cries).
+CRITICAL GRAMMAR TOPIC EXTRACTION MANDATE:
+- Whenever the student asks to explain grammar, words, conjugations, declensions, syntax, or cases (e.g. "объясни...", "как спрягается...", "что значат...", "how is X conjugated?", "explain grammar"), OR whenever this turn explains a grammatical rule/table:
+  YOU MUST POPULATE "grammar_topic" with a complete, structured breakdown!
+  DO NOT set "grammar_topic": null if grammar was explained!
 
-STRICT VOCABULARY FILTER RULES:
-- NEVER save transliteration slang ("BIL", "SHO", "TEM", "TOGO").
-- NEVER save single-letter particles, prepositions ("о", "а", "не", "в") or proper names ("Эрнана Кортеса").
-- "initial_form" MUST BE the pure uninflected dictionary lemma (singular nominative noun, bare infinitive verb, masculine singular adjective).
+FORMATTING RULES FOR "grammar_topic":
+- "explanation": Write clean Markdown headers (###) and tables. NEVER output raw JSON curly braces or string objects like {"target": ...} inside the explanation text!
+- "examples": Provide an array of structured objects: [{ "target": "...", "translation": "...", "note": "..." }]
 
-EXTENDED LINGUISTIC EXTRACTION FOR DATABASE & PDF NOTEBOOK:
-For every legitimate new word or corrected error, extract:
-1. "transcription": IPA + phonetic reading in ${mediatorLanguage} with stress indicated (e.g. "[vɐˈpros] — ва-про́с").
-2. "pronunciation_rule": Specific phonetic rule (stress shifts, vowel reduction, silent letters, umlauts, diphthongs).
-3. "grammar_rule": Morphological properties (gender, declension/conjugation pattern, irregular stems, aspect).
-4. "orthography_rule": Spelling rule, letter combinations, capitalization, or diacritics.
-5. "syntax_rule": Case government, preposition requirements, and word order constraints.
-6. "semantics_note": Nuances, register, false friends, collocations, and contextual usage notes.
-
-OPTIONAL GRAMMAR TOPIC EXTRACTION:
-If this turn explained an essential grammar concept or conjugation table, include:
-"grammar_topic": {
-  "title": "Clean concise topic title",
-  "category": "Sentence Structure | Verb Conjugation | Cases | Syntax | Pronouns",
-  "rule_summary": "1-2 sentence core rule",
-  "explanation": "Markdown text with complete tables and rules",
-  "examples": [
-    { "target": "...", "translation": "...", "note": "..." }
-  ]
-}
-
-Return your response strictly as a single JSON object:
+Return your response strictly as a single JSON object with all the messages properly translated in a proper language depending on the condition ${explanationDirective}:
 {
-  "correctionText": "✅ Perfect!" OR "📝 Correction: <corrected sentence> (<1-sentence explanation>)" OR "ℹ️ Понятно, разбираем по-${mediatorLanguage}!",
-  "grammar_topic": null,
+  "correctionText": "✅ Perfect!" OR "📝 Correction: <corrected sentence> (<1-sentence explanation>)" OR "ℹ️ It seems you got a bit confused, lets dive into it together in ${mediatorLanguage} language!",
+  "grammar_topic": {
+    "title": "Concise rule title",
+    "category": "Sentence Structure | Verb Conjugation | Cases | Syntax | Pronouns",
+    "rule_summary": "1-2 sentence core takeaway",
+    "explanation": "Full comprehensive explanation formatted in clean Markdown without raw JSON",
+    "examples": [
+      { "target": "Example sentence in ${language}", "translation": "Translation in ${mediatorLanguage}", "note": "Grammatical usage note" }
+    ]
+  }, 
   "mistakes": [
     {
       "initial_form": "Pure dictionary lemma/infinitive headword in ${language} native script (e.g. 'вопрос', 'Buch', 'qırmızı')",
@@ -229,7 +215,7 @@ Return your response strictly as a single JSON object:
       "sentence": "Full corrected sentence with the word wrapped in <u>word</u> (grammatically adjusted!)"
     }
   ]
-}`;
+} `;
 }
 
 // ── Call 3: 4-Skill Drill Generator (Level-Aware Instructions & Skill Purity) ─
@@ -243,24 +229,24 @@ export async function generateSkillDrill(skill, targetLanguage, mediatorLanguage
   const prompt = `You are an elite CEFR curriculum designer creating a ${drillType.toUpperCase()} ${skill.toUpperCase()} drill.
 Target language being tested: ${targetLanguage}.
 Student level: ${level}.
-Instruction/Prompt language: ${promptLang}.
+Instruction / Prompt language: ${promptLang}.
 
-CRITICAL ANTI-CIRCULARITY & LEVEL-AWARE RULES:
-1. NEVER ask to translate a word from ${targetLanguage} into ${targetLanguage}!
-2. INSTRUCTION LANGUAGE:
-   - For Advanced and Intermediate students, ALL question prompts MUST be written in ${targetLanguage}!
-   - For Beginner students, question prompts are written in ${mediatorLanguage}.
-3. ABSOLUTELY NO THIRD LANGUAGES (No English if neither target nor mediator is English).
-4. GRAMMATICAL ADJUSTMENT: Words inside cloze sentence gaps must be declined/conjugated to fit sentence syntax.
+CRITICAL ANTI - CIRCULARITY & LEVEL - AWARE RULES:
+1. NEVER ask to translate a word from ${targetLanguage} into ${targetLanguage} !
+  2. INSTRUCTION LANGUAGE:
+- For Advanced and Intermediate students, ALL question prompts MUST be written in ${targetLanguage} !
+  - For Beginner students, question prompts are written in ${mediatorLanguage}.
+3. ABSOLUTELY NO THIRD LANGUAGES(No English if neither target nor mediator is English).
+4. GRAMMATICAL ADJUSTMENT: Words inside cloze sentence gaps must be declined / conjugated to fit sentence syntax.
 
 SKILL PURITY MANDATE:
 - If skill is "listening":
   * EVERY QUESTION MUST test LISTENING COMPREHENSION of an audio passage.
-  * "audio_script": Spoken narrative/dialogue 100% in ${targetLanguage} (30-50 words) to be read via TTS audio.
+  * "audio_script": Spoken narrative / dialogue 100 % in ${targetLanguage} (30 - 50 words) to be read via TTS audio.
   * "prompt": Comprehension question in ${promptLang} asking about a concrete detail from that audio.
   * FORBIDDEN: Never ask to write an email or describe personal weekends in a listening drill!
-- If skill is "reading":
-  * "reading_passage": 100% in ${targetLanguage} (50-80 words).
+  - If skill is "reading":
+  * "reading_passage": 100 % in ${targetLanguage} (50 - 80 words).
   * "prompt": Comprehension question in ${promptLang}.
 - If skill is "speaking":
   * Scenario in ${promptLang} requiring a voice message response in ${targetLanguage}.
@@ -271,15 +257,15 @@ Generate EXACTLY ${count} questions.
 Return ONLY JSON:
 {
   "skill": "${skill}",
-  "drill_type": "${drillType}",
-  "questions": [
-    {
-      "id": 1,
-      "type": "${skill === 'speaking' ? 'voice' : (skill === 'writing' ? 'open' : 'choice')}",
-      ${skill === 'listening' ? `"audio_script": "Spoken text in ${targetLanguage}...",` : ""}
+    "drill_type": "${drillType}",
+      "questions": [
+        {
+          "id": 1,
+          "type": "${skill === 'speaking' ? 'voice' : (skill === 'writing' ? 'open' : 'choice')}",
+          ${skill === 'listening' ? `"audio_script": "Spoken text in ${targetLanguage}...",` : ""}
       ${skill === 'reading' ? `"reading_passage": "Text passage in ${targetLanguage}...",` : ""}
-      "prompt": "Question text in ${promptLang}...",
-      ${skill === 'listening' || skill === 'reading' ? `"options": ["A) ...", "B) ...", "C) ...", "D) ..."], "correct_answer": "A) ..."` : ""}
+"prompt": "Question text in ${promptLang}...",
+  ${skill === 'listening' || skill === 'reading' ? `"options": ["A) ...", "B) ...", "C) ...", "D) ..."], "correct_answer": "A) ..."` : ""}
     }
   ]
 }`;
@@ -302,7 +288,7 @@ Return ONLY JSON:
     if (!Array.isArray(questions) || questions.length === 0) throw new Error("Invalid drill questions structure");
     return { skill, drill_type: drillType, questions };
   } catch (err) {
-    console.error(`Skill drill generation failed for ${skill}:`, err.message);
+    console.error(`Skill drill generation failed for ${skill}: `, err.message);
     return {
       skill,
       drill_type: drillType,
@@ -310,15 +296,15 @@ Return ONLY JSON:
         {
           id: 1,
           type: skill === "speaking" ? "voice" : (skill === "listening" ? "open" : "choice"),
-          audio_script: skill === "listening" ? `Guten Tag. Der nächste Zug nach Hamburg fährt um vierzehn Uhr ab.` : undefined,
+          audio_script: skill === "listening" ? `Guten Tag.Der nächste Zug nach Hamburg fährt um vierzehn Uhr ab.` : undefined,
           reading_passage: skill === "reading" ? `Deutschland liegt in Mitteleuropa und besteht aus sechzehn Bundesländern.` : undefined,
           prompt: skill === "listening"
-            ? (isAdvanced || isIntermediate ? `Um wie viel Uhr fährt der nächste Zug nach Hamburg ab?` : `В какое время отправляется следующий поезд в Гамбург?`)
+            ? (isAdvanced || isIntermediate ? `Um wie viel Uhr fährt der nächste Zug nach Hamburg ab ? ` : `В какое время отправляется следующий поезд в Гамбург ? `)
             : (skill === "speaking"
               ? `Erzählen Sie kurz über Ihren Tag.`
               : (skill === "writing"
                 ? `Schreiben Sie zwei Sätze über Ihre Pläne für morgen.`
-                : (isAdvanced || isIntermediate ? `Aus wie vielen Bundesländern besteht Deutschland?` : `Из скольких федеральных земель состоит Германия согласно тексту?`))),
+                : (isAdvanced || isIntermediate ? `Aus wie vielen Bundesländern besteht Deutschland ? ` : `Из скольких федеральных земель состоит Германия согласно тексту ? `))),
           options: (skill === "reading" || skill === "listening") ? ["A) 12:00", "B) 14:00", "C) 16:00", "D) 18:00"] : undefined,
           correct_answer: "B) 14:00"
         }
@@ -333,7 +319,7 @@ export async function analyzeStudentResponse(targetLanguage, mediatorLanguage, p
 A student was assigned a task in ${targetLanguage}.
 Mediator language: ${mediatorLanguage}.
 
-Question/Task: "${promptQuestion}"
+Question / Task: "${promptQuestion}"
 Student's Actual Input: "${userAnswer}"
 
 Analyze the student's input across ALL world languages (Arabic, Urdu, Mandarin, Spanish, Russian, English, Armenian, Hindi, etc.):
@@ -341,16 +327,16 @@ Analyze the student's input across ALL world languages (Arabic, Urdu, Mandarin, 
 1. "detected_language": Identify the language the student typed in.
 2. "is_target_language": true ONLY if the student used ${targetLanguage}. If they typed in ${mediatorLanguage} or any other language, false.
 3. "intent": Classify the student's core intent:
-   - "ADMIT_NO_KNOWLEDGE": The student is expressing that they do not know, cannot speak, do not understand, want to give up, or know nothing about ${targetLanguage} (e.g. "I don't know", "لا أعرف", "не знаю", "ne znayu", "не могу", "idk").
-   - "ANSWER_IN_WRONG_LANGUAGE": The student understood the factual question and provided the factual answer, but wrote it in ${mediatorLanguage} or another language instead of ${targetLanguage}.
-   - "GENUINE_ATTEMPT": The student attempted to answer or produce ${targetLanguage}.
-   - "UNRELATED_OR_EMPTY": Gibberish, greeting, empty response, or off-topic statement.
+  - "ADMIT_NO_KNOWLEDGE": The student is expressing that they do not know, cannot speak, do not understand, want to give up, or know nothing about ${targetLanguage} (e.g. "I don't know", "لا أعرف", "не знаю", "ne znayu", "не могу", "idk").
+- "ANSWER_IN_WRONG_LANGUAGE": The student understood the factual question and provided the factual answer, but wrote it in ${mediatorLanguage} or another language instead of ${targetLanguage}.
+- "GENUINE_ATTEMPT": The student attempted to answer or produce ${targetLanguage}.
+- "UNRELATED_OR_EMPTY": Gibberish, greeting, empty response, or off - topic statement.
 4. "target_language_proficiency_demonstrated": true ONLY if the student demonstrated actual vocabulary, grammar, or syntax in ${targetLanguage}.
 5. "correct_answer_in_target_language": Give the exact, natural correct answer in ${targetLanguage}.
 6. "explanation_in_mediator": Concise feedback written in ${mediatorLanguage} explaining the correct answer without robotic templates.
 7. "extracted_mistakes": Extract rich linguistic attributes for any new words:
-   - "initial_form": Pure uninflected dictionary lemma headword in ${targetLanguage}.
-   - "part_of_speech": noun, verb, adjective, etc.
+  - "initial_form": Pure uninflected dictionary lemma headword in ${targetLanguage}.
+- "part_of_speech": noun, verb, adjective, etc.
    - "transcription": IPA + phonetic reading.
    - "pronunciation_rule": Phonetic rule.
    - "grammar_rule": Morphological properties.
@@ -362,14 +348,14 @@ Analyze the student's input across ALL world languages (Arabic, Urdu, Mandarin, 
 Return ONLY JSON:
 {
   "detected_language": "...",
-  "is_target_language": false,
-  "intent": "ADMIT_NO_KNOWLEDGE | ANSWER_IN_WRONG_LANGUAGE | GENUINE_ATTEMPT | UNRELATED_OR_EMPTY",
-  "target_language_proficiency_demonstrated": false,
-  "score_recommendation": 0,
-  "correct_answer_in_target_language": "...",
-  "explanation_in_mediator": "...",
-  "extracted_mistakes": []
-}`;
+    "is_target_language": false,
+      "intent": "ADMIT_NO_KNOWLEDGE | ANSWER_IN_WRONG_LANGUAGE | GENUINE_ATTEMPT | UNRELATED_OR_EMPTY",
+        "target_language_proficiency_demonstrated": false,
+          "score_recommendation": 0,
+            "correct_answer_in_target_language": "...",
+              "explanation_in_mediator": "...",
+                "extracted_mistakes": []
+} `;
 
   try {
     const response = await withModelFallback(CHAT_MODELS, (model) =>
@@ -410,7 +396,7 @@ export async function evaluateSkillAnswer(skill, targetLanguage, mediatorLanguag
   switch (analysis.intent) {
     case "ADMIT_NO_KNOWLEDGE":
       score = 0;
-      feedback = `Ничего страшного! Вы указали, что не знаете ответ. В ${targetLanguage} правильный ответ: ${analysis.correct_answer_in_target_language || question.correct_answer || ""}.`;
+      feedback = `Ничего страшного! Вы указали, что не знаете ответ.В ${targetLanguage} правильный ответ: ${analysis.correct_answer_in_target_language || question.correct_answer || ""}.`;
       break;
 
     case "ANSWER_IN_WRONG_LANGUAGE":
@@ -425,7 +411,7 @@ export async function evaluateSkillAnswer(skill, targetLanguage, mediatorLanguag
     case "UNRELATED_OR_EMPTY":
     default:
       score = 0;
-      feedback = `Ответ не относится к вопросу. Правильный ответ на ${targetLanguage}: ${analysis.correct_answer_in_target_language || question.correct_answer || ""}.`;
+      feedback = `Ответ не относится к вопросу.Правильный ответ на ${targetLanguage}: ${analysis.correct_answer_in_target_language || question.correct_answer || ""}.`;
       break;
   }
 
@@ -444,9 +430,9 @@ Create a diagnostic placement test to assess proficiency in ${targetLanguage}.
 DIRECTIONAL & CEFR METHODOLOGY:
 1. NEVER ask: "Выберите перевод слова [TargetWord] на [TargetLanguage]".
 2. INSTRUCTION LANGUAGE:
-   - For Q1-Q3 (A1 to B2), write instructions in ${mediatorLanguage}, testing items strictly in ${targetLanguage}.
-   - For Q4-Q5 (B2 to C1), question instructions must be written directly in ${targetLanguage}!
-3. All cloze gaps (____) must test words grammatically adjusted in context.
+- For Q1 - Q3(A1 to B2), write instructions in ${mediatorLanguage}, testing items strictly in ${targetLanguage}.
+- For Q4 - Q5(B2 to C1), question instructions must be written directly in ${targetLanguage} !
+  3. All cloze gaps(____) must test words grammatically adjusted in context.
 4. NO THIRD LANGUAGES.
 
 Return ONLY JSON:
@@ -494,7 +480,7 @@ Return ONLY JSON:
       "prompt": "Production prompt in ${targetLanguage} asking for 1-2 sentences..."
     }
   ]
-}`;
+} `;
 
   try {
     const response = await withModelFallback(CHAT_MODELS, (model) =>
@@ -521,7 +507,7 @@ Return ONLY JSON:
           type: "choice",
           cefr_target: "A1-A2",
           skill: "Vocabulary",
-          prompt: `Выберите подходящее слово для завершения предложения:\n"Вчера я прочитал интересную _____ в библиотеке."`,
+          prompt: `Выберите подходящее слово для завершения предложения: \n"Вчера я прочитал интересную _____ в библиотеке."`,
           options: ["A) книгу", "B) хлеб", "C) стол", "D) машину"],
           correct_option: "A) книгу"
         },
@@ -530,7 +516,7 @@ Return ONLY JSON:
           type: "choice",
           cefr_target: "B1",
           skill: "Grammar",
-          prompt: `Выберите правильную форму глагола:\n"Если у меня будет время, я завтра тебе _____."`,
+          prompt: `Выберите правильную форму глагола: \n"Если у меня будет время, я завтра тебе _____."`,
           options: ["A) позвоню", "B) звонил", "C) звонить", "D) позвонили"],
           correct_option: "A) позвоню"
         },
@@ -539,7 +525,7 @@ Return ONLY JSON:
           type: "choice",
           cefr_target: "B2",
           skill: "Syntax",
-          prompt: `Выберите правильный союз:\n"Он пошёл на работу, _____ чувствовал себя не очень хорошо."`,
+          prompt: `Выберите правильный союз: \n"Он пошёл на работу, _____ чувствовал себя не очень хорошо."`,
           options: ["A) потому что", "B) хотя", "C) чтобы", "D) если"],
           correct_option: "B) хотя"
         },
@@ -548,14 +534,14 @@ Return ONLY JSON:
           type: "open",
           cefr_target: "B1-B2",
           skill: "Morphology",
-          prompt: `Напишите глагол «исправить» в форме прошедшего времени мужского рода:`
+          prompt: `Напишите глагол «исправить» в форме прошедшего времени мужского рода: `
         },
         {
           id: 5,
           type: "open",
           cefr_target: "C1",
           skill: "Production",
-          prompt: `Напишите 1-2 предложения, выражающие ваше мнение о роли технологий в образовании:`
+          prompt: `Напишите 1 - 2 предложения, выражающие ваше мнение о роли технологий в образовании: `
         }
       ]
     };
@@ -573,28 +559,28 @@ ${questions.map((q, i) => `Q${i + 1} (${q.skill}):\nPrompt: ${q.prompt}\nStudent
 
 UNIVERSAL EVALUATION MANDATE:
 1. SEMANTIC INTENT CHECK:
-   - If the student states in ANY language that they do not know or cannot answer, they MUST NOT receive vocabulary or syntax points in ${targetLanguage}!
-2. TARGET LANGUAGE PROFICIENCY ONLY:
-   - Grade ONLY actual words, grammar, and structures produced in ${targetLanguage}.
-   - Sentences in ${mediatorLanguage} saying they don't know ${targetLanguage} are strictly worth 0 points!
-3. SCORING BREAKDOWN (0 to 25 each):
-   - If no valid ${targetLanguage} was demonstrated, overall score MUST BE 0, and level MUST BE Beginner (A1).
+- If the student states in ANY language that they do not know or cannot answer, they MUST NOT receive vocabulary or syntax points in ${targetLanguage} !
+  2. TARGET LANGUAGE PROFICIENCY ONLY:
+- Grade ONLY actual words, grammar, and structures produced in ${targetLanguage}.
+- Sentences in ${mediatorLanguage} saying they don't know ${targetLanguage} are strictly worth 0 points!
+3. SCORING BREAKDOWN(0 to 25 each):
+- If no valid ${targetLanguage} was demonstrated, overall score MUST BE 0, and level MUST BE Beginner(A1).
 
 Return ONLY JSON:
 {
   "admits_zero_knowledge": true | false,
-  "target_language_demonstrated": true | false,
-  "detected_level": "Beginner | Intermediate | Advanced",
-  "cefr_grade": "A1 | A2 | B1 | B2 | C1 | C2",
-  "score": 0,
-  "breakdown": {
+    "target_language_demonstrated": true | false,
+      "detected_level": "Beginner | Intermediate | Advanced",
+        "cefr_grade": "A1 | A2 | B1 | B2 | C1 | C2",
+          "score": 0,
+            "breakdown": {
     "vocabulary": "Score out of 25",
-    "grammar": "Score out of 25",
-    "syntax": "Score out of 25",
-    "production": "Score out of 25"
+      "grammar": "Score out of 25",
+        "syntax": "Score out of 25",
+          "production": "Score out of 25"
   },
   "recommendations": "Advice in ${mediatorLanguage}."
-}`;
+} `;
 
   try {
     const response = await withModelFallback(CHAT_MODELS, (model) =>
@@ -655,13 +641,13 @@ Accepted Answer: "${correctAnswer}"
 Known Synonyms: "${synonyms || "none"}"
 Student Answer: "${submitted}"
 
-Accept synonyms, paraphrases, and subsets (e.g. if accepted answer is "the rest, other ones", then "rest", "the rest", "others" are ALL 100% CORRECT).
+Accept synonyms, paraphrases, and subsets(e.g.if accepted answer is "the rest, other ones", then "rest", "the rest", "others" are ALL 100 % CORRECT).
 Return ONLY JSON:
 {
   "correct": true,
-  "isSynonym": true,
-  "explanation": "..."
-}`;
+    "isSynonym": true,
+      "explanation": "..."
+} `;
 
   try {
     const response = await withModelFallback(CHAT_MODELS, (model) =>
@@ -679,7 +665,7 @@ Return ONLY JSON:
     return {
       correct: Boolean(parsed.correct),
       isSynonym: Boolean(parsed.isSynonym),
-      explanation: parsed.explanation || (parsed.correct ? "Correct!" : `Accepted: ${correctAnswer}`)
+      explanation: parsed.explanation || (parsed.correct ? "Correct!" : `Accepted: ${correctAnswer} `)
     };
   } catch (err) {
     return smartFallbackMatch(submitted, correctAnswer, synonyms);
@@ -695,7 +681,7 @@ function smartFallbackMatch(submitted, correctAnswer, synonyms = "") {
       return { correct: true, isSynonym: sub !== norm(correctAnswer), explanation: "Accepted!" };
     }
   }
-  return { correct: false, isSynonym: false, explanation: `Correct answer: ${correctAnswer}` };
+  return { correct: false, isSynonym: false, explanation: `Correct answer: ${correctAnswer} ` };
 }
 
 // ── Call: Full Pedagogical Grammar Guide Generator ────────────────────────────
@@ -784,7 +770,7 @@ export async function chat(userId, userMessage, history, language, level, langua
         semantics_note: m.semantics_note?.trim() || null
       });
     } catch (err) {
-      console.error(`Flashcard DB insert failed for "${m.initial_form}":`, err.message);
+      console.error(`Flashcard DB insert failed for "${m.initial_form}": `, err.message);
     }
   }
 

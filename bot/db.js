@@ -785,9 +785,12 @@ export async function getAllUserVocabulary(userId, language = null) {
 
 // ── Grammar Topics & Rules (Dedicated Table, Isolated by User and Language) ───
 
+
 export async function saveGrammarTopic(userId, language, topicData) {
   const { title, category = "General Grammar", rule_summary = "", explanation = "", examples = [] } = topicData;
   if (!title || !explanation) return null;
+  const langKey = String(language || "").toLowerCase().trim();
+
   const { rows } = await pool.query(`
     INSERT INTO grammar_topics (user_id, language, title, category, rule_summary, explanation, examples, updated_at)
     VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
@@ -798,15 +801,16 @@ export async function saveGrammarTopic(userId, language, topicData) {
       examples = COALESCE(EXCLUDED.examples, grammar_topics.examples),
       updated_at = NOW()
     RETURNING *
-  `, [userId, language, title.trim(), category.trim(), rule_summary.trim(), explanation.trim(), JSON.stringify(examples)]);
+  `, [userId, langKey, title.trim(), category.trim(), rule_summary.trim(), explanation.trim(), JSON.stringify(examples)]);
   return rows[0] ?? null;
 }
 
-// In db.js:
+
 export async function getGrammarTopics(userId, language) {
+  const langKey = String(language || "").toLowerCase().trim();
   const { rows } = await pool.query(
     "SELECT * FROM grammar_topics WHERE user_id = $1 AND LOWER(language) = LOWER($2) ORDER BY updated_at DESC, id DESC",
-    [userId, language]
+    [userId, langKey]
   );
   return rows;
 }

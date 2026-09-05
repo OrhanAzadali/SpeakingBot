@@ -105,10 +105,11 @@ export default function App() {
     fetchGrammarTopics("russian");
   };
 
+
   const fetchGrammarTopics = async (lang = targetLanguage) => {
     try {
-      const queryLang = lang ? `&language=${encodeURIComponent(lang)}` : "";
-      const res = await fetch(`${BACKEND_URL}/api/grammar?userId=${effectiveUserId}${queryLang}`, {
+      const activeLang = String(lang || "russian").toLowerCase().trim();
+      const res = await fetch(`${BACKEND_URL}/api/grammar?userId=${effectiveUserId}&language=${encodeURIComponent(activeLang)}`, {
         headers: getHeaders(),
       });
       if (res.ok) {
@@ -156,7 +157,7 @@ export default function App() {
   };
 
   const handleDownloadAllGrammarPdf = () => {
-    const activeLang = targetLanguage || "russian";
+    const activeLang = String(targetLanguage || "russian").toLowerCase().trim();
     showToast(`Generating Complete Grammar Book PDF (${activeLang.toUpperCase()})...`, "info");
     triggerDownload(`/api/grammar/pdf?language=${encodeURIComponent(activeLang)}`, `Grammar_Book_${activeLang}.pdf`);
   };
