@@ -1674,30 +1674,6 @@ async function initiateLevelTest(ctx, language, mediatorLanguage) {
 }
 
 
-async function presentNextTestQuestion(ctx, userId, question, index, total) {
-  const header = `📝 Question ${index + 1} of ${total} [Target: ${question.cefr_target} • ${question.skill}]\n\n`;
-
-  if (question.type === "choice" && Array.isArray(question.options)) {
-    const kb = new InlineKeyboard();
-    question.options.forEach((opt, optIdx) => {
-      kb.text(opt, `testopt_${index}_${optIdx}`).row();
-    });
-
-    const body = `${header}${question.prompt}\n\n👉 Select the best variant below:`;
-    if (ctx.callbackQuery) {
-      await ctx.editMessageText(body, { reply_markup: kb });
-    } else {
-      await ctx.reply(body, { reply_markup: kb });
-    }
-  } else {
-    const body = `${header}${question.prompt}\n\n✍️ Please type your answer directly in the chat:`;
-    if (ctx.callbackQuery) {
-      await ctx.editMessageText(body);
-    } else {
-      await ctx.reply(body);
-    }
-  }
-}
 
 bot.callbackQuery(/^testopt_(\d+)_(\d+)$/, async (ctx) => {
   await ctx.answerCallbackQuery();
@@ -1822,6 +1798,7 @@ bot.callbackQuery(/^drillsize_(listening|speaking|reading|writing)_(short|huge)$
     await ctx.reply("❌ Error generating drill. Please type /skills to retry.");
   }
 });
+
 
 async function presentNextTestQuestion(ctx, userId, question, index, total) {
   const header = `📝 *Question ${index + 1} of ${total}* [Target: ${question.cefr_target} • ${question.skill}]\n\n`;
