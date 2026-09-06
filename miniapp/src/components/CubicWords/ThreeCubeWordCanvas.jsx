@@ -31,6 +31,7 @@ import {
   Target,
   ChevronRight,
 } from 'lucide-react';
+import { isValidWordToken } from './wordTokenValidator.js';
 
 const CUBE_FACES = ['front', 'right', 'back', 'left', 'top', 'bottom'];
 
@@ -809,6 +810,12 @@ export const ThreeCubeWordCanvas = ({
                   const candidateWord = fullString.slice(offset, offset + len);
                   const candidateBlocks = blocksSeq.slice(offset, offset + len);
 
+                  const isTarget = targetQuestRef.current?.word && candidateWord === targetQuestRef.current.word.toUpperCase();
+                  const tokenCheck = isValidWordToken(candidateWord, language);
+                  if (!tokenCheck.isValid && !isTarget) {
+                    continue; // Skip non-word tokens and Scrabble noise immediately
+                  }
+
                   // Verify candidate with AI
                   const verification = await verifyWordWithAI(candidateWord);
 
@@ -849,6 +856,12 @@ export const ThreeCubeWordCanvas = ({
                   const candidateWord = fullString.slice(offset, offset + len);
                   const candidateBlocks = blocksSeq.slice(offset, offset + len);
 
+                  const isTarget = targetQuestRef.current?.word && candidateWord === targetQuestRef.current.word.toUpperCase();
+                  const tokenCheck = isValidWordToken(candidateWord, language);
+                  if (!tokenCheck.isValid && !isTarget) {
+                    continue; // Skip non-word tokens and Scrabble noise immediately
+                  }
+
                   // Verify candidate with AI
                   const verification = await verifyWordWithAI(candidateWord);
 
@@ -871,12 +884,27 @@ export const ThreeCubeWordCanvas = ({
 
   // Call Server AI validation endpoint
   const verifyWordWithAI = async (word) => {
+    const clean = (word || '').trim().toUpperCase();
+    const isTarget = targetQuestRef.current?.word && clean === targetQuestRef.current.word.toUpperCase();
+
+    // Strict client-side word token check
+    const tokenCheck = isValidWordToken(clean, language);
+    if (!tokenCheck.isValid && !isTarget) {
+      return {
+        isValid: false,
+        word: clean,
+        reason: tokenCheck.reason || 'Invalid word token',
+        points: 0,
+        bonusMultiplier: 1,
+      };
+    }
+
     try {
       const res = await fetch(`${apiBase}/api/cubeword/verify`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          word,
+          word: clean,
           language,
           recentWords: sessionRecentWords,
           round,
@@ -892,7 +920,7 @@ export const ThreeCubeWordCanvas = ({
 
     return {
       isValid: false,
-      word,
+      word: clean,
       reason: 'unverified',
       points: 0,
       bonusMultiplier: 1,

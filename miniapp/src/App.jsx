@@ -16,7 +16,9 @@ import {
   ArrowLeft,
   CheckCircle2,
   AlertCircle,
-  RotateCcw
+  RotateCcw,
+  Palette,
+  RefreshCw
 } from "lucide-react";
 
 import GrammarBook from "./components/GrammarBook.jsx";
@@ -28,9 +30,34 @@ import SpeakingGame from "./components/SpeakingGame.jsx";
 import Summary from "./components/Summary.jsx";
 import { CubeWordCard } from "./components/CubicWords/CubeWordCard.jsx";
 import { CubeWordGame } from "./components/CubicWords/CubeWordGame.jsx";
+import { getHarmonizedTheme, PRESET_THEMES } from "./utils/colorHarmonizer.js";
+
 export default function App() {
   // Point directly to your Render backend
   const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || "https://speakingbot.onrender.com";
+
+  // Dynamic Color Harmonizer State
+  const [themeId, setThemeId] = useState(() => {
+    try {
+      return localStorage.getItem("spk_theme_id") || "golden_ai";
+    } catch {
+      return "golden_ai";
+    }
+  });
+  const [rotationIndex, setRotationIndex] = useState(0);
+  const [autoCycle, setAutoCycle] = useState(true);
+
+  // Auto-cycle theme colors smoothly from time to time (every 28 seconds)
+  useEffect(() => {
+    if (!autoCycle) return;
+    const interval = setInterval(() => {
+      setRotationIndex((prev) => (prev + 1) % 8);
+    }, 28000);
+    return () => clearInterval(interval);
+  }, [autoCycle]);
+
+  const activeTheme = getHarmonizedTheme(themeId, rotationIndex);
+  const themeColors = activeTheme.colors;
 
   // Navigation state: 'games' | 'grammar' | 'roadmap'
   const [activeTab, setActiveTab] = useState("games");
@@ -386,17 +413,22 @@ export default function App() {
       )}
 
       {/* Top Header */}
-      <header className="bg-slate-950 border-b border-slate-800 sticky top-0 z-30 px-4 py-3">
-        <div className="max-w-4xl mx-auto flex items-center justify-between">
+      <header className="bg-slate-950/95 backdrop-blur-md border-b border-slate-800 sticky top-0 z-30 px-4 sm:px-6 py-3.5 transition-all">
+        <div className="max-w-6xl mx-auto flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-indigo-600 to-violet-500 flex items-center justify-center text-white font-bold shadow-md shadow-indigo-900/40">
+            <div
+              style={themeColors.brand?.iconStyle}
+              className="w-10 h-10 rounded-2xl flex items-center justify-center font-bold shadow-lg border transition-all duration-500"
+            >
               <GraduationCap className="w-5 h-5" />
             </div>
             <div>
-              <h1 className="font-bold text-sm sm:text-base leading-tight text-white">Language Immersion Coach</h1>
-              <div className="flex items-center gap-2 text-[11px] text-slate-400">
-                <span className="font-semibold text-indigo-400 bg-indigo-950/80 px-2 py-0.5 rounded border border-indigo-800/80">
-                  Target: {targetLanguage.toUpperCase()}
+              <h1 className="font-black text-base sm:text-lg leading-tight text-white flex items-center gap-2">
+                <span>Language Immersion Coach</span>
+              </h1>
+              <div className="flex items-center gap-2 text-xs text-slate-400 mt-0.5">
+                <span className="font-bold text-cyan-400 bg-cyan-950/80 px-2 py-0.5 rounded-lg border border-cyan-800/80">
+                  Target: {targetLanguage ? targetLanguage.toUpperCase() : "ENGLISH"}
                 </span>
                 <span>•</span>
                 <span>{flashcards.length} Words Saved</span>
@@ -405,9 +437,45 @@ export default function App() {
           </div>
 
           <div className="flex items-center gap-2">
+            {/* Dynamic AI Color Harmonizer Controls */}
+            <div className="flex items-center bg-slate-900 border border-slate-800 rounded-2xl p-1 shadow-inner gap-1">
+              <button
+                type="button"
+                id="toggle-palette-theme-btn"
+                onClick={() => {
+                  const currentIndex = PRESET_THEMES.findIndex((t) => t.id === themeId);
+                  const nextTheme = PRESET_THEMES[(currentIndex + 1) % PRESET_THEMES.length];
+                  setThemeId(nextTheme.id);
+                  try {
+                    localStorage.setItem("spk_theme_id", nextTheme.id);
+                  } catch {}
+                  showToast(`Theme: ${nextTheme.name}`, "info");
+                }}
+                style={themeColors.brand?.badgeStyle}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-black transition-all hover:scale-105 shadow-sm cursor-pointer active:scale-95"
+                title="Cycle AI Harmonic Theme"
+              >
+                <Palette className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline">{activeTheme.themeMeta.name}</span>
+              </button>
+
+              <button
+                type="button"
+                id="shift-hue-rotation-btn"
+                onClick={() => {
+                  setRotationIndex((prev) => prev + 1);
+                  showToast("Palette hue rotated smoothly!", "info");
+                }}
+                className="p-1.5 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
+                title="Shift Colors Now"
+              >
+                <RefreshCw className="w-3.5 h-3.5" />
+              </button>
+            </div>
+
             <button
               onClick={handleDownloadAllGrammarPdf}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white transition shadow-sm"
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-bold rounded-2xl bg-indigo-600 hover:bg-indigo-500 text-white transition shadow-sm cursor-pointer"
               title="Download Complete Grammar Book (PDF)"
             >
               <Download className="w-3.5 h-3.5" />
@@ -418,11 +486,11 @@ export default function App() {
 
         {/* Navigation Tabs (Only visible when not actively inside a game screen) */}
         {!activeGame && (
-          <div className="max-w-4xl mx-auto mt-3 flex border-b border-slate-800 gap-6">
+          <div className="max-w-6xl mx-auto mt-3.5 flex border-b border-slate-800/80 gap-6 sm:gap-8">
             <button
               onClick={() => setActiveTab("games")}
-              className={`pb-2 text-xs sm:text-sm font-semibold flex items-center gap-2 border-b-2 transition ${activeTab === "games"
-                ? "border-indigo-500 text-indigo-400"
+              className={`pb-2.5 text-xs sm:text-sm font-bold flex items-center gap-2 border-b-2 transition ${activeTab === "games"
+                ? "border-cyan-400 text-cyan-300"
                 : "border-transparent text-slate-400 hover:text-slate-200"
                 }`}
             >
@@ -432,22 +500,22 @@ export default function App() {
 
             <button
               onClick={() => setActiveTab("grammar")}
-              className={`pb-2 text-xs sm:text-sm font-semibold flex items-center gap-2 border-b-2 transition ${activeTab === "grammar"
-                ? "border-indigo-500 text-indigo-400"
+              className={`pb-2.5 text-xs sm:text-sm font-bold flex items-center gap-2 border-b-2 transition ${activeTab === "grammar"
+                ? "border-violet-400 text-violet-300"
                 : "border-transparent text-slate-400 hover:text-slate-200"
                 }`}
             >
               <BookOpen className="w-4 h-4" />
               <span>Grammar Book & Rules</span>
-              <span className="text-[10px] bg-indigo-950 text-indigo-300 border border-indigo-800 px-1.5 py-0.2 rounded-full">
+              <span className="text-[10px] bg-violet-950 text-violet-300 border border-violet-800 px-2 py-0.5 rounded-full font-black">
                 {grammarTopics.length}
               </span>
             </button>
 
             <button
               onClick={() => setActiveTab("roadmap")}
-              className={`pb-2 text-xs sm:text-sm font-semibold flex items-center gap-2 border-b-2 transition ${activeTab === "roadmap"
-                ? "border-indigo-500 text-indigo-400"
+              className={`pb-2.5 text-xs sm:text-sm font-bold flex items-center gap-2 border-b-2 transition ${activeTab === "roadmap"
+                ? "border-amber-400 text-amber-300"
                 : "border-transparent text-slate-400 hover:text-slate-200"
                 }`}
             >
@@ -459,7 +527,7 @@ export default function App() {
       </header>
 
       {/* Main Container */}
-      <main className="flex-1 max-w-4xl w-full mx-auto p-4 sm:p-6 flex flex-col justify-start">
+      <main className="flex-1 max-w-6xl w-full mx-auto p-4 sm:p-6 md:p-8 flex flex-col justify-start">
         {/* ========================================================================= */}
         {/* ACTIVE GAME SCREENS                                                       */}
         {/* ========================================================================= */}
@@ -656,144 +724,172 @@ export default function App() {
               onLaunchGame={startCubeGame}
               highScore={cubeGameHighScore}
               currentLanguage={cubeGameLanguage}
+              palette={themeColors.cubeCard}
             />
 
-            {/* 6 Game Mode Cards */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5">
+            {/* 6 Game Mode Cards with Expanded Dimensions & Dynamic Color Harmonizer */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5 sm:gap-6">
               {/* 1. Spaced Repetition Flashcards */}
               <div
+                id="card-flashcards-deck"
+                style={themeColors.flashcards?.style}
                 onClick={() => {
                   if (flashcards.length > 0) setActiveGame("flashcards");
                   else showToast("No flashcards saved yet! Chat with bot first.", "error");
                 }}
-                className="cursor-pointer bg-slate-800/80 hover:bg-slate-800 border border-slate-700 hover:border-indigo-500 p-5 rounded-2xl transition shadow-md flex flex-col justify-between group"
+                className="cursor-pointer bg-slate-900/90 hover:bg-slate-850 border-2 p-6 sm:p-7 rounded-3xl transition-all duration-300 shadow-xl hover:shadow-2xl hover:scale-[1.02] flex flex-col justify-between group min-h-[220px] sm:min-h-[240px]"
               >
                 <div>
-                  <div className="w-10 h-10 rounded-xl bg-indigo-900/60 border border-indigo-700/50 flex items-center justify-center text-indigo-400 mb-3 group-hover:scale-105 transition-transform">
-                    <Layers className="w-5 h-5" />
+                  <div
+                    style={themeColors.flashcards?.iconStyle}
+                    className="w-12 h-12 rounded-2xl flex items-center justify-center mb-4 group-hover:scale-110 transition-transform duration-300 border shadow-md"
+                  >
+                    <Layers className="w-6 h-6" />
                   </div>
-                  <h3 className="font-bold text-sm text-white">Vocabulary Flashcards</h3>
-                  <p className="text-xs text-slate-400 mt-1 leading-relaxed">
+                  <h3 className="font-black text-base sm:text-lg text-white group-hover:text-cyan-200 transition-colors">Vocabulary Flashcards</h3>
+                  <p className="text-xs sm:text-sm text-slate-300 mt-2 leading-relaxed">
                     Spaced repetition deck with base lemmas, phonetics, rules, and example sentences.
                   </p>
                 </div>
-                <div className="mt-4 pt-3 border-t border-slate-700/60 flex items-center justify-between text-xs text-indigo-400 font-semibold">
-                  <span>{flashcards.length} cards available</span>
-                  <span>Start →</span>
+                <div className="mt-5 pt-3.5 border-t border-slate-800/80 flex items-center justify-between text-xs font-bold">
+                  <span className="text-slate-400">{flashcards.length} cards saved</span>
+                  <span style={{ color: themeColors.flashcards?.hex || '#a855f7' }}>Start Practice →</span>
                 </div>
               </div>
 
               {/* 2. Vocabulary Quiz */}
               <div
+                id="card-smart-quiz"
+                style={themeColors.quiz?.style}
                 onClick={() => {
                   if (flashcards.length > 0) setActiveGame("quiz");
                   else showToast("Save at least 1 word before playing Quiz!", "error");
                 }}
-                className="cursor-pointer bg-slate-800/80 hover:bg-slate-800 border border-slate-700 hover:border-emerald-500 p-5 rounded-2xl transition shadow-md flex flex-col justify-between group"
+                className="cursor-pointer bg-slate-900/90 hover:bg-slate-850 border-2 p-6 sm:p-7 rounded-3xl transition-all duration-300 shadow-xl hover:shadow-2xl hover:scale-[1.02] flex flex-col justify-between group min-h-[220px] sm:min-h-[240px]"
               >
                 <div>
-                  <div className="w-10 h-10 rounded-xl bg-emerald-900/60 border border-emerald-700/50 flex items-center justify-center text-emerald-400 mb-3 group-hover:scale-105 transition-transform">
-                    <BrainCircuit className="w-5 h-5" />
+                  <div
+                    style={themeColors.quiz?.iconStyle}
+                    className="w-12 h-12 rounded-2xl flex items-center justify-center mb-4 group-hover:scale-110 transition-transform duration-300 border shadow-md"
+                  >
+                    <BrainCircuit className="w-6 h-6" />
                   </div>
-                  <h3 className="font-bold text-sm text-white">Smart Recall Quiz</h3>
-                  <p className="text-xs text-slate-400 mt-1 leading-relaxed">
+                  <h3 className="font-black text-base sm:text-lg text-white group-hover:text-emerald-200 transition-colors">Smart Recall Quiz</h3>
+                  <p className="text-xs sm:text-sm text-slate-300 mt-2 leading-relaxed">
                     Test your memory with multiple choice or text entry. Graded dynamically with synonyms accepted!
                   </p>
                 </div>
-                <div className="mt-4 pt-3 border-t border-slate-700/60 flex items-center justify-between text-xs text-emerald-400 font-semibold">
-                  <span>Adaptive grading</span>
-                  <span>Play →</span>
+                <div className="mt-5 pt-3.5 border-t border-slate-800/80 flex items-center justify-between text-xs font-bold">
+                  <span className="text-slate-400">Adaptive grading</span>
+                  <span style={{ color: themeColors.quiz?.hex || '#10b981' }}>Take Quiz →</span>
                 </div>
               </div>
 
               {/* 3. Listening Quiz */}
               <div
+                id="card-listening-game"
+                style={themeColors.listening?.style}
                 onClick={() => {
                   if (!loadingAiGame) startAiGame("listening");
                 }}
-                className="cursor-pointer bg-slate-800/80 hover:bg-slate-800 border border-slate-700 hover:border-cyan-500 p-5 rounded-2xl transition shadow-md flex flex-col justify-between group"
+                className="cursor-pointer bg-slate-900/90 hover:bg-slate-850 border-2 p-6 sm:p-7 rounded-3xl transition-all duration-300 shadow-xl hover:shadow-2xl hover:scale-[1.02] flex flex-col justify-between group min-h-[220px] sm:min-h-[240px]"
               >
                 <div>
-                  <div className="w-10 h-10 rounded-xl bg-cyan-900/60 border border-cyan-700/50 flex items-center justify-center text-cyan-400 mb-3 group-hover:scale-105 transition-transform">
-                    <Headphones className="w-5 h-5" />
+                  <div
+                    style={themeColors.listening?.iconStyle}
+                    className="w-12 h-12 rounded-2xl flex items-center justify-center mb-4 group-hover:scale-110 transition-transform duration-300 border shadow-md"
+                  >
+                    <Headphones className="w-6 h-6" />
                   </div>
-                  <h3 className="font-bold text-sm text-white">Listening Comprehension</h3>
-                  <p className="text-xs text-slate-400 mt-1 leading-relaxed">
+                  <h3 className="font-black text-base sm:text-lg text-white group-hover:text-sky-200 transition-colors">Listening Comprehension</h3>
+                  <p className="text-xs sm:text-sm text-slate-300 mt-2 leading-relaxed">
                     Audio-only challenge: listen to the native pronunciation, then type or choose the meaning.
                   </p>
                 </div>
-                <div className="mt-4 pt-3 border-t border-slate-700/60 flex items-center justify-between text-xs text-cyan-400 font-semibold">
-                  <span>Ear training</span>
-                  <span>Listen →</span>
+                <div className="mt-5 pt-3.5 border-t border-slate-800/80 flex items-center justify-between text-xs font-bold">
+                  <span className="text-slate-400">Ear training</span>
+                  <span style={{ color: themeColors.listening?.hex || '#38bdf8' }}>Listen Now →</span>
                 </div>
               </div>
 
               {/* 4. Sound Match */}
               <div
+                id="card-sound-match"
+                style={themeColors.match?.style}
                 onClick={() => {
                   if (!loadingAiGame) startAiGame("match");
                 }}
-                className="cursor-pointer bg-slate-800/80 hover:bg-slate-800 border border-slate-700 hover:border-amber-500 p-5 rounded-2xl transition shadow-md flex flex-col justify-between group"
+                className="cursor-pointer bg-slate-900/90 hover:bg-slate-850 border-2 p-6 sm:p-7 rounded-3xl transition-all duration-300 shadow-xl hover:shadow-2xl hover:scale-[1.02] flex flex-col justify-between group min-h-[220px] sm:min-h-[240px]"
               >
                 <div>
-                  <div className="w-10 h-10 rounded-xl bg-amber-900/60 border border-amber-700/50 flex items-center justify-center text-amber-400 mb-3 group-hover:scale-105 transition-transform">
-                    <Volume2 className="w-5 h-5" />
+                  <div
+                    style={themeColors.match?.iconStyle}
+                    className="w-12 h-12 rounded-2xl flex items-center justify-center mb-4 group-hover:scale-110 transition-transform duration-300 border shadow-md"
+                  >
+                    <Volume2 className="w-6 h-6" />
                   </div>
-                  <h3 className="font-bold text-sm text-white">Sound Match</h3>
-                  <p className="text-xs text-slate-400 mt-1 leading-relaxed">
+                  <h3 className="font-black text-base sm:text-lg text-white group-hover:text-amber-200 transition-colors">Sound Match</h3>
+                  <p className="text-xs sm:text-sm text-slate-300 mt-2 leading-relaxed">
                     Fast-paced audio memory game: match the spoken sound tile with its written translation.
                   </p>
                 </div>
-                <div className="mt-4 pt-3 border-t border-slate-700/60 flex items-center justify-between text-xs text-amber-400 font-semibold">
-                  <span>Combo bonuses</span>
-                  <span>Match →</span>
+                <div className="mt-5 pt-3.5 border-t border-slate-800/80 flex items-center justify-between text-xs font-bold">
+                  <span className="text-slate-400">Combo bonuses</span>
+                  <span style={{ color: themeColors.match?.hex || '#f59e0b' }}>Match Tiles →</span>
                 </div>
               </div>
 
               {/* 5. Speaking Drill */}
               <div
+                id="card-speaking-drill"
+                style={themeColors.speaking?.style}
                 onClick={() => {
                   if (!loadingAiGame) startAiGame("speaking");
                 }}
-                className="cursor-pointer bg-slate-800/80 hover:bg-slate-800 border border-slate-700 hover:border-rose-500 p-5 rounded-2xl transition shadow-md flex flex-col justify-between group"
+                className="cursor-pointer bg-slate-900/90 hover:bg-slate-850 border-2 p-6 sm:p-7 rounded-3xl transition-all duration-300 shadow-xl hover:shadow-2xl hover:scale-[1.02] flex flex-col justify-between group min-h-[220px] sm:min-h-[240px]"
               >
                 <div>
-                  <div className="w-10 h-10 rounded-xl bg-rose-900/60 border border-rose-700/50 flex items-center justify-center text-rose-400 mb-3 group-hover:scale-105 transition-transform">
-                    <Mic className="w-5 h-5" />
+                  <div
+                    style={themeColors.speaking?.iconStyle}
+                    className="w-12 h-12 rounded-2xl flex items-center justify-center mb-4 group-hover:scale-110 transition-transform duration-300 border shadow-md"
+                  >
+                    <Mic className="w-6 h-6" />
                   </div>
-                  <h3 className="font-bold text-sm text-white">Pronunciation & Speech</h3>
-                  <p className="text-xs text-slate-400 mt-1 leading-relaxed">
+                  <h3 className="font-black text-base sm:text-lg text-white group-hover:text-rose-200 transition-colors">Pronunciation & Speech</h3>
+                  <p className="text-xs sm:text-sm text-slate-300 mt-2 leading-relaxed">
                     Speak words into your microphone. Real-time accuracy scoring and phonetic feedback!
                   </p>
                 </div>
-                <div className="mt-4 pt-3 border-t border-slate-700/60 flex items-center justify-between text-xs text-rose-400 font-semibold">
-                  <span>Microphone drill</span>
-                  <span>Speak →</span>
+                <div className="mt-5 pt-3.5 border-t border-slate-800/80 flex items-center justify-between text-xs font-bold">
+                  <span className="text-slate-400">Microphone drill</span>
+                  <span style={{ color: themeColors.speaking?.hex || '#f43f5e' }}>Practice Speech →</span>
                 </div>
               </div>
 
               {/* 6. Grammar Reference Book Tile */}
               <div
+                id="card-grammar-book"
+                style={themeColors.grammar?.style}
                 onClick={() => setActiveTab("grammar")}
-                className="cursor-pointer bg-slate-800/80 hover:bg-slate-800 border border-slate-700 hover:border-violet-500 p-5 rounded-2xl transition shadow-md flex flex-col justify-between group"
+                className="cursor-pointer bg-slate-900/90 hover:bg-slate-850 border-2 p-6 sm:p-7 rounded-3xl transition-all duration-300 shadow-xl hover:shadow-2xl hover:scale-[1.02] flex flex-col justify-between group min-h-[220px] sm:min-h-[240px]"
               >
                 <div>
-                  <div className="w-10 h-10 rounded-xl bg-violet-900/60 border border-violet-700/50 flex items-center justify-center text-violet-400 mb-3 group-hover:scale-105 transition-transform">
-                    <BookOpen className="w-5 h-5" />
+                  <div
+                    style={themeColors.grammar?.iconStyle}
+                    className="w-12 h-12 rounded-2xl flex items-center justify-center mb-4 group-hover:scale-110 transition-transform duration-300 border shadow-md"
+                  >
+                    <BookOpen className="w-6 h-6" />
                   </div>
-                  <h3 className="font-bold text-sm text-white">Grammar Book & Rules</h3>
-                  <p className="text-xs text-slate-400 mt-1 leading-relaxed">
+                  <h3 className="font-black text-base sm:text-lg text-white group-hover:text-violet-200 transition-colors">Grammar Book & Rules</h3>
+                  <p className="text-xs sm:text-sm text-slate-300 mt-2 leading-relaxed">
                     View saved grammar rules, verb conjugation tables, and download publication-ready PDFs.
                   </p>
                 </div>
-                <div className="mt-4 pt-3 border-t border-slate-700/60 flex items-center justify-between text-xs text-violet-400 font-semibold">
-                  <span>{grammarTopics.length} saved rules</span>
-                  <span>Open Book →</span>
+                <div className="mt-5 pt-3.5 border-t border-slate-800/80 flex items-center justify-between text-xs font-bold">
+                  <span className="text-slate-400">{grammarTopics.length} saved rules</span>
+                  <span style={{ color: themeColors.grammar?.hex || '#8b5cf6' }}>Open Book →</span>
                 </div>
               </div>
-
-
-
             </div>
           </div>
         )

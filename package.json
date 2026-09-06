@@ -12,6 +12,7 @@
     "lint": "echo 'Lint check passed'"
   },
   "dependencies": {
+    "compromise": "^14.16.0",
     "pdfkit": "^0.20.2",
     "pg": "^8.23.0"
   }

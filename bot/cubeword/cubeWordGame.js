@@ -1,6 +1,7 @@
 import express from 'express';
 import { GoogleGenAI } from '@google/genai';
 import { isWordInDictionary, getRandomWordsByLength } from './dictionary.js';
+import { isValidWordToken, SCRABBLE_NOISE_BLACKLIST } from './wordTokenValidator.js';
 
 export const cubeWordRouter = express.Router();
 
@@ -320,7 +321,20 @@ cubeWordRouter.post('/verify', async (req, res) => {
     const langKey = language.toLowerCase();
     const isTargetMatch = cleanTarget && cleanWord === cleanTarget;
 
-    // 1. Anti-Repetition Guard: Check if word was used in current or previous 2 rounds
+    // 1. Linguistic Tokenization Validation Check (rejects Scrabble noise, abbreviations, non-word syllables)
+    const tokenCheck = isValidWordToken(cleanWord, langKey);
+    if (!tokenCheck.isValid && !isTargetMatch) {
+      return res.json({
+        isValid: false,
+        word: cleanWord,
+        language: langKey,
+        reason: tokenCheck.reason || `Invalid word token in ${language}`,
+        points: 0,
+        bonusMultiplier: 1,
+      });
+    }
+
+    // 2. Anti-Repetition Guard: Check if word was used in current or previous 2 rounds
     // (Exception: Target Quest words are always permissible if current quest matches)
     const normalizedRecent = (recentWords || []).map((w) => w.trim().toUpperCase());
     if (normalizedRecent.includes(cleanWord) && !isTargetMatch) {
@@ -334,30 +348,30 @@ cubeWordRouter.post('/verify', async (req, res) => {
       });
     }
 
-    // 2. Base scoring calculation based on user rules
+    // 3. Base scoring calculation based on user rules
     const wordLength = cleanWord.length;
     let basePoints = wordLength >= 10 ? 20 : 10;
     let isComplexTerm = wordLength >= 10;
     let definition = '';
-    let partOfSpeech = 'word';
+    let partOfSpeech = tokenCheck.partOfSpeech || 'word';
     let ipa = '';
 
     // Fast-track check via built-in high-frequency philological lexicon
     const langLexicon = HIGH_FREQUENCY_LEXICON[langKey];
     const isLexiconMatch = langLexicon && langLexicon.has(cleanWord);
 
-    // Call Gemini AI for definitive linguistic and philological validation
+    // Call Gemini AI for definitive linguistic and philological validation with strict tokenization directives
     const ai = getGenAI();
     if (ai) {
       try {
-        const prompt = `You are an expert philologist, lexicographer, and dictionary editor for the ${language} language.
-Analyze if the following letter sequence is an authentic, truly existing, linguistically recognized valid word in ${language}.
+        const prompt = `You are a strict lexicographical word token validator for the ${language} language.
+Analyze if the following letter sequence is an authentic, truly existing, linguistically recognized valid standalone word token in ${language}.
 Word candidate: "${cleanWord}"
 
-Rules:
-1. Accept genuine standard dictionary words, common inflections, nouns, verbs, adjectives, adverbs, and scientific/philological terms.
-2. Reject random letter mashups, typos, gibberish, or fabricated syllables.
-3. Determine if this word is considered a complex, scientific, literary, or technical specific term.
+CRITICAL TOKENIZATION RULES:
+1. The candidate MUST be an authentic, recognized dictionary word or standard valid inflection in ${language} that native speakers or learners would find in a reputable standard dictionary.
+2. STRICTLY REJECT: Scrabble abbreviations, archaic letter fragments, isolated syllables (e.g., FES, AHT, ALF, FUB, DZU, ENE, ENG, AMA, AFF, AHU), acronyms, prefixes, or non-existent words.
+3. If this candidate is NOT an authentic standalone word in ${language}, you MUST set isValid to false.
 4. Output STRICT JSON with no markdown formatting:
 {
   "isValid": true | false,

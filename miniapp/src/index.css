@@ -67,3 +67,79 @@ body {
 .animate-slide-left {
   animation: slideLeft 280ms ease-in forwards;
 }
+
+/* ── Smooth Glowing Dynamic Animations ───────────────────────────────────── */
+
+@keyframes glowPulse {
+  0%, 100% {
+    box-shadow: 0 0 16px rgba(99, 102, 241, 0.25);
+    border-color: rgba(99, 102, 241, 0.4);
+  }
+  50% {
+    box-shadow: 0 0 32px rgba(168, 85, 247, 0.45);
+    border-color: rgba(168, 85, 247, 0.7);
+  }
+}
+
+@keyframes floatSlow {
+  0%, 100% {
+    transform: translateY(0px) rotate(0deg);
+  }
+  50% {
+    transform: translateY(-8px) rotate(2deg);
+  }
+}
+
+@keyframes lightSweep {
+  0% {
+    transform: translateX(-100%);
+  }
+  50%, 100% {
+    transform: translateX(200%);
+  }
+}
+
+@keyframes chromaticAura {
+  0%, 100% {
+    filter: hue-rotate(0deg) brightness(1);
+  }
+  50% {
+    filter: hue-rotate(45deg) brightness(1.15);
+  }
+}
+
+.animate-glow-pulse {
+  animation: glowPulse 4s ease-in-out infinite;
+}
+
+.animate-float-slow {
+  animation: floatSlow 6s ease-in-out infinite;
+}
+
+.animate-chromatic-aura {
+  animation: chromaticAura 12s ease-in-out infinite;
+}
+
+.shimmer-button {
+  position: relative;
+  overflow: hidden;
+}
+
+.shimmer-button::after {
+  content: '';
+  position: absolute;
+  top: -50%;
+  left: -50%;
+  width: 200%;
+  height: 200%;
+  background: linear-gradient(
+    60deg,
+    transparent 35%,
+    rgba(255, 255, 255, 0.22) 50%,
+    transparent 65%
+  );
+  transform: translateX(-100%);
+  animation: lightSweep 5s infinite;
+  pointer-events: none;
+}
+

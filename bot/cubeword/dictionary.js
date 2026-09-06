@@ -1,4 +1,5 @@
 import { createRequire } from 'module';
+import { isValidWordToken, SCRABBLE_NOISE_BLACKLIST } from './wordTokenValidator.js';
 
 const require = createRequire(import.meta.url);
 
@@ -59,8 +60,10 @@ export function getDictionary(lang = 'english') {
         const item = rawList[i];
         if (typeof item === 'string' && item.length >= 3) {
           const up = item.toUpperCase();
-          set.add(up);
-          normalizedSet.add(normalizeWord(up, key));
+          if (!SCRABBLE_NOISE_BLACKLIST.has(up)) {
+            set.add(up);
+            normalizedSet.add(normalizeWord(up, key));
+          }
         }
       }
     }
@@ -125,13 +128,19 @@ export function getDictionary(lang = 'english') {
   return dictionarySets[key];
 }
 
-// Instant check if a word exists in the dictionary
+// Instant check if a word exists in the dictionary and is an authentic word token
 export function isWordInDictionary(word, lang = 'english') {
   if (!word || typeof word !== 'string' || word.trim().length < 3) {
     return false;
   }
 
   const clean = word.trim().toUpperCase();
+  // Reject blacklisted Scrabble noise, abbreviations, or invalid phonotactics
+  const tokenCheck = isValidWordToken(clean, lang);
+  if (!tokenCheck.isValid) {
+    return false;
+  }
+
   const dict = getDictionary(lang);
   if (!dict) return false;
 
