@@ -43,7 +43,7 @@ const userLevel = async () => {
   }
 };
 const level = async () => await userLevel();
-export default isAdvanced = String(level || "").toLowerCase().includes("advanced");
+export const isAdvanced = String(level || "").toLowerCase().includes("advanced");
 
 const bot = new Bot(process.env.BOT_TOKEN);
 const MINIAPP_URL = process.env.MINIAPP_URL;
