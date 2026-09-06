@@ -26,7 +26,7 @@ import ListeningGame from "./components/ListeningGame.jsx";
 import ListeningMatch from "./components/ListeningMatch.jsx";
 import SpeakingGame from "./components/SpeakingGame.jsx";
 import Summary from "./components/Summary.jsx";
-import CubeWordCard from "./components/CubicWords/CubeWordCard.jsx";
+import { CubeWordCard } from "./components/CubicWords/CubeWordCard.jsx";
 import { isAdvanced } from "../../bot/index.js"
 import { CubeWordGame } from "./components/CubicWords/CubeWordGame.jsx";
 export default function App() {
@@ -558,15 +558,6 @@ export default function App() {
             }}
           />
         )}
-        {activeGame === "cubeGame" && (
-          <CubeWordCard
-
-            onLaunchGame={() => startCubeGame(isAdvanced ? targetLanguage : mediatorLanguage)}
-            highScore="0"
-            currentLanguage={isAdvanced ? targetLanguage : mediatorLanguage}
-
-          />
-        )}
 
 
         {/* ========================================================================= */}
@@ -747,6 +738,24 @@ export default function App() {
                   <span>{grammarTopics.length} saved rules</span>
                   <span>Open Book →</span>
                 </div>
+              </div>
+
+
+              <div
+                onClick={() => {
+                  if (!loadingAiGame) { startAiGame("cubeGame"); }
+                  startCubeGame(isAdvanced ? targetLanguage : mediatorLanguage);
+                }}
+                className="cursor-pointer bg-slate-800/80 hover:bg-slate-800 border border-slate-700 hover:border-violet-500 p-5 rounded-2xl transition shadow-md flex flex-col justify-between group"
+              >
+                <CubeWordCard
+
+                  onLaunchGame={() => startCubeGame(isAdvanced ? targetLanguage : mediatorLanguage)}
+                  highScore="0"
+                  currentLanguage={isAdvanced ? targetLanguage : mediatorLanguage}
+
+                />
+
               </div>
             </div>
           </div>
