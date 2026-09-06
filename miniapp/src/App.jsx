@@ -741,159 +741,158 @@ export default function App() {
               </div>
 
 
-              <div
-                onClick={() => {
-                  if (!loadingAiGame) { startAiGame("cubeGame"); }
-                  startCubeGame(isAdvanced ? targetLanguage : mediatorLanguage);
-                }}
-                className="cursor-pointer bg-slate-800/80 hover:bg-slate-800 border border-slate-700 hover:border-violet-500 p-5 rounded-2xl transition shadow-md flex flex-col justify-between group"
-              >
-                <CubeWordCard
+              <CubeWordCard
 
-                  onLaunchGame={() => startCubeGame(isAdvanced ? targetLanguage : mediatorLanguage)}
-                  highScore="0"
-                  currentLanguage={isAdvanced ? targetLanguage : mediatorLanguage}
+                onLaunchGame={() => startCubeGame(isAdvanced ? targetLanguage : mediatorLanguage)}
+                highScore="0"
+                currentLanguage={isAdvanced ? targetLanguage : mediatorLanguage}
 
-                />
+              />
 
-              </div>
             </div>
           </div>
-        )}
+        )
+        }
 
         {/* ========================================================================= */}
         {/* TAB 2: GRAMMAR REFERENCE BOOK                                             */}
         {/* ========================================================================= */}
-        {!activeGame && activeTab === "grammar" && (
-          <GrammarBook
-            API={BACKEND_URL}
-            authHeaders={getHeaders()}
-            effectiveUserId={effectiveUserId}
-            onExit={() => setActiveTab("games")}
-          />
-        )}
+        {
+          !activeGame && activeTab === "grammar" && (
+            <GrammarBook
+              API={BACKEND_URL}
+              authHeaders={getHeaders()}
+              effectiveUserId={effectiveUserId}
+              onExit={() => setActiveTab("games")}
+            />
+          )
+        }
 
         {/* ========================================================================= */}
         {/* TAB 3: LEARNING ROADMAP & STUDY PLAN                                    */}
         {/* ========================================================================= */}
-        {!activeGame && activeTab === "roadmap" && (
-          <div className="space-y-6 max-w-2xl mx-auto w-full">
-            <div className="bg-slate-800/90 border border-slate-700 rounded-2xl p-6 shadow-xl">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-700 pb-5">
-                <div>
-                  <h2 className="font-bold text-lg text-white">Personal Study Roadmap</h2>
-                  <p className="text-xs text-slate-400">Auto-updated by AI every 5 messages based on diagnostic progress</p>
+        {
+          !activeGame && activeTab === "roadmap" && (
+            <div className="space-y-6 max-w-2xl mx-auto w-full">
+              <div className="bg-slate-800/90 border border-slate-700 rounded-2xl p-6 shadow-xl">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-700 pb-5">
+                  <div>
+                    <h2 className="font-bold text-lg text-white">Personal Study Roadmap</h2>
+                    <p className="text-xs text-slate-400">Auto-updated by AI every 5 messages based on diagnostic progress</p>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={handleDownloadRoadmapPdf}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-700 hover:bg-slate-600 text-white font-semibold text-xs transition"
+                    >
+                      <Download className="w-3.5 h-3.5 text-indigo-300" />
+                      <span>Roadmap PDF</span>
+                    </button>
+                    <button
+                      onClick={() => handleSendToTelegram("/api/roadmap/send-pdf", {}, "tg-roadmap")}
+                      disabled={actionLoading === "tg-roadmap"}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-semibold text-xs transition disabled:opacity-50"
+                    >
+                      <Send className="w-3.5 h-3.5" />
+                      <span>{actionLoading === "tg-roadmap" ? "Sending..." : "Send to TG"}</span>
+                    </button>
+                  </div>
                 </div>
 
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={handleDownloadRoadmapPdf}
-                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-700 hover:bg-slate-600 text-white font-semibold text-xs transition"
-                  >
-                    <Download className="w-3.5 h-3.5 text-indigo-300" />
-                    <span>Roadmap PDF</span>
-                  </button>
-                  <button
-                    onClick={() => handleSendToTelegram("/api/roadmap/send-pdf", {}, "tg-roadmap")}
-                    disabled={actionLoading === "tg-roadmap"}
-                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-semibold text-xs transition disabled:opacity-50"
-                  >
-                    <Send className="w-3.5 h-3.5" />
-                    <span>{actionLoading === "tg-roadmap" ? "Sending..." : "Send to TG"}</span>
-                  </button>
-                </div>
-              </div>
+                <div className="mt-5 space-y-4 text-xs sm:text-sm text-slate-300 leading-relaxed">
+                  <div className="p-4 rounded-xl bg-indigo-950/70 border border-indigo-800/80">
+                    <h4 className="font-bold text-indigo-300 text-sm mb-1">🎯 7-Day Targeted Regimen</h4>
+                    <p className="text-xs text-indigo-200">
+                      Your curriculum balances Listening, Speaking, Reading, and Writing with your personalized Grammar Book.
+                    </p>
+                  </div>
 
-              <div className="mt-5 space-y-4 text-xs sm:text-sm text-slate-300 leading-relaxed">
-                <div className="p-4 rounded-xl bg-indigo-950/70 border border-indigo-800/80">
-                  <h4 className="font-bold text-indigo-300 text-sm mb-1">🎯 7-Day Targeted Regimen</h4>
-                  <p className="text-xs text-indigo-200">
-                    Your curriculum balances Listening, Speaking, Reading, and Writing with your personalized Grammar Book.
-                  </p>
-                </div>
-
-                <div className="space-y-2">
-                  <p className="font-semibold text-white">Current Milestones:</p>
-                  <ul className="list-disc list-inside space-y-1.5 text-xs text-slate-400 pl-1">
-                    <li>Practice 10 due words in the Vocabulary Deck daily.</li>
-                    <li>Complete at least one Sound Match or Listening drill.</li>
-                    <li>Review your latest Grammar Guide PDF with conjugation paradigms.</li>
-                  </ul>
+                  <div className="space-y-2">
+                    <p className="font-semibold text-white">Current Milestones:</p>
+                    <ul className="list-disc list-inside space-y-1.5 text-xs text-slate-400 pl-1">
+                      <li>Practice 10 due words in the Vocabulary Deck daily.</li>
+                      <li>Complete at least one Sound Match or Listening drill.</li>
+                      <li>Review your latest Grammar Guide PDF with conjugation paradigms.</li>
+                    </ul>
+                  </div>
                 </div>
               </div>
             </div>
-          </div>
-        )}
-        {showAddModal && (
-          <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4">
-            <div className="bg-slate-800 border border-slate-700 w-full max-w-md rounded-2xl p-6 shadow-2xl relative text-left">
-              <div className="flex items-center justify-between pb-3 border-b border-slate-700 mb-4">
-                <h3 className="font-bold text-base text-white flex items-center gap-2">
-                  <span>➕ Add Word to Flashcards</span>
-                  <span className="text-xs px-2 py-0.5 rounded bg-indigo-950 text-indigo-300 border border-indigo-800">
-                    {targetLanguage.toUpperCase()}
-                  </span>
-                </h3>
-                <button
-                  type="button"
-                  onClick={() => setShowAddModal(false)}
-                  className="w-7 h-7 rounded-lg bg-slate-700 text-slate-300 hover:text-white flex items-center justify-center"
-                >
-                  ✕
-                </button>
-              </div>
-
-              <form onSubmit={handleAddCustomWord} className="space-y-4">
-                <div>
-                  <label className="block text-xs font-semibold text-slate-300 mb-1">
-                    Word in {targetLanguage.toUpperCase()} (Base lemma):
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    placeholder="e.g. apple, книга, laufen..."
-                    value={newWord}
-                    onChange={(e) => setNewWord(e.target.value)}
-                    className="w-full px-3.5 py-2.5 bg-slate-900 border border-slate-700 rounded-xl text-white text-xs focus:outline-none focus:border-indigo-500"
-                    autoFocus
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-semibold text-slate-300 mb-1">
-                    Translation / Meaning:
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    placeholder="e.g. яблоко, book, to run..."
-                    value={newMeaning}
-                    onChange={(e) => setNewMeaning(e.target.value)}
-                    className="w-full px-3.5 py-2.5 bg-slate-900 border border-slate-700 rounded-xl text-white text-xs focus:outline-none focus:border-indigo-500"
-                  />
-                </div>
-
-                <div className="pt-3 border-t border-slate-700 flex justify-end gap-2.5">
+          )
+        }
+        {
+          showAddModal && (
+            <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4">
+              <div className="bg-slate-800 border border-slate-700 w-full max-w-md rounded-2xl p-6 shadow-2xl relative text-left">
+                <div className="flex items-center justify-between pb-3 border-b border-slate-700 mb-4">
+                  <h3 className="font-bold text-base text-white flex items-center gap-2">
+                    <span>➕ Add Word to Flashcards</span>
+                    <span className="text-xs px-2 py-0.5 rounded bg-indigo-950 text-indigo-300 border border-indigo-800">
+                      {targetLanguage.toUpperCase()}
+                    </span>
+                  </h3>
                   <button
                     type="button"
                     onClick={() => setShowAddModal(false)}
-                    className="px-4 py-2 rounded-xl bg-slate-700 text-slate-300 text-xs font-semibold hover:bg-slate-600 transition"
+                    className="w-7 h-7 rounded-lg bg-slate-700 text-slate-300 hover:text-white flex items-center justify-center"
                   >
-                    Cancel
-                  </button>
-                  <button
-                    type="submit"
-                    disabled={!newWord.trim() || !newMeaning.trim()}
-                    className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold transition disabled:opacity-50"
-                  >
-                    Save to Deck
+                    ✕
                   </button>
                 </div>
-              </form>
+
+                <form onSubmit={handleAddCustomWord} className="space-y-4">
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-300 mb-1">
+                      Word in {targetLanguage.toUpperCase()} (Base lemma):
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      placeholder="e.g. apple, книга, laufen..."
+                      value={newWord}
+                      onChange={(e) => setNewWord(e.target.value)}
+                      className="w-full px-3.5 py-2.5 bg-slate-900 border border-slate-700 rounded-xl text-white text-xs focus:outline-none focus:border-indigo-500"
+                      autoFocus
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-300 mb-1">
+                      Translation / Meaning:
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      placeholder="e.g. яблоко, book, to run..."
+                      value={newMeaning}
+                      onChange={(e) => setNewMeaning(e.target.value)}
+                      className="w-full px-3.5 py-2.5 bg-slate-900 border border-slate-700 rounded-xl text-white text-xs focus:outline-none focus:border-indigo-500"
+                    />
+                  </div>
+
+                  <div className="pt-3 border-t border-slate-700 flex justify-end gap-2.5">
+                    <button
+                      type="button"
+                      onClick={() => setShowAddModal(false)}
+                      className="px-4 py-2 rounded-xl bg-slate-700 text-slate-300 text-xs font-semibold hover:bg-slate-600 transition"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={!newWord.trim() || !newMeaning.trim()}
+                      className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold transition disabled:opacity-50"
+                    >
+                      Save to Deck
+                    </button>
+                  </div>
+                </form>
+              </div>
             </div>
-          </div>
-        )}
-      </main>
-    </div>
+          )
+        }
+      </main >
+    </div >
   );
 }
