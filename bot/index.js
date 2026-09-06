@@ -8,6 +8,7 @@ import crypto from "crypto";
 import fs from "fs";
 import path from "path";
 import { tmpdir } from "os";
+import { cubeWordRouter } from "./cubeword/cubeWordGame.js";
 import PDFDocument from "pdfkit";
 
 import {
@@ -137,6 +138,11 @@ app.use(cors({
 app.use(express.json());
 
 app.get("/", (req, res) => res.send("Bot API is running 🚀"));
+
+// 3D Cubic Words mini-game API (word generation & validation) — self-contained
+// router, mounted here so the game runs on this same Render service instead
+// of needing its own separate deployment.
+app.use("/api/cubeword", cubeWordRouter);
 
 if (PUBLIC_URL) {
   app.use(

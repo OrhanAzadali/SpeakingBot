@@ -140,3 +140,34 @@ export function isWordInDictionary(word, lang = 'english') {
   const norm = normalizeWord(clean, lang);
   return dict.normalizedSet.has(norm);
 }
+
+// Pick `count` random real dictionary words whose length falls within
+// [minLength, maxLength] (inclusive), for ANY topic — used to generate combo
+// / target words without tying their subject matter to any particular theme
+// (e.g. the game's aquatic background music). Only plain alphabetic words are
+// considered (no hyphens, apostrophes, or spaces), since those can't be
+// spelled out by falling letter blocks.
+export function getRandomWordsByLength(lang = 'english', minLength = 4, maxLength = 8, count = 1) {
+  const dict = getDictionary(lang);
+  if (!dict || dict.set.size === 0) return [];
+
+  const lo = Math.max(3, Math.min(minLength, maxLength));
+  const hi = Math.max(lo, maxLength);
+
+  const candidates = [];
+  for (const w of dict.set) {
+    if (w.length >= lo && w.length <= hi && /^[A-ZÀ-ʯА-Яа-яЁё]+$/u.test(w)) {
+      candidates.push(w);
+    }
+  }
+
+  if (candidates.length === 0) return [];
+
+  // Shuffle (Fisher-Yates) and take `count`
+  for (let i = candidates.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [candidates[i], candidates[j]] = [candidates[j], candidates[i]];
+  }
+
+  return candidates.slice(0, count);
+}

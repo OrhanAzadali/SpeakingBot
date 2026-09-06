@@ -26,6 +26,7 @@ export const CubeWordGame = ({
   onClose,
   initialLanguage = 'english',
   onSaveToVocabulary,
+  apiBase = '',
 }) => {
   const [selectedLanguage, setSelectedLanguage] = useState(initialLanguage);
   const [round, setRound] = useState(1);
@@ -166,6 +167,7 @@ export const CubeWordGame = ({
           soundEnabled={soundEnabled}
           onToggleSound={() => setSoundEnabled((prev) => !prev)}
           recentWordsHistory={recentWordsAcrossRounds}
+          apiBase={apiBase}
         />
       </main>
 

@@ -1,6 +1,7 @@
 # Language Immersion Coach — Setup Guide
 
 ## What you need
+
 - Node.js 18+ installed on your PC
 - A Telegram bot token (from @BotFather)
 - A free Groq API key (groq.com)
@@ -11,11 +12,13 @@
 ## STEP 1 — Get your API keys
 
 ### Telegram Bot Token
+
 1. Open Telegram, search @BotFather
 2. Send /newbot, follow instructions
 3. Copy the token it gives you
 
 ### Groq API Key (free)
+
 1. Go to console.groq.com
 2. Sign up free
 3. Click "API Keys" → "Create API Key"
@@ -31,9 +34,11 @@ npm install
 ```
 
 Edit the `.env` file:
+
 ```
 BOT_TOKEN=your_telegram_bot_token
 GROQ_API_KEY=your_groq_api_key
+GEMINI_API_KEY=your_gemini_api_key   ← optional, powers the 3D Cubic Words game (see Step 3.5)
 MINIAPP_URL=https://your-app.vercel.app   ← fill this after Step 3
 ```
 
@@ -50,6 +55,17 @@ npx vercel deploy --prod
 
 Vercel will give you a URL like `https://language-coach-xxx.vercel.app`
 Copy that URL and paste it into `bot/.env` as `MINIAPP_URL=`
+
+---
+
+## STEP 3.5 — 3D Cubic Words game
+
+The game (`3D Cubic Words` tile in the Practice Games hub) ships as part of
+this app and its own backend routes ride on your existing bot server —
+nothing extra to deploy. It just needs a `GEMINI_API_KEY` on the bot service
+(Step 2's `.env`) for AI word generation/validation; without one it
+automatically falls back to full offline dictionary word lists, so the game
+still works even without that key.
 
 ---
 

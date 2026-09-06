@@ -328,15 +328,21 @@ export const ThreeCubeWordCanvas = ({
   soundEnabled = true,
   onToggleSound,
   recentWordsHistory = [],
+  apiBase = '',
 }) => {
   const containerRef = useRef(null);
 
   // Game rules:
-  // Round 1: 8 columns (up to 8 letter words)
-  // Round 2: 9 columns
-  // Round 3+: 10 columns (9+ letter words fit width)
+  // Round 1: 8 columns (combo word max length: 8 letters)
+  // Round 2: 9 columns (combo word max length: 9 letters)
+  // Round 3+: 10 columns (combo word max length: 10 letters — the widest that
+  // still comfortably fits on screen)
   const gridCols = round === 1 ? 8 : (round === 2 ? 9 : 10);
   const gridRows = 12;
+  // Combo/target words must fit the current round's grid width, so the
+  // server is always asked for words no longer than gridCols letters.
+  const comboWordMaxLength = gridCols;
+  const comboWordMinLength = Math.max(4, comboWordMaxLength - 3);
 
   // Speed mode state: 'normal' (standard brisk flow) | 'relaxed' | 'brisk'
   const [speedMode, setSpeedMode] = useState('normal');
@@ -362,19 +368,20 @@ export const ThreeCubeWordCanvas = ({
   const fallIntervalMs = Math.round(getRoundBaseInterval(round) * speedMultiplier);
   const targetWordsForRound = round * 15; // 15, 30, 45...
 
-  // Initial 8+ letter complex words per language (never short or repeated)
-  const INITIAL_8_LETTER_WORDS = {
-    english: { word: 'SUBMARINE', meaning: 'Deep explorer submersible / Подводная лодка', hint: 'Navigates silent abyssal trenches and oceanic depths', emoji: '🚢' },
-    russian: { word: 'АКВАЛАНГИСТ', meaning: 'Scuba diver / Подводный исследователь', hint: 'Исследователь таинственных глубин и морских рифов', emoji: '🤿' },
-    spanish: { word: 'SUBMARINO', meaning: 'Deep explorer vessel / Подлодка', hint: 'Nave de exploración en profundidades abisales', emoji: '🚢' },
-    german: { word: 'UNTERWASSER', meaning: 'Underwater realm / Подводный мир', hint: 'Geheimnisvolle Welt unter der Meeresoberfläche', emoji: '🌊' },
-    french: { word: 'SUBMERSIBLE', meaning: 'Deep submarine / Подводный аппарат', hint: 'Vaisseau explorant les abysses mystérieux et calmes', emoji: '🚢' },
-    italian: { word: 'SOTTOMARINO', meaning: 'Submarine vessel / Подлодка', hint: 'Esploratore delle profondità silenziose del mare', emoji: '🚢' },
+  // Initial combo word shown before the server responds (round-1 sized: <= 8
+  // letters, any everyday topic — not tied to the aquatic music theme)
+  const INITIAL_COMBO_WORDS = {
+    english: { word: 'ADVENTURE'.slice(0, 8), meaning: 'An exciting journey', hint: 'A bold, exciting undertaking', emoji: '🔤' },
+    russian: { word: 'ДРУЖБА', meaning: 'Близость между людьми', hint: 'Связь между хорошими друзьями', emoji: '🔤' },
+    spanish: { word: 'AMISTAD', meaning: 'Vínculo cercano', hint: 'Lo que comparten los amigos', emoji: '🔤' },
+    german: { word: 'FREUNDE', meaning: 'Enge Verbindung', hint: 'Was gute Freunde verbindet', emoji: '🔤' },
+    french: { word: 'AMITIE', meaning: 'Lien étroit', hint: 'Ce que partagent les amis', emoji: '🔤' },
+    italian: { word: 'AMICIZIA'.slice(0, 8), meaning: 'Legame stretto', hint: 'Ciò che unisce gli amici', emoji: '🔤' },
   };
 
-  // Curated & Dynamic AI Special Bonus Word Quests (strictly 8+ letters long)
+  // Curated & Dynamic AI Special Bonus Word Quests (sized to the round's grid)
   const [targetQuest, setTargetQuest] = useState(() => {
-    const init = INITIAL_8_LETTER_WORDS[language] || INITIAL_8_LETTER_WORDS.english;
+    const init = INITIAL_COMBO_WORDS[language] || INITIAL_COMBO_WORDS.english;
     setAquaticComboWord(init.word);
     return init;
   });
@@ -385,14 +392,15 @@ export const ThreeCubeWordCanvas = ({
   const [isMusicActive, setIsMusicActive] = useState(true);
   const [aquaticMood, setAquaticMood] = useState(() => getAquaticMood());
 
-  // Fetch initial target quests for the selected language & pick a random 8+ letter word
+  // Fetch initial target quests for the selected language, sized to the
+  // current round's grid width, and pick a random one so it's fresh each time
   useEffect(() => {
-    fetch(`/api/cubeword/target-words?language=${encodeURIComponent(language)}`)
+    fetch(`${apiBase}/api/cubeword/target-words?language=${encodeURIComponent(language)}&minLength=${comboWordMinLength}&maxLength=${comboWordMaxLength}`)
       .then((r) => r.json())
       .then((data) => {
         if (data.quests && data.quests.length > 0) {
           setQuestList(data.quests);
-          // Pick a random 8+ letter quest so it's fresh each time
+          // Pick a random quest so it's fresh each time
           const randomIndex = Math.floor(Math.random() * data.quests.length);
           const chosenQuest = data.quests[randomIndex];
           setTargetQuest(chosenQuest);
@@ -401,7 +409,7 @@ export const ThreeCubeWordCanvas = ({
         }
       })
       .catch(() => {});
-  }, [language]);
+  }, [language, comboWordMinLength, comboWordMaxLength]);
 
   // Clean up aquatic music on unmount
   useEffect(() => {
@@ -443,19 +451,19 @@ export const ThreeCubeWordCanvas = ({
     }
   }, [questList]);
 
-  // On-demand Gemini AI Special Word Generator (strictly 8+ letters long)
+  // On-demand AI Combo Word Generator — any topic, sized to the round's grid.
   // Dynamically alters the background music harmony to match the new word!
   const fetchAiSpecialWord = useCallback(async () => {
     setIsGeneratingWord(true);
     try {
-      const res = await fetch(`/api/cubeword/generate-special-word?language=${encodeURIComponent(language)}`);
+      const res = await fetch(`${apiBase}/api/cubeword/generate-special-word?language=${encodeURIComponent(language)}&minLength=${comboWordMinLength}&maxLength=${comboWordMaxLength}`);
       const data = await res.json();
-      if (data?.quest?.word && data.quest.word.length >= 8) {
+      if (data?.quest?.word && data.quest.word.length >= comboWordMinLength && data.quest.word.length <= comboWordMaxLength) {
         setTargetQuest(data.quest);
         const newMood = setAquaticComboWord(data.quest.word);
         setAquaticMood(newMood);
         flashAnnouncement(
-          `🌊 New 8+ Letter Bonus Word: «${data.quest.word}»! Melody shifted to ${newMood.name}`,
+          `✨ New Combo Word: «${data.quest.word}»! Melody shifted to ${newMood.name}`,
           'magic',
           4500
         );
@@ -578,7 +586,7 @@ export const ThreeCubeWordCanvas = ({
     const targetWord = targetQuestRef.current?.word || '';
     try {
       const targetParam = targetWord ? `&targetWord=${encodeURIComponent(targetWord)}` : '';
-      const res = await fetch(`/api/cubeword/block-faces?language=${encodeURIComponent(language)}${targetParam}`);
+      const res = await fetch(`${apiBase}/api/cubeword/block-faces?language=${encodeURIComponent(language)}${targetParam}`);
       if (res.ok) {
         const data = await res.json();
         faces = data.faces;
@@ -864,7 +872,7 @@ export const ThreeCubeWordCanvas = ({
   // Call Server AI validation endpoint
   const verifyWordWithAI = async (word) => {
     try {
-      const res = await fetch('/api/cubeword/verify', {
+      const res = await fetch(`${apiBase}/api/cubeword/verify`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

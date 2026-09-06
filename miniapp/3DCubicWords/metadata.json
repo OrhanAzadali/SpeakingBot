@@ -1,6 +1,0 @@
-{
-  "name": "Language Learning Roadmap Generator",
-  "description": "Generate clean, structured step-by-step language learning roadmaps without messy markdown or truncated outputs, featuring interactive milestones and PDF download.",
-  "requestFramePermissions": [],
-  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
-}
