@@ -27,7 +27,7 @@ import ListeningMatch from "./components/ListeningMatch.jsx";
 import SpeakingGame from "./components/SpeakingGame.jsx";
 import Summary from "./components/Summary.jsx";
 import { CubeWordCard } from "./components/CubicWords/CubeWordCard.jsx";
-import { isAdvanced } from "../../bot/index.js"
+// import { isAdvanced } from "../../bot/index.js"
 import { CubeWordGame } from "./components/CubicWords/CubeWordGame.jsx";
 export default function App() {
   // Point directly to your Render backend
@@ -743,9 +743,9 @@ export default function App() {
 
               <CubeWordCard
 
-                onLaunchGame={() => startCubeGame(isAdvanced ? targetLanguage : mediatorLanguage)}
+                onLaunchGame={() => startCubeGame(targetLanguage)}
                 highScore="0"
-                currentLanguage={isAdvanced ? targetLanguage : mediatorLanguage}
+                currentLanguage={mediatorLanguage}
 
               />
 
