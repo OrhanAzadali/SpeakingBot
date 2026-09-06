@@ -29,8 +29,21 @@ import { GoogleGenAI } from "@google/genai";
 // Lazy Gemini client initialization (zero crash if key missing)
 let geminiClient = null;
 
-const userLevel = req.telegramUser?.level;
-export default isAdvanced = String(userLevel || "").toLowerCase().includes("advanced");
+const userLevel = async () => {
+  try {
+    const user = await getUser();
+    const userJson = user.json();
+    if (!userJson.ok) {
+      throw Error("Something went wrong while getting user from DB!");
+    }
+    return userJson.level;
+  } catch (err) {
+    console.error(err.message);
+    return err.message;
+  }
+};
+const level = async () => await userLevel();
+export default isAdvanced = String(level || "").toLowerCase().includes("advanced");
 
 const bot = new Bot(process.env.BOT_TOKEN);
 const MINIAPP_URL = process.env.MINIAPP_URL;
