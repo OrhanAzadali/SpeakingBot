@@ -196,6 +196,29 @@
 -- UPDATE user_progress SET roadmap = NULL WHERE user_id = 8291613988;
 -- UPDATE user_progress SET roadmap = NULL;
 
+-- -- 1. Add columns if not present
+-- ALTER TABLE flashcards ADD COLUMN IF NOT EXISTS mediator_language TEXT DEFAULT 'english';
+-- ALTER TABLE learned_words ADD COLUMN IF NOT EXISTS mediator_language TEXT DEFAULT 'english';
+
+-- -- 2. Tag words that have Russian Cyrillic letters in correction as 'russian'
+-- UPDATE flashcards 
+-- SET mediator_language = 'russian' 
+-- WHERE correction ~ '[а-яА-ЯёЁ]';
+
+-- -- 3. Tag words that have Azerbaijani letters (ə, ı, ğ, ç, ş) as 'azerbaijani'
+-- UPDATE flashcards 
+-- SET mediator_language = 'azerbaijani' 
+-- WHERE correction ~ '[əƏıIğĞçÇşŞüÜöÖ]' OR word IN ('one', 'two', 'dog', 'apple', 'to eat');
+
+-- -- 4. Do the same for learned_words
+-- UPDATE learned_words 
+-- SET mediator_language = 'russian' 
+-- WHERE meaning ~ '[а-яА-ЯёЁ]';
+
+-- UPDATE learned_words 
+-- SET mediator_language = 'azerbaijani' 
+-- WHERE meaning ~ '[əƏıIğĞçÇşŞüÜöÖ]';
+
 -- Active development project for a speaking/language-practice bot with flashcard and quiz features
 
 -- FOLLOW THESE INSTRUCTIONS - ANALYZE THE REPO, IF ANY ISSUE FOUND FIX, ALSO FIX THESE ISSUES IF FOUND AS BELOW - AS A RESULT GIVE ME ALL NECESSARY FILES CODE CONTENT TO COPY AND PAST IN MY LOCAL REPO CODE FILES CONTENT FOR ME:
@@ -247,241 +270,8 @@
 -- Now strip the huge dead comment block at the end of the file
 
 -- Now clean up trailing blank lines and verify the file is syntactically sound
-
--- P-JSON:
--- {
---   "name": "language-coach-bot",
---   "version": "1.0.0",
---   "type": "module",
---   "scripts": {
---     "start": "node index.js",
---     "dev": "node --watch index.js"
---   },
---   "dependencies": {
---     "cors": "^2.8.6",
---     "dotenv": "^16.4.5",
---     "express": "^5.2.1",
---     "form-data": "^4.0.0",
---     "grammy": "^1.21.1",
---     "groq-sdk": "^0.3.3",
---     "msedge-tts": "^2.0.5",
---     "node-fetch": "^3.3.2",
---     "pdfkit": "^0.16.0",
---     "pg": "^8.21.0"
---   }
--- }
-
-
-
-
--- NOW YOU'VE TRICKED US INTO LOTS OF DIFFERENT ISSUES AND ERRORS - LOOK:
--- ==> Deploying...
--- ==> Setting WEB_CONCURRENCY=1 by default, based on available CPUs in the instance
--- ==> Running 'node index.js'
--- ⏳ Downloading DejaVuSans.ttf for perfect Unicode & Cyrillic PDF rendering...
--- ✅ Database tables & rich linguistic schemas ready
--- API running on port 10000
--- ✅ Telegram command menu registered successfully
--- ✅ Telegram chat menu button set to: https://speaking-bot-ts5q.vercel.app
--- ✅ Webhook running: https://speakingbot.onrender.com/telegram/webhook
--- ==> Your service is live 🎉
--- ==>
--- ==> ///////////////////////////////////////////////////////////
--- ==>
--- ==> Available at your primary URL https://speakingbot.onrender.com
--- ==>
--- ==> ///////////////////////////////////////////////////////////
--- Model "llama-3.3-70b-versatile" attempt failed (404). Cycling to next model...
--- Model "llama-3.1-8b-instant" attempt failed (404). Cycling to next model...
--- Model "llama-3.3-70b-versatile" attempt failed (404). Cycling to next model...
--- Model "llama-3.1-8b-instant" attempt failed (404). Cycling to next model...
--- Webhook ack sent early — update processing in background.
--- Model "llama-3.3-70b-versatile" attempt failed (404). Cycling to next model...
--- Model "llama-3.3-70b-versatile" attempt failed (404). Cycling to next model...
--- Model "llama-3.1-8b-instant" attempt failed (404). Cycling to next model...
--- Model "llama-3.1-8b-instant" attempt failed (404). Cycling to next model...
--- Model "openai/gpt-oss-120b" attempt failed (400). Cycling to next model...
--- Model "openai/gpt-oss-20b" attempt failed (400). Cycling to next model...
--- Model "qwen/qwen3.6-27b" attempt failed (400). Cycling to next model...
--- Chat error: BadRequestError: 400 {"error":{"message":"Failed to validate JSON. Please adjust your prompt. See 'failed_generation' for more details.","type":"invalid_request_error","code":"json_validate_failed","failed_generation":""}}
--- at APIError.generate (file:///opt/render/project/src/node_modules/groq-sdk/core/error.mjs:36:20)
--- at Groq.makeStatusError (file:///opt/render/project/src/node_modules/groq-sdk/client.mjs:135:32)
--- at Groq.makeRequest (file:///opt/render/project/src/node_modules/groq-sdk/client.mjs:277:30)
--- at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
--- at async withModelFallback (file:///opt/render/project/src/bot/ai.js:38:14)
--- at async Promise.all (index 1)
--- at async chat (file:///opt/render/project/src/bot/ai.js:699:52)
--- at async file:///opt/render/project/src/bot/index.js:2200:49
--- at async /opt/render/project/src/node_modules/grammy/out/composer.js:578:13
--- at async /opt/render/project/src/node_modules/grammy/out/composer.js:62:13 {
--- status: 400,
--- headers: Headers {
--- date: 'Sat, 05 Sep 2026 12:12:15 GMT',
--- 'content-type': 'application/json',
--- 'content-length': '202',
--- connection: 'keep-alive',
--- 'cache-control': 'private, max-age=0, no-store, no-cache, must-revalidate',
--- server: 'cloudflare',
--- vary: 'Origin',
--- 'x-groq-region': 'fra',
--- 'x-ratelimit-limit-requests': '1000',
--- 'x-ratelimit-limit-tokens': '8000',
--- 'x-ratelimit-remaining-requests': '999',
--- 'x-ratelimit-remaining-tokens': '3164',
--- 'x-ratelimit-reset-requests': '1m26.4s',
--- 'x-ratelimit-reset-tokens': '36.27s',
--- 'x-request-id': 'req_01m1rqqjv4eces3wcz645rs9vq',
--- via: '1.1 google',
--- 'cf-cache-status': 'DYNAMIC',
--- 'set-cookie': '__cf_bm=YqC8MC8Ka3J5js2mwhSkO8g4JD.SzuhfqLCyvRTArK8-1788610333.5350575-1.0.1.1-1fsxZEV3UB5tDxMd1XdxlF4GpNtrTyOJKEco2_AcKAcHL.5SQmVhToSgJu.yF281quTqkhnbIKrKtBqxt7Bz4COOaoNn..bB.wQjn7cW_UPXVHf1Khk3ujIh9PFPHf2h; HttpOnly; SameSite=None; Secure; Path=/; Domain=groq.com; Expires=Sat, 05 Sep 2026 12:42:15 GMT',
--- 'strict-transport-security': 'max-age=15552000',
--- 'cf-ray': 'a36524189879e86b-FRA',
--- 'alt-svc': 'h3=":443"; ma=86400'
--- },
--- error: {
--- error: {
--- message: "Failed to validate JSON. Please adjust your prompt. See 'failed_generation' for more details.",
--- type: 'invalid_request_error',
--- code: 'json_validate_failed',
--- failed_generation: ''
--- }
--- }
--- }
--- Model "llama-3.3-70b-versatile" attempt failed (404). Cycling to next model...
--- Model "llama-3.3-70b-versatile" attempt failed (404). Cycling to next model...
--- Model "llama-3.1-8b-instant" attempt failed (404). Cycling to next model...
--- Model "llama-3.1-8b-instant" attempt failed (404). Cycling to next model...
--- Model "openai/gpt-oss-120b" attempt failed (400). Cycling to next model...
--- Webhook ack sent early — update processing in background.
--- ==> Detected service running on port 10000
--- ==> Docs on specifying a port: https://render.com/docs/web-services#port-binding
--- Model "llama-3.3-70b-versatile" attempt failed (404). Cycling to next model...
--- Model "llama-3.3-70b-versatile" attempt failed (404). Cycling to next model...
--- Model "llama-3.1-8b-instant" attempt failed (404). Cycling to next model...
--- Model "llama-3.1-8b-instant" attempt failed (404). Cycling to next model...
--- Webhook ack sent early — update processing in background.
--- Model "llama-3.3-70b-versatile" attempt failed (404). Cycling to next model...
--- Model "llama-3.3-70b-versatile" attempt failed (404). Cycling to next model...
--- Model "llama-3.1-8b-instant" attempt failed (404). Cycling to next model...
--- Model "llama-3.1-8b-instant" attempt failed (404). Cycling to next model...
--- Model "openai/gpt-oss-120b" attempt failed (413). Cycling to next model...
--- Webhook ack sent early — update processing in background.
--- Model "llama-3.3-70b-versatile" attempt failed (404). Cycling to next model...
--- Model "llama-3.1-8b-instant" attempt failed (404). Cycling to next model...
--- Model "llama-3.3-70b-versatile" attempt failed (404). Cycling to next model...
--- Model "llama-3.1-8b-instant" attempt failed (404). Cycling to next model...
--- Model "llama-3.3-70b-versatile" attempt failed (404). Cycling to next model...
--- Model "openai/gpt-oss-120b" attempt failed (413). Cycling to next model...
--- Model "llama-3.1-8b-instant" attempt failed (404). Cycling to next model...
--- Model "openai/gpt-oss-20b" attempt failed (413). Cycling to next model...
--- Model "qwen/qwen3.6-27b" attempt failed (429). Cycling to next model...
--- Chat error: RateLimitError: 429 {"error":{"message":"Request too large for model qwen/qwen3.6-27b in organization org_01ktt6pk7wedtsby9ysqq32py1 service tier on_demand on output tokens per minute (OTPM): Limit 1000, Requested 2512. The request's expected output tokens exceed the enforced limit; reduce max_tokens (or the request's expected output) and try again. Need more tokens? Upgrade to Dev Tier today at https://console.groq.com/settings/billing","type":"tokens","code":"rate_limit_exceeded"}}
--- at APIError.generate (file:///opt/render/project/src/node_modules/groq-sdk/core/error.mjs:54:20)
--- at Groq.makeStatusError (file:///opt/render/project/src/node_modules/groq-sdk/client.mjs:135:32)
--- at Groq.makeRequest (file:///opt/render/project/src/node_modules/groq-sdk/client.mjs:277:30)
--- at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
--- at async withModelFallback (file:///opt/render/project/src/bot/ai.js:38:14)
--- at async Promise.all (index 0)
--- at async chat (file:///opt/render/project/src/bot/ai.js:699:52)
--- at async file:///opt/render/project/src/bot/index.js:2200:49
--- at async /opt/render/project/src/node_modules/grammy/out/composer.js:578:13
--- at async /opt/render/project/src/node_modules/grammy/out/composer.js:62:13 {
--- status: 429,
--- headers: Headers {
--- date: 'Sat, 05 Sep 2026 12:19:13 GMT',
--- 'content-type': 'application/json',
--- 'content-length': '475',
--- connection: 'keep-alive',
--- 'cache-control': 'private, max-age=0, no-store, no-cache, must-revalidate',
--- server: 'cloudflare',
--- vary: 'Origin',
--- 'x-groq-region': 'fra',
--- 'x-ratelimit-limit-requests': '1000',
--- 'x-ratelimit-limit-tokens': '8000',
--- 'x-ratelimit-remaining-requests': '1000',
--- 'x-ratelimit-remaining-tokens': '8000',
--- 'x-ratelimit-reset-requests': '1ms',
--- 'x-ratelimit-reset-tokens': '1ms',
--- 'x-request-id': 'req_01m1rr4ct9e5dt7ma3w22dcqnn',
--- 'x-should-retry': 'false',
--- via: '1.1 google',
--- 'cf-cache-status': 'DYNAMIC',
--- 'set-cookie': '__cf_bm=xvosliicnEHuXk_zI_IDbGR9Fm15bmgPrwJOsZZUf5o-1788610753.3468652-1.0.1.1-IsZAsAHdZexi.RuN8ZeKZSH1v3ctYhUfEs6TzUXkAULd43smvvuBWRg26y7FWLt5t._gJ1K4X2MhnlQcvV5rXEub6xs_DVADPJZIdtp.US3uwiXhDIHrJ2mPCK6Y.Y8U; HttpOnly; SameSite=None; Secure; Path=/; Domain=groq.com; Expires=Sat, 05 Sep 2026 12:49:13 GMT',
--- 'strict-transport-security': 'max-age=15552000',
--- 'cf-ray': 'a3652e586849d26c-FRA',
--- 'alt-svc': 'h3=":443"; ma=86400'
--- },
--- error: {
--- error: {
--- message: "Request too large for model qwen/qwen3.6-27b in organization org_01ktt6pk7wedtsby9ysqq32py1 service tier on_demand on output tokens per minute (OTPM): Limit 1000, Requested 2512. The request's expected output tokens exceed the enforced limit; reduce max_tokens (or the request's expected output) and try again. Need more tokens? Upgrade to Dev Tier today at https://console.groq.com/settings/billing",
--- type: 'tokens',
--- code: 'rate_limit_exceeded'
--- }
--- }
--- }
--- Model "llama-3.3-70b-versatile" attempt failed (404). Cycling to next model...
--- Model "llama-3.1-8b-instant" attempt failed (404). Cycling to next model...
--- Model "llama-3.3-70b-versatile" attempt failed (404). Cycling to next model...
--- Model "llama-3.1-8b-instant" attempt failed (404). Cycling to next model...
--- Model "openai/gpt-oss-120b" attempt failed (413). Cycling to next model...
--- Model "openai/gpt-oss-20b" attempt failed (413). Cycling to next model...
--- Model "qwen/qwen3.6-27b" attempt failed (429). Cycling to next model...
--- Chat error: RateLimitError: 429 {"error":{"message":"Request too large for model qwen/qwen3.6-27b in organization org_01ktt6pk7wedtsby9ysqq32py1 service tier on_demand on output tokens per minute (OTPM): Limit 1000, Requested 1134. The request's expected output tokens exceed the enforced limit; reduce max_tokens (or the request's expected output) and try again. Need more tokens? Upgrade to Dev Tier today at https://console.groq.com/settings/billing","type":"tokens","code":"rate_limit_exceeded"}}
--- at APIError.generate (file:///opt/render/project/src/node_modules/groq-sdk/core/error.mjs:54:20)
--- at Groq.makeStatusError (file:///opt/render/project/src/node_modules/groq-sdk/client.mjs:135:32)
--- at Groq.makeRequest (file:///opt/render/project/src/node_modules/groq-sdk/client.mjs:277:30)
--- at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
--- at async withModelFallback (file:///opt/render/project/src/bot/ai.js:38:14)
--- at async Promise.all (index 0)
--- at async chat (file:///opt/render/project/src/bot/ai.js:699:52)
--- at async file:///opt/render/project/src/bot/index.js:2200:49
--- at async /opt/render/project/src/node_modules/grammy/out/composer.js:578:13
--- at async /opt/render/project/src/node_modules/grammy/out/composer.js:62:13 {
--- status: 429,
--- headers: Headers {
--- date: 'Sat, 05 Sep 2026 12:20:10 GMT',
--- 'content-type': 'application/json',
--- 'content-length': '475',
--- connection: 'keep-alive',
--- 'cache-control': 'private, max-age=0, no-store, no-cache, must-revalidate',
--- server: 'cloudflare',
--- vary: 'Origin',
--- 'x-groq-region': 'fra',
--- 'x-ratelimit-limit-requests': '1000',
--- 'x-ratelimit-limit-tokens': '8000',
--- 'x-ratelimit-remaining-requests': '1000',
--- 'x-ratelimit-remaining-tokens': '8000',
--- 'x-ratelimit-reset-requests': '1ms',
--- 'x-ratelimit-reset-tokens': '1ms',
--- 'x-request-id': 'req_01m1rr64qsedav3cxsbzqp98md',
--- 'x-should-retry': 'false',
--- via: '1.1 google',
--- 'cf-cache-status': 'DYNAMIC',
--- 'set-cookie': '_cf_bm=niUyGimJKfZIZGKJR84dZ1d8yWu1RKbXp3SYkgXLKfc-1788610810.6045637-1.0.1.1-3xfEaB.B6D0UrmjRyWIiEwJQ1rLBnpN9dP2YTwtDXS6wGvIkPVzR7ODgpAaQ8k78VsE363ZGiLRIBPKNb4EqDTOqjxyuKQdkg06sdKhzgxpOOD0KAySc7WVY.AU9jNg; HttpOnly; SameSite=None; Secure; Path=/; Domain=groq.com; Expires=Sat, 05 Sep 2026 12:50:10 GMT',
--- 'strict-transport-security': 'max-age=15552000',
--- 'cf-ray': 'a3652fbe4d1c18e1-FRA',
--- 'alt-svc': 'h3=":443"; ma=86400'
--- },
--- error: {
--- error: {
--- message: "Request too large for model qwen/qwen3.6-27b in organization org_01ktt6pk7wedtsby9ysqq32py1 service tier on_demand on output tokens per minute (OTPM): Limit 1000, Requested 1134. The request's expected output tokens exceed the enforced limit; reduce max_tokens (or the request's expected output) and try again. Need more tokens? Upgrade to Dev Tier today at https://console.groq.com/settings/billing",
--- type: 'tokens',
--- code: 'rate_limit_exceeded'
--- }
--- }
--- }
-
--- BESIDES , THERE IS AN ISSUE WHEN THE USER CHANGES HIS MEDIATOR LANGUAGE - THE EXISTING DB PDF FILES SILL IN THE OLD MEDIATOR LANGUAGE WHICH IS UNACCEPTABLE! FIX THIS TOO!!!
-
--- AND ENSURE THE PROMPTS ARE UNIVERSAL FOR ALL LANGUAGES SO THAT OUR RESPONSES TO USERS HAD NOT DEPEND ON THE HARDCODED LANGUAGE AND INSTEAD WERE RESPECTIVE TO THEIR LEARNING  TONGUE AND MEDIATOR LANGUAGE - MAKE IT SO 
--- THAT THE RESPONSES  WERE ALWAYS IN THE LANGUAGE HE CHOSES FOR MEDIATOR IF HIS LEVEL IS NOT ADVANCED - I SAY IT SINCE AS FAR AS I SEE CURRENTLY THIS IS BROKEN AND THE USER GETS ANSWERS IN DIFFERENT (ALMOST ANY OR THE LEARNIING ONE) LANGUAGES.  MAKE IT ALSO SO THAT THE RULES OF ANY LANGUAGE WILL BE RESPECTED IN PROMPTS NO MATTER IF IT'S CYRILLIC, LATIN-BASED, ARABIC, URDU, JAPANESE, CHINESE, MANDARIN, KOREAN, OR ANY OTHER TONGUE!
-
-
--- ALSO DO MIND THAT THE INTERNAL ERROR ISSUE STILL PERSISTS FOR MINIAPP AND FOR WEB APP EITHER - WE CANNOT DOWNLOAD COMPLETE GRAMMAR BOOK BY CLICKING THE PDF IN BUTTON MINIAPPNOR DO IT IN WEBAPP CLICKING THAT BUTTON! FIX THIS TOO!!!
-
-
-
-
+ 
+ 
 
 
 -- LAST PROMPT:
@@ -495,3 +285,65 @@
 
 -- NOW ANALYZE THE WHOOLE PROMPT, ALSO ANALYZE ALL THE GIVEN FILES AND DOCUMENTS, ALL WE HAVE DISCUSSED SO FAR, AND AFTER DOING SOME DEEP RESEARCH IF NEEDED AND WHERE NEEDED MAKE A FINAL ULTIMATE COMPREHENSIVE CONLUSION REGARDING HOW TO FIX ALL THESE ISSUES AND GIVE ME AS AN OUTPUT OF YOUR THINKING PROCESS THE NECESSARY PIECES WITH INFO ON WHERE TO PASTE IT IN THE RESPECTIVE FILES:
 
+-- LOOK HERE AT OUR VOCAVULARY IN PDF CONTENTS: "Personal Vocabulary & Morphology Notebook
+-- Target Track: English | Total Words: 29 | Date: 9/5/2026
+-- 1. one [number]
+-- Meaning: bir
+-- 2. old house [phrase]
+-- Meaning: старый дом
+-- 3. small bag [phrase]
+-- Meaning: маленькая сумка
+-- 4. cold water [phrase]
+-- Meaning: холодная вода
+-- 5. big apple [phrase]
+-- Meaning: большое яблоко
+-- 6. new book [phrase]
+-- Meaning: новая книга
+-- 7. water [noun]
+-- Meaning: вода
+-- 8. dog [noun]
+-- Meaning: it
+-- 9. three [number]
+-- Meaning: три
+-- 10. hat [word]
+-- Meaning: шляпа
+-- 11. book [noun]
+-- Meaning: книга
+-- 12. apple [noun]
+-- Meaning: alma
+-- 13. to eat [verb]
+-- Meaning: yemek
+-- 14. two [number]
+-- Meaning: iki
+-- 15. big [adjective]
+-- Meaning: большой
+-- 16. cat [noun]
+-- Meaning: кот
+-- 17. the [article]
+-- Meaning: определённый артикль, указывает на конкретный объект
+-- 18. quit [verb]
+-- Meaning: прекращать, останавливаться
+-- 19. to know [phrase]
+-- Meaning: не знать, не иметь информации
+-- 20. no [adverb]
+-- Meaning: нет, отрицание
+-- 21. in [preposition]
+-- Meaning: в, внутри
+-- 22. remember [verb]
+-- Meaning: запоминать, помнить
+-- 23. skill [noun]
+-- Meaning: навык, умение
+-- 24. she [pronoun]
+-- Meaning: она
+-- 25. word [noun]
+-- Meaning: слово
+-- 26. Achilles' heel [noun]
+-- Meaning: слабое место, уязвимая точка
+-- 27. something [pronoun]
+-- Meaning: что-то, нечто
+-- 28. nothing [adverb]
+-- Meaning: ничего, ничего не
+-- 29. old library [noun phrase]
+-- Meaning: старый библиотека"   - BUT it should not mix words from different mediators though learning the same language when user saves the words - it should separate them also by mediator language so that the same language vocabulary would have different wordlists for different mediators of the same user
+
+-- besides, even though we have words in vocabulary flashcards and quizzes still refuse to work saying there is not words saved and recommending to save some words first - but the vocabulary have words 10_ - why ?  fix all these issues!!!!

@@ -35,6 +35,7 @@ export default function App() {
   const [activeTab, setActiveTab] = useState("games");
   // Active game mode: null (hub) | 'flashcards' | 'quiz' | 'listening' | 'match' | 'speaking' | 'summary'
   const [activeGame, setActiveGame] = useState(null);
+  const [mediatorLanguage, setMediatorLanguage] = useState("english");
 
   const [targetLanguage, setTargetLanguage] = useState("");
   const [availableLanguages, setAvailableLanguages] = useState([]);
@@ -162,20 +163,38 @@ export default function App() {
       });
       if (res.ok) {
         const data = await res.json();
-        const activeLang = data.language || "russian";
+        const activeLang = data.language || "english";
+        const medLang = data.mediator || "russian";
         setTargetLanguage(activeLang);
+        setMediatorLanguage(medLang);
         setAvailableLanguages(data.availableLanguages || [activeLang]);
-        fetchFlashcards(activeLang);
+        fetchFlashcards(activeLang, medLang);
         fetchGrammarTopics(activeLang);
         return;
       }
     } catch (err) {
       console.error("User profile load failed:", err);
     }
-    fetchFlashcards("russian");
-    fetchGrammarTopics("russian");
+    fetchFlashcards("english", "russian");
+    fetchGrammarTopics("english");
   };
 
+
+  const fetchFlashcards = async (lang = targetLanguage, med = mediatorLanguage) => {
+    try {
+      const qLang = lang ? `&language=${encodeURIComponent(lang)}` : "";
+      const qMed = med ? `&mediator=${encodeURIComponent(med)}` : "";
+      const res = await fetch(`${BACKEND_URL}/api/flashcards?userId=${effectiveUserId}${qLang}${qMed}`, {
+        headers: getHeaders(),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setFlashcards(data.cards || []);
+      }
+    } catch (err) {
+      console.error("Failed to fetch flashcards:", err);
+    }
+  };
   const fetchGrammarTopics = async (lang = targetLanguage) => {
     try {
       const activeLang = String(lang || "russian").toLowerCase().trim();
@@ -191,20 +210,6 @@ export default function App() {
     }
   };
 
-  const fetchFlashcards = async (lang = targetLanguage) => {
-    try {
-      const queryLang = lang ? `&language=${encodeURIComponent(lang)}` : "";
-      const res = await fetch(`${BACKEND_URL}/api/flashcards?userId=${effectiveUserId}${queryLang}`, {
-        headers: getHeaders(),
-      });
-      if (res.ok) {
-        const data = await res.json();
-        setFlashcards(data.cards || []);
-      }
-    } catch (err) {
-      console.error("Failed to fetch flashcards:", err);
-    }
-  };
   // Safe PDF Download for Web & Telegram MiniApp
   const triggerDownload = (endpoint, filename) => {
     const separator = endpoint.includes("?") ? "&" : "?";
@@ -234,7 +239,10 @@ export default function App() {
 
   const handleDownloadVocabPdf = () => {
     showToast("Generating Vocabulary Notebook PDF...", "info");
-    triggerDownload("/api/vocabulary/pdf", `Vocabulary_${targetLanguage}.pdf`);
+    triggerDownload(
+      `/api/vocabulary/pdf?language=${encodeURIComponent(targetLanguage)}&mediator=${encodeURIComponent(mediatorLanguage)}`,
+      `Vocabulary_${targetLanguage}_${mediatorLanguage}.pdf`
+    );
   };
 
   const handleDownloadRoadmapPdf = () => {
@@ -417,7 +425,21 @@ export default function App() {
         {/* ACTIVE GAME SCREENS                                                       */}
         {/* ========================================================================= */}
         {activeGame === "flashcards" && (
-          <div className="flex flex-col items-center justify-center flex-1 py-4">
+          <div onClick={async () => {
+            if (flashcards.length > 0) {
+              setActiveGame("flashcards");
+            } else {
+              // Instant check to make sure state isn't just stale
+              const res = await fetch(`${BACKEND_URL}/api/flashcards?userId=${effectiveUserId}&language=${encodeURIComponent(targetLanguage)}&mediator=${encodeURIComponent(mediatorLanguage)}`, { headers: getHeaders() });
+              const data = await res.json();
+              if (data.cards && data.cards.length > 0) {
+                setFlashcards(data.cards);
+                setActiveGame("flashcards");
+              } else {
+                showToast("No flashcards saved yet for this language and support language! Add words or chat with bot first.", "error");
+              }
+            }
+          }} className="flex flex-col items-center justify-center flex-1 py-4">
             <button
               onClick={() => setActiveGame(null)}
               className="self-start mb-4 text-xs text-slate-400 hover:text-white flex items-center gap-1.5 transition"
@@ -442,11 +464,27 @@ export default function App() {
 
         {activeGame === "quiz" && (
           <Quiz
+            onClick={async () => {
+              if (flashcards.length > 0) {
+                setActiveGame("flashcards");
+              } else {
+                // Instant check to make sure state isn't just stale
+                const res = await fetch(`${BACKEND_URL}/api/flashcards?userId=${effectiveUserId}&language=${encodeURIComponent(targetLanguage)}&mediator=${encodeURIComponent(mediatorLanguage)}`, { headers: getHeaders() });
+                const data = await res.json();
+                if (data.cards && data.cards.length > 0) {
+                  setFlashcards(data.cards);
+                  setActiveGame("flashcards");
+                } else {
+                  showToast("No flashcards saved yet for this language and support language! Add words or chat with bot first.", "error");
+                }
+              }
+            }}
             cards={flashcards}
             API={BACKEND_URL}
             authHeaders={getHeaders()}
             onExit={() => setActiveGame(null)}
             onSaveWord={handleSaveWordToDeck}
+
           />
         )}
 

@@ -654,8 +654,8 @@ async function generateFullGrammarNotebookPdf(userId, language, outputPath, medi
 }
 
 // ── PDF 3: Vocabulary Notebook PDF Generator ──────────────────────────────────
-async function generateVocabularyPdf(userId, language, outputPath) {
-  const { active, mastered } = await getAllUserVocabulary(userId, language);
+async function generateVocabularyPdf(userId, language, outputPath, mediatorLanguage = null) {
+  const { active, mastered } = await getAllUserVocabulary(userId, language, mediatorLanguage);
   const allCards = [...active, ...mastered];
   if (allCards.length === 0) return null;
 
@@ -684,7 +684,8 @@ async function generateVocabularyPdf(userId, language, outputPath) {
     doc.fontSize(18).fillColor("#ffffff").text("Personal Vocabulary & Morphology Notebook", 55, startY + 12);
     setFont("regular");
     const langName = language ? (LANGUAGES[language] || language) : "Target Language";
-    doc.fontSize(9.5).fillColor("#94a3b8").text(`Target Track: ${langName}  |  Total Words: ${allCards.length}  |  Date: ${new Date().toLocaleDateString()}`, 55, startY + 38);
+    const medName = mediatorLanguage ? (LANGUAGES[mediatorLanguage] || mediatorLanguage) : "Mediator";
+    doc.fontSize(9.5).fillColor("#94a3b8").text(`Track: ${langName}  |  Language of Explanations: ${medName}  |  Total Words: ${allCards.length}`, 55, startY + 38);
     doc.x = 40;
     doc.y = startY + 75;
 
@@ -830,6 +831,33 @@ app.get("/api/user", requireTelegramAuth, async (req, res) => {
 
 // ── 1. Flashcards API (Filtered strictly by current active language) ──────────
 
+// ── 1. Flashcards API (Mediator-Aware & Robust Auth) ─────────────────────────
+app.get("/api/flashcards", async (req, res) => {
+  const rawId = req.query?.userId || req.headers["x-user-id"] || req.body?.userId || (req.telegramUser && req.telegramUser.id);
+  const userId = rawId ? Number(rawId) : null;
+  if (!userId || isNaN(userId)) {
+    return res.status(401).json({ error: "Valid User ID required" });
+  }
+
+  const user = await getUser(userId);
+  const requestedLang = String(req.query.language || user?.language || "english").toLowerCase().trim();
+  const mediator = String(req.query.mediator || user?.mediator_language || "english").toLowerCase().trim();
+  const pool = (await import("./db.js")).default;
+
+  // Query cards filtered by target language AND active mediator language
+  const { rows } = await pool.query(`
+    SELECT *,
+      COALESCE(NULLIF(initial_form, ''), word) AS word,
+      COALESCE(NULLIF(initial_form, ''), word) AS initial_form
+    FROM flashcards
+    WHERE user_id = $1 
+      AND LOWER(language) = LOWER($2)
+      AND (LOWER(mediator_language) = LOWER($3) OR mediator_language IS NULL)
+    ORDER BY id DESC
+  `, [userId, requestedLang, mediator]);
+
+  res.json({ cards: rows, language: requestedLang, mediator });
+});
 // ── Safe Review Route (Handles both Database numeric IDs and AI string IDs) ──
 app.post("/api/flashcards/:id/review", requireTelegramAuth, async (req, res) => {
   const rawId = String(req.params.id || "").trim();
@@ -903,7 +931,6 @@ app.post("/api/flashcards/:id/quiz", requireTelegramAuth, async (req, res) => {
     ...result,
   });
 });
-
 // ── Safe Options Route ───────────────────────────────────────────────────────
 app.get("/api/flashcards/:id/options", requireTelegramAuth, async (req, res) => {
   const rawId = String(req.params.id || "").trim();
@@ -933,26 +960,30 @@ app.get("/api/flashcards/:id/options", requireTelegramAuth, async (req, res) => 
 });
 
 // ── AI Dynamic Distractor Generator (No more DB recycled wrong answers!) ─────
-app.get("/api/flashcards/:id/options", requireTelegramAuth, async (req, res) => {
-  const cardId = Number(req.params.id);
-  const card = await getFlashcardById(cardId, req.telegramUser.id);
-  if (!card) return res.status(404).json({ error: "Card not found" });
 
-  const user = await getUser(req.telegramUser.id);
-  const isAdvanced = String(user?.level || "").toLowerCase().includes("advanced");
-  const optionLang = isAdvanced ? (card.language || "russian") : (user?.mediator_language || "english");
+// app.get("/api/flashcards/:id/options", requireTelegramAuth, async (req, res) => {
+//   const cardId = Number(req.params.id);
+//   const card = await getFlashcardById(cardId, req.telegramUser.id);
+//   if (!card) return res.status(404).json({ error: "Card not found" });
 
-  const correct = card.correction || card.word;
-  const word = card.initial_form || card.word;
+//   const user = await getUser(req.telegramUser.id);
+//   const isAdvanced = String(user?.level || "").toLowerCase().includes("advanced");
+//   const optionLang = isAdvanced ? (card.language || "russian") : (user?.mediator_language || "english");
 
-  try {
-    const distractors = await generateQuizDistractors(word, correct, LANGUAGES[card.language] || card.language, optionLang);
-    const options = [correct, ...distractors].sort(() => Math.random() - 0.5);
-    res.json({ options, correct });
-  } catch {
-    res.json({ options: [correct], correct });
-  }
-});
+//   const correct = card.correction || card.word;
+//   const word = card.initial_form || card.word;
+
+//   try {
+//     const distractors = await generateQuizDistractors(word, correct, LANGUAGES[card.language] || card.language, optionLang);
+//     const options = [correct, ...distractors].sort(() => Math.random() - 0.5);
+//     res.json({ options, correct });
+//   } catch {
+//     res.json({ options: [correct], correct });
+//   }
+// });
+
+
+
 // ─────────────────────────────────────────────────────────────────────────────
 // 1. Grammar Topics & PDF Delivery Routes
 // IMPORTANT: Static route /api/grammar/pdf MUST be registered BEFORE /api/grammar/:id/pdf!
@@ -1240,24 +1271,26 @@ app.post("/api/roadmap/send-pdf", async (req, res) => {
 });
 
 
-// ── 3. Vocabulary PDF Download (Safe Stream Piping, NO requireTelegramAuth) ───
+// ── 3. Vocabulary PDF Download (Isolated by Mediator Language) ───────────────
 app.get("/api/vocabulary/pdf", async (req, res) => {
   const rawId = req.body?.userId || req.headers["x-user-id"] || req.query?.userId || (req.telegramUser && req.telegramUser.id);
   const userId = rawId ? Number(rawId) : null;
-  if (userId === 123456789 || isNaN(userId)) { return res.status(400).json({ error: "Invalid UserID - Valid UserID is required!" }); }
-  if (!userId) {
-    return res.status(401).json({ error: "Unauthorized access! User ID is required!." });
+  if (!userId || userId === 123456789 || isNaN(userId)) {
+    return res.status(400).json({ error: "Valid UserID is required!" });
   }
 
   const user = await getUser(userId);
-  const lang = String(req.query.language || user?.language || "russian").toLowerCase().trim();
+  const lang = String(req.query.language || user?.language || "english").toLowerCase().trim();
+  const mediator = String(req.query.mediator || user?.mediator_language || "russian").toLowerCase().trim();
   const tempPath = path.join(tmpdir(), `vocab_web_${userId}_${Date.now()}.pdf`);
 
   try {
-    const filePath = await generateVocabularyPdf(userId, lang, tempPath);
-    if (!filePath) return res.status(404).json({ error: "No vocabulary found to export." });
+    const filePath = await generateVocabularyPdf(userId, lang, tempPath, mediator);
+    if (!filePath) {
+      return res.status(404).json({ error: `No vocabulary found for ${lang} in ${mediator}.` });
+    }
 
-    const downloadName = req.query.filename || `My_${lang}_Vocabulary.pdf`;
+    const downloadName = req.query.filename || `My_${lang}_Vocabulary_${mediator}.pdf`;
 
     res.setHeader("Content-Type", "application/pdf");
     res.setHeader("Content-Disposition", `attachment; filename="${encodeURIComponent(downloadName)}"; filename*=UTF-8''${encodeURIComponent(downloadName)}`);
@@ -1360,7 +1393,8 @@ app.post("/api/vocabulary/add", async (req, res) => {
   }
 
   const user = await getUser(userId);
-  const lang = String(req.body.language || user?.language || "russian").toLowerCase();
+  const lang = String(req.body.language || user?.language || "english").toLowerCase().trim();
+  const mediator = String(req.body.mediator || user?.mediator_language || "russian").toLowerCase().trim();
 
   try {
     await addFlashcard(userId, {
@@ -1368,6 +1402,7 @@ app.post("/api/vocabulary/add", async (req, res) => {
       initial_form: word.trim(),
       correction: meaning.trim(),
       language: lang,
+      mediator_language: mediator, // <--- Saves mediator!
       context: req.body.sentence || "User added word",
       part_of_speech: req.body.part_of_speech || "word",
     });

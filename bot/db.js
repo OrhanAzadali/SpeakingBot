@@ -80,7 +80,8 @@ export async function initDB() {
     ALTER TABLE flashcards ADD COLUMN IF NOT EXISTS orthography_rule TEXT;
     ALTER TABLE flashcards ADD COLUMN IF NOT EXISTS syntax_rule TEXT;
     ALTER TABLE flashcards ADD COLUMN IF NOT EXISTS semantics_note TEXT;
-
+    ALTER TABLE flashcards ADD COLUMN IF NOT EXISTS mediator_language TEXT DEFAULT 'english';
+    ALTER TABLE learned_words ADD COLUMN IF NOT EXISTS mediator_language TEXT DEFAULT 'english';
     -- Deduplicate existing rows BEFORE creating the unique index below.
     -- CREATE UNIQUE INDEX fails outright if any pre-existing rows already
     -- violate the constraint (exactly what was crashing startup) — this
@@ -540,7 +541,7 @@ export async function getRoadmap(userId) {
 export async function addFlashcard(userId, cardData) {
   let word, correction, context, language, initial_form, used_form, part_of_speech,
     synonyms, explanation, sentence, transcription, pronunciation_rule,
-    grammar_rule, orthography_rule, syntax_rule, semantics_note;
+    grammar_rule, orthography_rule, syntax_rule, semantics_note, mediator_language;
 
   if (typeof cardData === "object" && cardData !== null && !Array.isArray(cardData)) {
     ({
@@ -560,31 +561,36 @@ export async function addFlashcard(userId, cardData) {
       orthography_rule = null,
       syntax_rule = null,
       semantics_note = null,
+      mediator_language = "english",
     } = cardData);
   } else {
     word = arguments[1];
     correction = arguments[2];
     context = arguments[3] ?? "";
     language = arguments[4] ?? null;
+    mediator_language = arguments[5] ?? "english";
   }
 
   const baseForm = initial_form || word;
-
   const normWord = String(baseForm || "").toLowerCase().trim();
   const normCorr = String(correction || "").toLowerCase().trim();
   if (!normWord || !normCorr || normWord === normCorr) return;
   if (normWord.length <= 1 || normWord === 'не' || normWord === 'о' || normWord === 'а' || normWord === 'в') return;
 
-  // Uses ON CONFLICT to refresh linguistic details instead of creating duplicates!
+  const targetLang = String(language || "russian").toLowerCase().trim();
+  const medLang = String(mediator_language || "english").toLowerCase().trim();
+
+  // Deduplicating upsert that preserves the mediator language
   await pool.query(`
     INSERT INTO flashcards (
-      user_id, word, correction, context, language,
+      user_id, word, correction, context, language, mediator_language,
       initial_form, used_form, part_of_speech, synonyms, explanation, sentence,
       transcription, pronunciation_rule, grammar_rule, orthography_rule, syntax_rule, semantics_note
     )
-    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
     ON CONFLICT (user_id, language, word) DO UPDATE SET
       correction = EXCLUDED.correction,
+      mediator_language = EXCLUDED.mediator_language,
       used_form = EXCLUDED.used_form,
       part_of_speech = COALESCE(EXCLUDED.part_of_speech, flashcards.part_of_speech),
       synonyms = COALESCE(EXCLUDED.synonyms, flashcards.synonyms),
@@ -601,7 +607,8 @@ export async function addFlashcard(userId, cardData) {
     baseForm,
     correction,
     context,
-    language,
+    targetLang,
+    medLang,
     baseForm,
     used_form || word,
     part_of_speech,
@@ -756,23 +763,28 @@ export async function getLearnedWords(userId, language) {
 }
 
 
-export async function getAllUserVocabulary(userId, language = null) {
+export async function getAllUserVocabulary(userId, language = null, mediatorLanguage = null) {
   const params = [userId];
-  let langFilter = "";
+  let whereClauses = "WHERE user_id = $1";
 
   if (language) {
-    params.push(language);
-    langFilter = "AND LOWER(language) = LOWER($2)";
+    params.push(String(language).toLowerCase().trim());
+    whereClauses += ` AND LOWER(language) = $${params.length}`;
+  }
+
+  if (mediatorLanguage) {
+    params.push(String(mediatorLanguage).toLowerCase().trim());
+    whereClauses += ` AND (LOWER(mediator_language) = $${params.length} OR mediator_language IS NULL)`;
   }
 
   const flashcardsQuery = pool.query(
     `SELECT *, COALESCE(NULLIF(initial_form, ''), word) AS display_word, 'Active Flashcard' AS status
-     FROM flashcards WHERE user_id = $1 ${langFilter} ORDER BY id DESC`,
+     FROM flashcards ${whereClauses} ORDER BY id DESC`,
     params
   );
   const learnedQuery = pool.query(
     `SELECT *, COALESCE(NULLIF(initial_form, ''), word) AS display_word, 'Mastered' AS status, meaning AS correction
-     FROM learned_words WHERE user_id = $1 ${langFilter} ORDER BY learned_at DESC`,
+     FROM learned_words ${whereClauses} ORDER BY learned_at DESC`,
     params
   );
 
