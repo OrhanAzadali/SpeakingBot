@@ -1,0 +1,6 @@
+{
+  "name": "SpeakBot Language Learning Platform",
+  "description": "Full-featured AI language learning web app and Telegram mini-app with interchangeable roadmap and grammar PDF guides, NLP tokenization, diagnostic level tests, and cross-platform mediator language synchronization.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

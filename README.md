@@ -97,3 +97,43 @@ You should see: `✅ Language Coach Bot is running!`
 - Tricky words get saved automatically as flashcards
 - /flashcards opens a swipeable card deck (like Duolingo)
 - Bot reminds you to review cards when they're due
+
+---
+
+## Web App (standalone, `webapp/`)
+
+In addition to the Telegram bot + Mini App above, this repo also includes a
+standalone browser web app under `webapp/` — Roadmaps, Grammar PDFs, Classic
+Stories (reading & listening), Placement/Skill tests, an NLP tokenizer, and a
+**Games** tab (Flashcards, Word Pairs, 3D Word Quest). It's a separate app
+with its own dependencies and build, not part of the `bot`/`miniapp` npm
+workspaces above.
+
+```bash
+cd webapp
+npm install
+cp .env.example .env.local   # add your GEMINI_API_KEY
+npm run dev
+```
+
+For production:
+
+```bash
+npm run build   # builds the client (vite) and bundles server.js -> dist/server.cjs
+npm start
+```
+
+Both the web app and the Telegram Mini App now ship the same set of games
+(Flashcards, Word Pairs / Match, and a 3D word game) — implemented
+separately per platform rather than sharing one literal codebase, since
+they're built on different stacks.
+
+### Classic Stories — language bug fix
+Story narration now always sets `utterance.lang` explicitly and waits for the
+browser's voice list to finish loading before picking a voice. Previously,
+`speechSynthesis.getVoices()` could return an empty list on the very first
+call (voices load asynchronously in most browsers), which silently left the
+narrator on the OS/browser's default voice — the actual cause of narration
+sometimes coming out in German or another wrong language regardless of the
+story's real target language. Switching target language now reliably swaps
+to a story in that language.
