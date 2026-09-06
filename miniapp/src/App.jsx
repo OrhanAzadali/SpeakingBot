@@ -191,7 +191,6 @@ export default function App() {
     fetchGrammarTopics("english");
   };
 
-
   const fetchFlashcards = async (lang = targetLanguage, med = mediatorLanguage) => {
     try {
       const qLang = lang ? `&language=${encodeURIComponent(lang)}` : "";
@@ -741,13 +740,6 @@ export default function App() {
               </div>
 
 
-              <CubeWordCard
-
-                onLaunchGame={() => startCubeGame(targetLanguage)}
-                highScore="0"
-                currentLanguage={mediatorLanguage}
-
-              />
 
             </div>
           </div>
@@ -892,7 +884,7 @@ export default function App() {
             </div>
           )
         }
-      </main >
-    </div >
+      </main>
+    </div>
   );
 }
