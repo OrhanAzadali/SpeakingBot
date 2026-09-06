@@ -36,7 +36,7 @@ export default function App() {
   // Navigation state: 'games' | 'grammar' | 'roadmap'
   const [activeTab, setActiveTab] = useState("games");
   // Active game mode: null (hub) | 'flashcards' | 'quiz' | 'listening' | 'match' | 'speaking' | 'summary'
-  const [activeGame, setActiveGame] = useState(null);
+  const [activeGame, setActiveGame] = useState("cubeGame");
   const [mediatorLanguage, setMediatorLanguage] = useState("english");
 
   const [targetLanguage, setTargetLanguage] = useState("");
@@ -66,11 +66,11 @@ export default function App() {
   const [newMeaning, setNewMeaning] = useState("");
   const [showAddModal, setShowAddModal] = useState(false);
 
-  const startCubeGame = async (e) => {
+  const startCubeGame = (lang) => {
     return (
       <CubeWordGame
         //  onClose={ }
-        initialLanguage={isAdvanced ? targetLanguage : mediatorLanguage}
+        initialLanguage={lang}
         // onSaveToVocabulary={ }
         apiBase='' />
     )
@@ -558,7 +558,7 @@ export default function App() {
             }}
           />
         )}
-        {activeGame === "CubeWordCard" && (
+        {activeGame === "cubeGame" && (
           <CubeWordCard
 
             onLaunchGame={() => startCubeGame(isAdvanced ? targetLanguage : mediatorLanguage)}
