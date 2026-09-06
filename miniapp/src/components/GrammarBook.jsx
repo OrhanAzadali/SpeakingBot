@@ -13,6 +13,7 @@ import {
     ChevronRight,
     Trash2,
 } from "lucide-react";
+import { getStarterGrammarTopics } from "../utils/fallbackData.js";
 
 export default function GrammarBook({ API, authHeaders, effectiveUserId, onExit }) {
     // If API prop is passed from App.jsx, use it; otherwise fallback to environment variable or your Render backend URL
@@ -74,11 +75,18 @@ export default function GrammarBook({ API, authHeaders, effectiveUserId, onExit 
             });
             if (res.ok) {
                 const data = await res.json();
-                setTopics(data.topics || []);
+                if (data.topics && data.topics.length > 0) {
+                    setTopics(data.topics);
+                } else {
+                    setTopics(getStarterGrammarTopics(data.language || "english"));
+                }
                 if (data.language) setLanguage(data.language);
+            } else {
+                setTopics(getStarterGrammarTopics("english"));
             }
         } catch (err) {
-            console.error("Failed to fetch grammar topics:", err);
+            console.error("Failed to fetch grammar topics, loading safe fallback topics:", err);
+            setTopics(getStarterGrammarTopics("english"));
         } finally {
             setLoading(false);
         }

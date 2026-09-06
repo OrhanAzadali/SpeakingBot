@@ -220,6 +220,15 @@ export async function initDB() {
     CREATE INDEX IF NOT EXISTS idx_grammar_user_lang ON grammar_topics (user_id, language);
     CREATE UNIQUE INDEX IF NOT EXISTS idx_unique_grammar_topic ON grammar_topics (user_id, language, title);
     ALTER TABLE grammar_topics ADD COLUMN IF NOT EXISTS mediator_language TEXT DEFAULT 'english';
+
+    -- UI Themes & AI Styling Ruleset Cache
+    CREATE TABLE IF NOT EXISTS ui_themes_cache (
+      theme_id TEXT PRIMARY KEY,
+      palette_name TEXT,
+      colors JSONB NOT NULL,
+      rulesets JSONB NOT NULL,
+      updated_at TIMESTAMPTZ DEFAULT NOW()
+    );
   `);
     console.log("✅ Database tables & rich linguistic schemas ready");
   } catch (err) {
@@ -873,5 +882,55 @@ export async function getLatestGrammarTopic(userId, language) {
 }
 
 export const getAllUserGrammar = getGrammarTopics;
+
+// ── In-Memory & Database Fallback Storage for UI Themes & Rulesets ───────────
+const inMemoryThemeVault = new Map();
+
+export async function saveThemeRuleset(themeId, paletteName, colors, rulesets) {
+  inMemoryThemeVault.set(themeId, {
+    theme_id: themeId,
+    palette_name: paletteName,
+    colors,
+    rulesets,
+    updated_at: new Date().toISOString()
+  });
+
+  try {
+    const { rows } = await pool.query(`
+      INSERT INTO ui_themes_cache (theme_id, palette_name, colors, rulesets, updated_at)
+      VALUES ($1, $2, $3, $4, NOW())
+      ON CONFLICT (theme_id) DO UPDATE SET
+        palette_name = EXCLUDED.palette_name,
+        colors = EXCLUDED.colors,
+        rulesets = EXCLUDED.rulesets,
+        updated_at = NOW()
+      RETURNING *
+    `, [themeId, paletteName, JSON.stringify(colors), JSON.stringify(rulesets)]);
+    return rows[0] || inMemoryThemeVault.get(themeId);
+  } catch (err) {
+    console.warn("Could not save theme to DB, stored in safe memory vault:", err.message);
+    return inMemoryThemeVault.get(themeId);
+  }
+}
+
+export async function getAllThemeRulesets() {
+  try {
+    const { rows } = await pool.query("SELECT * FROM ui_themes_cache ORDER BY theme_id ASC");
+    if (rows.length > 0) return rows;
+  } catch (err) {
+    // Database query fallback
+  }
+  return Array.from(inMemoryThemeVault.values());
+}
+
+export async function getThemeRulesetById(themeId) {
+  try {
+    const { rows } = await pool.query("SELECT * FROM ui_themes_cache WHERE theme_id = $1", [themeId]);
+    if (rows[0]) return rows[0];
+  } catch (err) {
+    // Database query fallback
+  }
+  return inMemoryThemeVault.get(themeId) || null;
+}
 
 export default pool;

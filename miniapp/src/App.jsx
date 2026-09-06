@@ -30,7 +30,9 @@ import SpeakingGame from "./components/SpeakingGame.jsx";
 import Summary from "./components/Summary.jsx";
 import { CubeWordCard } from "./components/CubicWords/CubeWordCard.jsx";
 import { CubeWordGame } from "./components/CubicWords/CubeWordGame.jsx";
-import { getHarmonizedTheme, PRESET_THEMES } from "./utils/colorHarmonizer.js";
+import { PRESET_THEMES } from "./utils/colorHarmonizer.js";
+import { getSafeThemeRuleset, persistThemeRuleset } from "./utils/themeRulesetCache.js";
+import { getStarterFlashcards, getStarterGrammarTopics, getClientFallbackGameCards } from "./utils/fallbackData.js";
 
 export default function App() {
   // Point directly to your Render backend
@@ -56,8 +58,13 @@ export default function App() {
     return () => clearInterval(interval);
   }, [autoCycle]);
 
-  const activeTheme = getHarmonizedTheme(themeId, rotationIndex);
+  const activeTheme = getSafeThemeRuleset(themeId, rotationIndex);
   const themeColors = activeTheme.colors;
+
+  // Persist theme selection and sync with ruleset cache
+  useEffect(() => {
+    persistThemeRuleset(themeId, rotationIndex, activeTheme);
+  }, [themeId, rotationIndex, activeTheme]);
 
   // Navigation state: 'games' | 'grammar' | 'roadmap'
   const [activeTab, setActiveTab] = useState("games");
@@ -255,11 +262,16 @@ export default function App() {
       });
       if (res.ok) {
         const data = await res.json();
-        setFlashcards(data.cards || []);
+        if (Array.isArray(data.cards) && data.cards.length > 0) {
+          setFlashcards(data.cards);
+          return;
+        }
       }
     } catch (err) {
-      console.error("Failed to fetch flashcards:", err);
+      console.error("Failed to fetch flashcards, using safe fallback cards:", err);
     }
+    // Fallback: Safe curated starter cards
+    setFlashcards(getStarterFlashcards(lang, med));
   };
   const fetchGrammarTopics = async (lang = targetLanguage) => {
     try {
@@ -269,11 +281,15 @@ export default function App() {
       });
       if (res.ok) {
         const data = await res.json();
-        setGrammarTopics(data.topics || []);
+        if (Array.isArray(data.topics) && data.topics.length > 0) {
+          setGrammarTopics(data.topics);
+          return;
+        }
       }
     } catch (err) {
-      console.error("Failed to fetch grammar topics:", err);
+      console.error("Failed to fetch grammar topics, using safe fallback topics:", err);
     }
+    setGrammarTopics(getStarterGrammarTopics(lang, mediatorLanguage));
   };
 
   // Safe PDF Download for Web & Telegram MiniApp
@@ -383,10 +399,11 @@ export default function App() {
         }
       }
     } catch (e) {
-      console.warn("AI game generation error:", e.message);
+      console.warn("AI game generation error, using safe fallback cards:", e.message);
     }
 
-    setAiGameCards([]);
+    const fallbackCards = getClientFallbackGameCards(targetLanguage, nextRound);
+    setAiGameCards(fallbackCards);
     setActiveGame(gameType);
     setLoadingAiGame(false);
   };
@@ -532,66 +549,27 @@ export default function App() {
         {/* ACTIVE GAME SCREENS                                                       */}
         {/* ========================================================================= */}
         {activeGame === "flashcards" && (
-          <div onClick={async () => {
-            if (flashcards.length > 0) {
-              setActiveGame("flashcards");
-            } else {
-              // Instant check to make sure state isn't just stale
-              const res = await fetch(`${BACKEND_URL}/api/flashcards?userId=${effectiveUserId}&language=${encodeURIComponent(targetLanguage)}&mediator=${encodeURIComponent(mediatorLanguage)}`, { headers: getHeaders() });
-              const data = await res.json();
-              if (data.cards && data.cards.length > 0) {
-                setFlashcards(data.cards);
-                setActiveGame("flashcards");
-              } else {
-                showToast("No flashcards saved yet for this language and support language! Add words or chat with bot first.", "error");
-              }
-            }
-          }} className="flex flex-col items-center justify-center flex-1 py-4">
+          <div className="flex flex-col items-center justify-center flex-1 py-4">
             <button
               onClick={() => setActiveGame(null)}
               className="self-start mb-4 text-xs text-slate-400 hover:text-white flex items-center gap-1.5 transition"
             >
               <ArrowLeft className="w-4 h-4" /> Back to Game Hub
             </button>
-            {flashcards.length === 0 ? (
-              <div className="text-center py-12">
-                <p className="text-slate-400 mb-4">No flashcards due for review!</p>
-                <button
-                  onClick={() => setActiveGame(null)}
-                  className="px-4 py-2 bg-indigo-600 rounded-xl text-xs font-semibold"
-                >
-                  Return to Hub
-                </button>
-              </div>
-            ) : (
-              <FlashcardDeck cards={flashcards} onResult={handleDeckResult} />
-            )}
+            <FlashcardDeck
+              cards={flashcards.length > 0 ? flashcards : getStarterFlashcards(targetLanguage, mediatorLanguage)}
+              onResult={handleDeckResult}
+            />
           </div>
         )}
 
         {activeGame === "quiz" && (
           <Quiz
-            onClick={async () => {
-              if (flashcards.length > 0) {
-                setActiveGame("flashcards");
-              } else {
-                // Instant check to make sure state isn't just stale
-                const res = await fetch(`${BACKEND_URL}/api/flashcards?userId=${effectiveUserId}&language=${encodeURIComponent(targetLanguage)}&mediator=${encodeURIComponent(mediatorLanguage)}`, { headers: getHeaders() });
-                const data = await res.json();
-                if (data.cards && data.cards.length > 0) {
-                  setFlashcards(data.cards);
-                  setActiveGame("flashcards");
-                } else {
-                  showToast("No flashcards saved yet for this language and support language! Add words or chat with bot first.", "error");
-                }
-              }
-            }}
-            cards={flashcards}
+            cards={flashcards.length > 0 ? flashcards : getStarterFlashcards(targetLanguage, mediatorLanguage)}
             API={BACKEND_URL}
             authHeaders={getHeaders()}
             onExit={() => setActiveGame(null)}
             onSaveWord={handleSaveWordToDeck}
-
           />
         )}
 

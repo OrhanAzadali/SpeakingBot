@@ -2,6 +2,7 @@
 import Groq, { toFile } from "groq-sdk";
 import { GoogleGenAI } from "@google/genai";
 import { addFlashcard, addHistory, getHistory, countUserMessages, saveRoadmap, saveGrammarTopic } from "./db.js";
+import { getFallbackGrammarGuide, getFallbackRoadmap, getFallbackGameWords } from "./fallbackData.js";
 import { MsEdgeTTS, OUTPUT_FORMAT } from "msedge-tts";
 import { unlink } from "fs/promises";
 import { tmpdir } from "os";
@@ -988,7 +989,19 @@ CRITICAL: Return ONLY a valid JSON object starting with { and ending with }:
     };
   }
 
-  return null;
+  // Guaranteed fallback to curated linguistic database so AI crashes never block users
+  const fallback = getFallbackGrammarGuide(targetLanguage, mediatorLanguage, topicOrQuery, userLevel);
+  if (fallback) return fallback;
+
+  return {
+    title: `${targetLanguage} Linguistic Blueprint: ${topicOrQuery}`,
+    category: "Grammar & Syntax",
+    rule_summary: `Foundational structural principles for ${topicOrQuery} in ${targetLanguage}.`,
+    explanation: `### Grammatical Guide: ${topicOrQuery}\n\nThis topic covers essential syntax, morphological inflection, and communication rules in ${targetLanguage}.`,
+    examples: [
+      { target: `Practice sentence for ${topicOrQuery}`, translation: "Translation and contextual application.", note: "Core usage paradigm" }
+    ]
+  };
 }
 
 // ── Call: Dynamic AI Content Generator for Games (No Database dependency) ───
@@ -1081,48 +1094,8 @@ Return strictly a single valid JSON object containing ${count} unique items:
     console.warn(`generateGameSessionWords (Round ${currentRound}) fallback activated:`, err.message);
   }
 
-  // Graceful multi-language fallback respecting round depth
-  const isRu = targetLanguage.toLowerCase().includes("russ");
-  if (isRu) {
-    if (currentRound === 1) {
-      return [
-        { id: `r1_1`, word: "вода", initial_form: "вода", correction: "water", transcription: "[vɐˈda]", language: "russian" },
-        { id: `r1_2`, word: "хлеб", initial_form: "хлеб", correction: "bread", transcription: "[xlʲep]", language: "russian" },
-        { id: `r1_3`, word: "друг", initial_form: "друг", correction: "friend", transcription: "[druk]", language: "russian" }
-      ];
-    } else if (currentRound === 2) {
-      return [
-        { id: `r2_1`, word: "холодная вода", initial_form: "холодная вода", correction: "cold water", transcription: "[xɐˈlodnəjə vɐˈda]", language: "russian" },
-        { id: `r2_2`, word: "свежий хлеб", initial_form: "свежий хлеб", correction: "fresh bread", transcription: "[ˈsvʲeʐɨj xlʲep]", language: "russian" },
-        { id: `r2_3`, word: "лучший друг", initial_form: "лучший друг", correction: "best friend", transcription: "[ˈlut͡ɕʂɨj druk]", language: "russian" }
-      ];
-    } else {
-      return [
-        { id: `r3_1`, word: "Где находится вокзал?", initial_form: "Где находится вокзал?", correction: "Where is the train station?", transcription: "[ɡdʲe nɐˈxodʲɪt͡sə vɐɡˈzaɫ]", language: "russian" },
-        { id: `r3_2`, word: "Сколько это стоит?", initial_form: "Сколько это стоит?", correction: "How much does this cost?", transcription: "[ˈskolʲkə ˈɛtə ˈstoɪt]", language: "russian" },
-        { id: `r3_3`, word: "Приятного аппетита!", initial_form: "Приятного аппетита!", correction: "Enjoy your meal!", transcription: "[prʲɪˈjatnəvə ɐpʲɪˈtʲitə]", language: "russian" }
-      ];
-    }
-  }
-
-  // English target fallback
-  if (currentRound === 1) {
-    return [
-      { id: `en_1`, word: "apple", initial_form: "apple", correction: "alma / яблоко", transcription: "[ˈæp.əl]", language: "english" },
-      { id: `en_2`, word: "book", initial_form: "book", correction: "kitab / книга", transcription: "[bʊk]", language: "english" },
-      { id: `en_3`, word: "water", initial_form: "water", correction: "su / вода", transcription: "[ˈwɔː.tər]", language: "english" }
-    ];
-  } else if (currentRound === 2) {
-    return [
-      { id: `en_r2_1`, word: "green apple", initial_form: "green apple", correction: "yaşıl alma / зеленое яблоко", transcription: "[ɡriːn ˈæp.əl]", language: "english" },
-      { id: `en_r2_2`, word: "interesting book", initial_form: "interesting book", correction: "maraqlı kitab / интересная книга", transcription: "[ˈɪn.trɪ.stɪŋ bʊk]", language: "english" }
-    ];
-  } else {
-    return [
-      { id: `en_r3_1`, word: "Can you help me?", initial_form: "Can you help me?", correction: "Mənə kömək edə bilərsiniz? / Можете мне помочь?", transcription: "[kæn juː help miː]", language: "english" },
-      { id: `en_r3_2`, word: "Have a nice day!", initial_form: "Have a nice day!", correction: "Gününüz xoş keçsin! / Хорошего дня!", transcription: "[hæv ə naɪs deɪ]", language: "english" }
-    ];
-  }
+  // Graceful multi-language fallback respecting round depth from fallback database
+  return getFallbackGameWords(targetLanguage, mediatorLanguage, level, currentRound, count);
 }
 // ── Chat Pipeline ─────────────────────────────────────────────────────────────
 export async function chat(userId, userMessage, history, language, level, languageKey, mediatorLanguage = "english") {
@@ -1300,34 +1273,43 @@ export async function generateRoadmap(userId, language, level, mediatorLanguage 
   const outputLanguage = isAdvanced ? language : mediatorLanguage;
   const roadmapPrompt = buildRoadmapPrompt(language, level, mediatorLanguage, contextSnippet);
 
-  const response = await withModelFallback(
-    CHAT_MODELS,
-    (model) =>
-      groq.chat.completions.create({
-        model,
-        messages: [
-          {
-            role: "system",
-            content: roadmapPrompt,
-          },
-          {
-            role: "user",
-            content: `Please generate my complete, structured 6-section Learning Roadmap & 7-Day Study Plan for ${language} in ${outputLanguage}. Do not output flashcards, HTML tags, or markdown asterisks.`,
-          },
-        ],
-        temperature: 0.3,
-        max_tokens: 1600,
-      }),
-    `${roadmapPrompt}\n\nTask: Generate complete 6-section Learning Roadmap in ${outputLanguage.toUpperCase()}.` // <--- Enables Gemini for Roadmap!
-  );
+  try {
+    const response = await withModelFallback(
+      CHAT_MODELS,
+      (model) =>
+        groq.chat.completions.create({
+          model,
+          messages: [
+            {
+              role: "system",
+              content: roadmapPrompt,
+            },
+            {
+              role: "user",
+              content: `Please generate my complete, structured 6-section Learning Roadmap & 7-Day Study Plan for ${language} in ${outputLanguage}. Do not output flashcards, HTML tags, or markdown asterisks.`,
+            },
+          ],
+          temperature: 0.3,
+          max_tokens: 1600,
+        }),
+      `${roadmapPrompt}\n\nTask: Generate complete 6-section Learning Roadmap in ${outputLanguage.toUpperCase()}.` // <--- Enables Gemini for Roadmap!
+    );
 
-  const raw = response.choices[0]?.message?.content?.trim();
-  if (!raw) return null;
+    const raw = response.choices[0]?.message?.content?.trim();
+    if (raw) {
+      const clean = cleanRoadmapText(raw);
+      const taggedRoadmap = `[Track: ${language} | Level: ${level} | Mediator: ${mediatorLanguage}]\n\n${clean}`;
+      await saveRoadmap(userId, taggedRoadmap);
+      return taggedRoadmap;
+    }
+  } catch (err) {
+    console.warn("generateRoadmap AI call failed, activating curated roadmap fallback:", err.message);
+  }
 
-  const clean = cleanRoadmapText(raw);
-  const taggedRoadmap = `[Track: ${language} | Level: ${level} | Mediator: ${mediatorLanguage}]\n\n${clean}`;
-  await saveRoadmap(userId, taggedRoadmap);
-  return taggedRoadmap;
+  // Safe curated fallback roadmap guaranteed to exist
+  const fallbackRoadmap = getFallbackRoadmap(language, level, mediatorLanguage);
+  await saveRoadmap(userId, fallbackRoadmap);
+  return fallbackRoadmap;
 }
 
 export async function maybeGenerateRoadmap(userId, language, level, mediatorLanguage = "english") {

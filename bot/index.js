@@ -1352,6 +1352,50 @@ app.get("/api/games/ai-cards", async (req, res) => {
   }
 });
 
+// ── GET & POST: Persistent UI Themes & AI Styling Rulesets Vault ──────────────
+app.get("/api/ui/themes", async (req, res) => {
+  try {
+    const { getAllThemeRulesets } = await import("./db.js");
+    const { FALLBACK_THEMES } = await import("./fallbackData.js");
+    const dbThemes = await getAllThemeRulesets();
+
+    const merged = [...FALLBACK_THEMES];
+    if (Array.isArray(dbThemes)) {
+      for (const t of dbThemes) {
+        if (!merged.some((m) => m.id === t.theme_id)) {
+          merged.push({
+            id: t.theme_id,
+            name: t.palette_name,
+            colors: t.colors,
+            rulesets: t.rulesets,
+            updated_at: t.updated_at,
+          });
+        }
+      }
+    }
+    res.json({ ok: true, themes: merged });
+  } catch (err) {
+    console.warn("Error fetching themes from vault, using fallback:", err.message);
+    const { FALLBACK_THEMES } = await import("./fallbackData.js");
+    res.json({ ok: true, themes: FALLBACK_THEMES });
+  }
+});
+
+app.post("/api/ui/themes", async (req, res) => {
+  try {
+    const { themeId, name, colors, rulesets } = req.body;
+    if (!themeId || !colors || !rulesets) {
+      return res.status(400).json({ error: "themeId, colors, and rulesets required" });
+    }
+    const { saveThemeRuleset } = await import("./db.js");
+    const saved = await saveThemeRuleset(themeId, name || themeId, colors, rulesets);
+    res.json({ ok: true, theme: saved });
+  } catch (err) {
+    console.warn("Failed to persist theme ruleset:", err.message);
+    res.status(500).json({ error: "Failed to store theme ruleset" });
+  }
+});
+
 app.post("/api/vocabulary/send-pdf", requireTelegramAuth, async (req, res) => {
   const rawId = req.body?.userId || req.headers["x-user-id"] || req.query?.userId || (req.telegramUser && req.telegramUser.id);
   const userId = rawId ? Number(rawId) : null;
