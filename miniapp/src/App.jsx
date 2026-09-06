@@ -739,6 +739,12 @@ export default function App() {
                 </div>
               </div>
 
+              <CubeWordCard
+
+                onLaunchGame={() => startCubeGame(isAdvanced ? targetLanguage : mediatorLanguage)}
+                highScore="0"
+                currentLanguage={mediatorLanguage}
+              />
 
 
             </div>
