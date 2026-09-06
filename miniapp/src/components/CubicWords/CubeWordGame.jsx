@@ -162,7 +162,7 @@ export const CubeWordGame = ({
           language={selectedLanguage}
           round={round}
           onRoundWin={handleRoundWin}
-          onGameOver={() => {}}
+          onGameOver={() => { }}
           onWordDiscovered={handleWordDiscovered}
           soundEnabled={soundEnabled}
           onToggleSound={() => setSoundEnabled((prev) => !prev)}
@@ -319,11 +319,10 @@ export const CubeWordGame = ({
                         type="button"
                         onClick={() => handleSaveWord(item)}
                         disabled={savedWordsMap[item.word]}
-                        className={`p-2 rounded-lg transition flex items-center gap-1 text-xs font-semibold ${
-                          savedWordsMap[item.word]
-                            ? 'bg-emerald-900/50 text-emerald-300 border border-emerald-700'
-                            : 'bg-indigo-600 hover:bg-indigo-500 text-white'
-                        }`}
+                        className={`p-2 rounded-lg transition flex items-center gap-1 text-xs font-semibold ${savedWordsMap[item.word]
+                          ? 'bg-emerald-900/50 text-emerald-300 border border-emerald-700'
+                          : 'bg-indigo-600 hover:bg-indigo-500 text-white'
+                          }`}
                         title="Save to Personal Flashcards & Vocabulary"
                       >
                         {savedWordsMap[item.word] ? (

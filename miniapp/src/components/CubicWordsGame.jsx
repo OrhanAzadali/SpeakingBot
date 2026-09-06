@@ -9,6 +9,7 @@
 import React from "react";
 import { CubeWordGame } from "./CubicWords/CubeWordGame.jsx";
 
+
 export default function CubicWordsGame({ onExit, apiBase, language = "english", onSaveWord }) {
   return (
     <div className="w-full">

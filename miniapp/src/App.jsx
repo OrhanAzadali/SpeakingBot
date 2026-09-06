@@ -26,7 +26,9 @@ import ListeningGame from "./components/ListeningGame.jsx";
 import ListeningMatch from "./components/ListeningMatch.jsx";
 import SpeakingGame from "./components/SpeakingGame.jsx";
 import Summary from "./components/Summary.jsx";
-
+import CubeWordCard from "./components/CubicWords/CubeWordCard.jsx";
+import { isAdvanced } from "../../bot/index.js"
+import { CubeWordGame } from "./components/CubicWords/CubeWordGame.jsx";
 export default function App() {
   // Point directly to your Render backend
   const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || "https://speakingbot.onrender.com";
@@ -63,6 +65,16 @@ export default function App() {
   const [newWord, setNewWord] = useState("");
   const [newMeaning, setNewMeaning] = useState("");
   const [showAddModal, setShowAddModal] = useState(false);
+
+  const startCubeGame = async (e) => {
+    return (
+      <CubeWordGame
+        //  onClose={ }
+        initialLanguage={isAdvanced ? targetLanguage : mediatorLanguage}
+        // onSaveToVocabulary={ }
+        apiBase='' />
+    )
+  };
 
   const handleAddCustomWord = async (e) => {
     e.preventDefault();
@@ -546,6 +558,19 @@ export default function App() {
             }}
           />
         )}
+        {activeGame === "CubeWordCard" && (
+          <CubeWordCard
+
+            onLaunchGame={() => startCubeGame(isAdvanced ? targetLanguage : mediatorLanguage)}
+            highScore="0"
+            currentLanguage={isAdvanced ? targetLanguage : mediatorLanguage}
+            onExit={() => {
+              setActiveGame(null);
+              fetchFlashcards();
+            }}
+          />
+        )}
+
 
         {/* ========================================================================= */}
         {/* TAB 1: PRACTICE GAMES & INTERACTIVE DRILLS HUB                            */}

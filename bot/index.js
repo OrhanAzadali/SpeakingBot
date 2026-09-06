@@ -29,6 +29,9 @@ import { GoogleGenAI } from "@google/genai";
 // Lazy Gemini client initialization (zero crash if key missing)
 let geminiClient = null;
 
+const userLevel = req.telegramUser?.level;
+export default isAdvanced = String(userLevel || "").toLowerCase().includes("advanced");
+
 const bot = new Bot(process.env.BOT_TOKEN);
 const MINIAPP_URL = process.env.MINIAPP_URL;
 
