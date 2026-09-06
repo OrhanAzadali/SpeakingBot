@@ -18,41 +18,44 @@ function getGemini() {
 }
 
 // Active Groq models
+// Active Groq models for fallback
 const CHAT_MODELS = [
   "llama-3.3-70b-versatile",
-  "llama-3.1-8b-instant",
-  "gemma2-9b-it",
-  "openai/gpt-oss-120b",
-  "openai/gpt-oss-20b",
+  "llama-3.1-8b-instant"
 ];
 
 const STT_MODELS = ["whisper-large-v3", "whisper-large-v3-turbo"];
 
 // Universal Fallback: Tries Gemini 2.5 Flash FIRST, then cycles Groq!
+// Universal Fallback: Tries Gemini 3.6/3.8 Flash FIRST, then cycles Groq!
 async function withModelFallback(models, callFn, promptText = "") {
   const gemini = getGemini();
 
-  // 1. Primary: Use Gemini 2.5 Flash (Fast, Free, Stable JSON)
+  // 1. Primary: Use Gemini 3.6 Flash (as requested by Google's API)
   if (gemini && promptText) {
-    try {
-      const response = await gemini.models.generateContent({
-        model: "gemini-2.5-flash",
-        contents: promptText,
-      });
-      const text = response.text;
-      if (text && text.trim()) {
-        return {
-          choices: [
-            {
-              message: {
-                content: text.trim(),
+    const geminiModels = ["gemini-3.6-flash", "gemini-3.8-flash", "gemini-3.5-flash"];
+    for (const gModel of geminiModels) {
+      try {
+        const response = await gemini.models.generateContent({
+          model: gModel,
+          contents: promptText,
+        });
+        const text = response.text;
+        if (text && text.trim()) {
+          return {
+            choices: [
+              {
+                message: {
+                  content: text.trim(),
+                },
               },
-            },
-          ],
-        };
+            ],
+          };
+        }
+      } catch (gErr) {
+        console.warn(`Gemini (${gModel}) attempt failed:`, gErr.message || gErr);
+        continue;
       }
-    } catch (gErr) {
-      console.warn("Gemini attempt failed, falling back to Groq:", gErr.message);
     }
   }
 
