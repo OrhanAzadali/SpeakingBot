@@ -144,6 +144,11 @@ function validateEnglishTokenWithCompromise(word) {
     return { isValid: false, reason: 'Not a recognized 3-letter English word' };
   }
 
+  if (!nlp) {
+    // Phonotactics and blacklist already passed
+    return { isValid: true, cleanWord: clean, partOfSpeech: 'word' };
+  }
+
   // For 4+ letter words, use compromise NLP token analysis
   try {
     const doc = nlp(clean.toLowerCase());

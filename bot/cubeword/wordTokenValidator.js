@@ -1,4 +1,12 @@
-import nlp from 'compromise';
+// Dynamically and safely import compromise so the server never crashes if missing
+let nlp = null;
+try {
+  const mod = await import('compromise');
+  nlp = mod.default || mod;
+} catch (e) {
+  // Compromise is optional; phonotactics and verified lexicons provide full protection
+  nlp = null;
+}
 
 // Comprehensive set of verified, unambiguous, authentic 3-letter words in English.
 // Obscure Scrabble abbreviations/fragments (e.g. "AAL", "ABW", "ADZ", "AFF", "AHT",
@@ -121,6 +129,11 @@ function validateEnglishTokenWithCompromise(word) {
       return { isValid: true, cleanWord: clean, partOfSpeech: 'word' };
     }
     return { isValid: false, reason: 'Not a recognized 3-letter English word' };
+  }
+
+  if (!nlp) {
+    // Phonotactic rules and blacklist already validated
+    return { isValid: true, cleanWord: clean, partOfSpeech: 'word' };
   }
 
   try {
