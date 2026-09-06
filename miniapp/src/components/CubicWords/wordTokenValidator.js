@@ -152,36 +152,32 @@ function validateEnglishTokenWithCompromise(word) {
   // For 4+ letter words, use compromise NLP token analysis
   try {
     const doc = nlp(clean.toLowerCase());
-    const terms = doc.terms().json();
+    const jsonDocs = doc.json();
+    const termList = jsonDocs[0]?.terms || [];
 
-    if (!terms || terms.length === 0) {
-      return { isValid: false, reason: 'Failed NLP tokenization' };
+    if (termList.length > 0) {
+      const tags = new Set(termList[0].tags || []);
+
+      // Reject acronyms, abbreviations, or isolated prefixes
+      if (tags.has('Acronym') || tags.has('Abbreviation')) {
+        return { isValid: false, reason: 'Acronym or abbreviation' };
+      }
+
+      const validTags = [
+        'Noun', 'Verb', 'Adjective', 'Adverb', 'Value',
+        'Pronoun', 'Preposition', 'Conjunction', 'Determiner',
+        'Expression', 'Person', 'Place', 'Organization', 'Infinitive',
+        'Gerund', 'PastTense', 'PresentTense'
+      ];
+
+      const hasValidTag = validTags.some((tag) => tags.has(tag));
+      if (hasValidTag) {
+        const primaryTag = validTags.find((tag) => tags.has(tag)) || 'word';
+        return { isValid: true, cleanWord: clean, partOfSpeech: primaryTag.toLowerCase() };
+      }
     }
 
-    const term = terms[0];
-    const tags = new Set(term.tags || []);
-
-    // Reject acronyms, abbreviations, or isolated prefixes
-    if (tags.has('Acronym') || tags.has('Abbreviation')) {
-      return { isValid: false, reason: 'Acronym or abbreviation' };
-    }
-
-    // Valid if tagged as any standard syntactic category
-    const validTags = [
-      'Noun', 'Verb', 'Adjective', 'Adverb', 'Value',
-      'Pronoun', 'Preposition', 'Conjunction', 'Determiner',
-      'Expression', 'Person', 'Place', 'Organization', 'Infinitive',
-      'Gerund', 'PastTense', 'PresentTense'
-    ];
-
-    const hasValidTag = validTags.some((tag) => tags.has(tag));
-    if (hasValidTag) {
-      const primaryTag = validTags.find((tag) => tags.has(tag)) || 'word';
-      return { isValid: true, cleanWord: clean, partOfSpeech: primaryTag.toLowerCase() };
-    }
-
-    // Check if doc word is recognized in standard lexicon
-    if (doc.has('#Word') && !doc.has('#Acronym')) {
+    if (doc.has('#Noun') || doc.has('#Verb') || doc.has('#Adjective') || doc.has('#Adverb')) {
       return { isValid: true, cleanWord: clean, partOfSpeech: 'word' };
     }
   } catch (err) {

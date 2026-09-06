@@ -116,12 +116,16 @@ function linguisticAccuracyBlock(language) {
   return `LINGUISTIC ACCURACY & STRICT BASE LEMMA MANDATE:
     - Target language: ${language}.
     - ALWAYS use standard orthography of ${language}, including every diacritic and accent mark.
-    - STRICT BASE LEMMA / INFINITIVE RULE FOR DATABASE STORAGE:
-  When extracting vocabulary for flashcards, "initial_form" MUST ALWAYS be the uninflected dictionary headword:
-  * Nouns: MUST be singular nominative in native script (e.g. Russian: "вопрос", "дружба"; German: "Buch"; Arabic: كتاب; Japanese: 本).
-  * Verbs: MUST be bare infinitive (e.g. Russian: "исправить", "читать"; German: "lesen"; Spanish: "tener").
-  * Adjectives: MUST be masculine singular nominative base form.
-  * Pronouns: MUST be dictionary headword.
+    - STRICT BASE LEMMA & PHRASE CONCORD CITATION FORM:
+  When extracting vocabulary for flashcards, "initial_form" MUST be the natural, grammatically harmonized citation form:
+  * Nouns: Singular nominative in native script (e.g. Russian: "вопрос", "дружба"; German: "Buch"; Arabic: كتاب; Japanese: 本; Chinese: 书).
+  * Verbs: Bare infinitive (e.g. Russian: "исправить", "читать"; German: "lesen"; Spanish: "tener"; Japanese: 読む).
+  * MULTI-WORD PHRASES & COLLOCATIONS (CRITICAL HOLISTIC CONCORD RULE):
+    DO NOT mechanically infinitivize every word in isolation, which destroys grammatical meaning!
+    Instead, preserve the holistic citation form:
+    - Adjective + Noun combinations MUST maintain grammatical concord in gender, number, and case! E.g. in Russian: "красная луна" (feminine "луна" requires feminine "красная" — NEVER "красный луна"!), "холодная вода" (NEVER "холодный вода"!), "зеленое яблоко" (neuter), "свежий хлеб" (masculine).
+    - Verb collocations: Bare infinitive with governed complement intact (e.g. "встречать рассвет", "принимать решение", "look forward to").
+    - Idiomatic & prepositional expressions: Retain natural fixed wording (e.g. "at all costs", "во всяком случае").
   * NEVER save Latin transliterations (reject "BIL", "SHO", "TEM", "TOGO") — convert to native script or discard!
   * NEVER save single-letter particles, prepositions ("о", "а", "не", "в") or proper names as flashcards!
  - IN-CONTEXT MORPHOLOGICAL ADJUSTMENT RULE (FOR QUIZZES & DRILLS):

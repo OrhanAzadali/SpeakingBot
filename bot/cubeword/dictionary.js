@@ -1,5 +1,5 @@
 import { createRequire } from 'module';
-import { isValidWordToken, SCRABBLE_NOISE_BLACKLIST } from './wordTokenValidator.js';
+import { hasValidPhonotactics, SCRABBLE_NOISE_BLACKLIST } from './wordTokenValidator.js';
 
 const require = createRequire(import.meta.url);
 
@@ -135,18 +135,23 @@ export function isWordInDictionary(word, lang = 'english') {
   }
 
   const clean = word.trim().toUpperCase();
+  const langKey = (lang || 'english').toLowerCase();
+
   // Reject blacklisted Scrabble noise, abbreviations, or invalid phonotactics
-  const tokenCheck = isValidWordToken(clean, lang);
-  if (!tokenCheck.isValid) {
+  if (SCRABBLE_NOISE_BLACKLIST.has(clean)) {
     return false;
   }
 
-  const dict = getDictionary(lang);
+  if (!hasValidPhonotactics(clean, langKey)) {
+    return false;
+  }
+
+  const dict = getDictionary(langKey);
   if (!dict) return false;
 
   if (dict.set.has(clean)) return true;
 
-  const norm = normalizeWord(clean, lang);
+  const norm = normalizeWord(clean, langKey);
   return dict.normalizedSet.has(norm);
 }
 

@@ -24,6 +24,7 @@ import {
   maybeGenerateRoadmap, generateRoadmap, cleanRoadmapText, checkSemanticAnswer, generateLevelTest, evaluateLevelTest,
   generateSkillDrill, evaluateSkillAnswer, generateGrammarGuide, generateGameSessionWords
 } from "./ai.js";
+import { prepareTextForPdf, isCjkScript, isRtlScript, tokenizeText, harmonizePhraseLemma } from "./linguistics.js";
 import { GoogleGenAI } from "@google/genai";
 
 // Lazy Gemini client initialization (zero crash if key missing)
@@ -277,7 +278,7 @@ async function sendSafeChunkedMessage(ctx, fullText, options = {}) {
   return lastSent;
 }
 
-// ── Unicode Font Detection & Auto-Download for Cyrillic, Accents & Math ───────
+// ── Unicode Font Detection & Auto-Download for Cyrillic, Accents, CJK & Arabic ───
 
 function findSystemUnicodeFont() {
   const fontDir = path.join(process.cwd(), "fonts");
@@ -312,9 +313,29 @@ function findSystemBoldFont() {
   return null;
 }
 
-// ── Ensure Unicode TrueType Font Exists on Server Startup ──────────────────── 
+function findSystemCjkFont() {
+  const potentialFonts = [
+    "/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc",
+    "/usr/share/fonts/truetype/fonts-japanese-gothic.ttf",
+    "/usr/share/fonts/truetype/freefont/FreeSans.ttf"
+  ];
+  for (const fontPath of potentialFonts) {
+    if (fs.existsSync(fontPath)) return fontPath;
+  }
+  return null;
+}
 
-// In index.js:
+function findSystemArabicFont() {
+  const potentialFonts = [
+    "/usr/share/fonts/truetype/kacst/KacstBook.ttf",
+    "/usr/share/fonts/truetype/kacst/KacstOffice.ttf",
+    "/usr/share/fonts/truetype/freefont/FreeSans.ttf"
+  ];
+  for (const fontPath of potentialFonts) {
+    if (fs.existsSync(fontPath)) return fontPath;
+  }
+  return null;
+}
 
 // ── Ensure Unicode TrueType Font Exists on Server Startup ─────────────────────
 async function ensureUnicodeFontExists() {
@@ -337,33 +358,10 @@ async function ensureUnicodeFontExists() {
 }
 ensureUnicodeFontExists();
 
-// ── Clean & Sanitize Text for PDFKit (Eliminates [] Window Frames) ────────────
-function cleanPdfText(text) {
+// ── Clean & Sanitize Text for PDFKit (Eliminates [] Window Frames & Handles RTL) ──
+function cleanPdfText(text, language = "en") {
   if (!text) return "";
-  return String(text)
-    .replace(/<[^>]+>/g, "")
-    .replace(/\*\*(.*?)\*\*/g, "$1")
-    .replace(/\*(.*?)\*/g, "$1")
-    .replace(/__(.*?)__/g, "$1")
-    .replace(/_(.*?)_/g, "$1")
-    .replace(/^#{1,6}\s*/gm, "")
-    .replace(/[\u2010\u2011\u2012]/g, "-")
-    .replace(/[\u2013\u2014]/g, " — ")
-    .replace(/\u2212/g, "-")
-    .replace(/\u00A0/g, " ")
-    .replace(/[\u2018\u2019\u02BC]/g, "'")
-    .replace(/[\u201C\u201D\u201E\u201F]/g, '"')
-    .replace(/--+/g, " — ")
-    .replace(/χ/g, "kh")
-    .replace(/ɪ/g, "i")
-    .replace(/ɐ/g, "a")
-    .replace(/ə/g, "e")
-    .replace(/ʃ/g, "sh")
-    .replace(/ʒ/g, "zh")
-    .replace(/ç/g, "ch")
-    .replace(/ŋ/g, "ng")
-    .replace(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{2190}-\u{21FF}\u{2B00}-\u{2BFF}\u{FE00}-\u{FE0F}]/gu, "")
-    .trim();
+  return prepareTextForPdf(text, language);
 }
 
 // ── Graceful Markdown & JSON-Object Parser for PDFKit ─────────────────────────
@@ -1393,6 +1391,20 @@ app.post("/api/ui/themes", async (req, res) => {
   } catch (err) {
     console.warn("Failed to persist theme ruleset:", err.message);
     res.status(500).json({ error: "Failed to store theme ruleset" });
+  }
+});
+
+// ── GET: AI-Powered UI Language Translations with Static Fallback ────────────
+app.get("/api/ui/translate", async (req, res) => {
+  const lang = req.query?.lang || "en";
+  try {
+    const { getAiUiTranslation } = await import("./uiTranslations.js");
+    const translations = await getAiUiTranslation(lang);
+    res.json({ ok: true, lang, translations });
+  } catch (err) {
+    console.warn("UI translate endpoint error:", err.message);
+    const { STATIC_UI_DICTIONARY } = await import("./uiTranslations.js");
+    res.json({ ok: true, lang, translations: STATIC_UI_DICTIONARY[lang] || STATIC_UI_DICTIONARY.en });
   }
 });
 

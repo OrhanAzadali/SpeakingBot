@@ -1,5 +1,6 @@
 // db.js — PostgreSQL version (replaces lowdb)
 import pg from "pg";
+import { harmonizePhraseLemma } from "./linguistics.js";
 
 const { Pool } = pg;
 
@@ -227,6 +228,13 @@ export async function initDB() {
       palette_name TEXT,
       colors JSONB NOT NULL,
       rulesets JSONB NOT NULL,
+      updated_at TIMESTAMPTZ DEFAULT NOW()
+    );
+
+    -- Multilingual UI Translations Cache
+    CREATE TABLE IF NOT EXISTS ui_translations_cache (
+      language_code TEXT PRIMARY KEY,
+      translations JSONB NOT NULL,
       updated_at TIMESTAMPTZ DEFAULT NOW()
     );
   `);
@@ -580,14 +588,18 @@ export async function addFlashcard(userId, cardData) {
     mediator_language = arguments[5] ?? "english";
   }
 
-  const baseForm = initial_form || word;
+  const targetLang = String(language || "russian").toLowerCase().trim();
+  const medLang = String(mediator_language || "english").toLowerCase().trim();
+
+  // Harmonize multi-word phrases and adjective-noun agreements (e.g. "красная луна", NOT "красный луна")
+  const rawBase = initial_form || word;
+  const baseForm = harmonizePhraseLemma(rawBase, targetLang);
+  const harmonizedInitial = harmonizePhraseLemma(initial_form || baseForm, targetLang);
+
   const normWord = String(baseForm || "").toLowerCase().trim();
   const normCorr = String(correction || "").toLowerCase().trim();
   if (!normWord || !normCorr || normWord === normCorr) return;
   if (normWord.length <= 1 || normWord === 'не' || normWord === 'о' || normWord === 'а' || normWord === 'в') return;
-
-  const targetLang = String(language || "russian").toLowerCase().trim();
-  const medLang = String(mediator_language || "english").toLowerCase().trim();
 
   // Deduplicating upsert that preserves the mediator language
   await pool.query(`
@@ -601,6 +613,7 @@ export async function addFlashcard(userId, cardData) {
       correction = EXCLUDED.correction,
       mediator_language = EXCLUDED.mediator_language,
       used_form = EXCLUDED.used_form,
+      initial_form = COALESCE(EXCLUDED.initial_form, flashcards.initial_form),
       part_of_speech = COALESCE(EXCLUDED.part_of_speech, flashcards.part_of_speech),
       synonyms = COALESCE(EXCLUDED.synonyms, flashcards.synonyms),
       explanation = COALESCE(EXCLUDED.explanation, flashcards.explanation),
@@ -931,6 +944,44 @@ export async function getThemeRulesetById(themeId) {
     // Database query fallback
   }
   return inMemoryThemeVault.get(themeId) || null;
+}
+
+// ── UI Translations Persistence ───────────────────────────────────────────────
+const inMemoryTranslationDb = new Map();
+
+export async function saveUiTranslation(langCode, translations) {
+  if (!langCode || !translations) return;
+  const key = String(langCode).toLowerCase().trim();
+  inMemoryTranslationDb.set(key, translations);
+  try {
+    const { rows } = await pool.query(`
+      INSERT INTO ui_translations_cache (language_code, translations, updated_at)
+      VALUES ($1, $2, NOW())
+      ON CONFLICT (language_code) DO UPDATE SET
+        translations = EXCLUDED.translations,
+        updated_at = NOW()
+      RETURNING *
+    `, [key, JSON.stringify(translations)]);
+    return rows[0]?.translations || translations;
+  } catch (err) {
+    return inMemoryTranslationDb.get(key);
+  }
+}
+
+export async function getUiTranslation(langCode) {
+  if (!langCode) return null;
+  const key = String(langCode).toLowerCase().trim();
+  if (inMemoryTranslationDb.has(key)) return inMemoryTranslationDb.get(key);
+  try {
+    const { rows } = await pool.query("SELECT translations FROM ui_translations_cache WHERE language_code = $1", [key]);
+    if (rows[0]?.translations) {
+      inMemoryTranslationDb.set(key, rows[0].translations);
+      return rows[0].translations;
+    }
+  } catch (err) {
+    // Fallback
+  }
+  return null;
 }
 
 export default pool;

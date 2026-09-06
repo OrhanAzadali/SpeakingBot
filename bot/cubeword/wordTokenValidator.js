@@ -1,4 +1,6 @@
 // Dynamically and safely import compromise so the server never crashes if missing
+import { isWordInDictionary } from './dictionary.js';
+
 let nlp = null;
 try {
   const mod = await import('compromise');
@@ -96,7 +98,7 @@ export const SCRABBLE_NOISE_BLACKLIST = new Set([
   'ЫЫЫ', 'ЩЩЩ', 'ЦЦЦ', 'ФФФ', 'ХХХ',
 ]);
 
-function hasValidPhonotactics(word, lang = 'english') {
+export function hasValidPhonotactics(word, lang = 'english') {
   if (!word || word.length < 3) return false;
 
   const isRussian = lang === 'russian';
@@ -131,47 +133,36 @@ function validateEnglishTokenWithCompromise(word) {
     return { isValid: false, reason: 'Not a recognized 3-letter English word' };
   }
 
-  if (!nlp) {
-    // Phonotactic rules and blacklist already validated
-    return { isValid: true, cleanWord: clean, partOfSpeech: 'word' };
+  // Must be in authentic English dictionary
+  if (!isWordInDictionary(clean, 'english')) {
+    return { isValid: false, cleanWord: clean, reason: 'Word not found in English dictionary' };
   }
 
-  try {
-    const doc = nlp(clean.toLowerCase());
-    const terms = doc.terms().json();
-
-    if (!terms || terms.length === 0) {
-      return { isValid: false, reason: 'Failed NLP tokenization' };
+  let partOfSpeech = 'word';
+  if (nlp) {
+    try {
+      const doc = nlp(clean.toLowerCase());
+      const jsonDocs = doc.json();
+      const termList = jsonDocs[0]?.terms || [];
+      if (termList.length > 0) {
+        const tags = new Set(termList[0].tags || []);
+        const validTags = [
+          'Noun', 'Verb', 'Adjective', 'Adverb', 'Value',
+          'Pronoun', 'Preposition', 'Conjunction', 'Determiner',
+          'Expression', 'Person', 'Place', 'Organization', 'Infinitive',
+          'Gerund', 'PastTense', 'PresentTense'
+        ];
+        const primaryTag = validTags.find((tag) => tags.has(tag));
+        if (primaryTag) {
+          partOfSpeech = primaryTag.toLowerCase();
+        }
+      }
+    } catch {
+      // NLP tag extraction is optional
     }
-
-    const term = terms[0];
-    const tags = new Set(term.tags || []);
-
-    if (tags.has('Acronym') || tags.has('Abbreviation')) {
-      return { isValid: false, reason: 'Acronym or abbreviation' };
-    }
-
-    const validTags = [
-      'Noun', 'Verb', 'Adjective', 'Adverb', 'Value',
-      'Pronoun', 'Preposition', 'Conjunction', 'Determiner',
-      'Expression', 'Person', 'Place', 'Organization', 'Infinitive',
-      'Gerund', 'PastTense', 'PresentTense'
-    ];
-
-    const hasValidTag = validTags.some((tag) => tags.has(tag));
-    if (hasValidTag) {
-      const primaryTag = validTags.find((tag) => tags.has(tag)) || 'word';
-      return { isValid: true, cleanWord: clean, partOfSpeech: primaryTag.toLowerCase() };
-    }
-
-    if (doc.has('#Word') && !doc.has('#Acronym')) {
-      return { isValid: true, cleanWord: clean, partOfSpeech: 'word' };
-    }
-  } catch (err) {
-    console.warn('Compromise analysis error:', err);
   }
 
-  return { isValid: false, reason: 'Unrecognized English token' };
+  return { isValid: true, cleanWord: clean, partOfSpeech };
 }
 
 export function isValidWordToken(rawWord, language = 'english') {
@@ -194,59 +185,50 @@ export function isValidWordToken(rawWord, language = 'english') {
     return { isValid: false, cleanWord, reason: 'Violates language phonotactics' };
   }
 
+  // 1. Check verified 100k+ dictionary
+  if (isWordInDictionary(cleanWord, langKey)) {
+    return { isValid: true, cleanWord, partOfSpeech: 'word' };
+  }
+
+  // 2. Language-specific 3-letter sets and NLP validation
   if (langKey === 'english') {
     return validateEnglishTokenWithCompromise(cleanWord);
   }
 
   if (langKey === 'russian') {
-    if (cleanWord.length === 3) {
-      if (VERIFIED_3_LETTER_RUSSIAN.has(cleanWord)) {
-        return { isValid: true, cleanWord, partOfSpeech: 'слово' };
-      }
-      return { isValid: false, cleanWord, reason: 'Не является общеупотребительным словом из 3 букв' };
+    if (cleanWord.length === 3 && VERIFIED_3_LETTER_RUSSIAN.has(cleanWord)) {
+      return { isValid: true, cleanWord, partOfSpeech: 'слово' };
     }
-    return { isValid: true, cleanWord, partOfSpeech: 'слово' };
+    return { isValid: false, cleanWord, reason: 'Слово не найдено в словаре русского языка' };
   }
 
   if (langKey === 'spanish') {
-    if (cleanWord.length === 3) {
-      if (VERIFIED_3_LETTER_SPANISH.has(cleanWord)) {
-        return { isValid: true, cleanWord, partOfSpeech: 'palabra' };
-      }
-      return { isValid: false, cleanWord, reason: 'No es una palabra válida de 3 letras' };
+    if (cleanWord.length === 3 && VERIFIED_3_LETTER_SPANISH.has(cleanWord)) {
+      return { isValid: true, cleanWord, partOfSpeech: 'palabra' };
     }
-    return { isValid: true, cleanWord, partOfSpeech: 'palabra' };
+    return { isValid: false, cleanWord, reason: 'Palabra no encontrada en el diccionario' };
   }
 
   if (langKey === 'german') {
-    if (cleanWord.length === 3) {
-      if (VERIFIED_3_LETTER_GERMAN.has(cleanWord)) {
-        return { isValid: true, cleanWord, partOfSpeech: 'Wort' };
-      }
-      return { isValid: false, cleanWord, reason: 'Kein gültiges 3-Buchstaben-Wort' };
+    if (cleanWord.length === 3 && VERIFIED_3_LETTER_GERMAN.has(cleanWord)) {
+      return { isValid: true, cleanWord, partOfSpeech: 'Wort' };
     }
-    return { isValid: true, cleanWord, partOfSpeech: 'Wort' };
+    return { isValid: false, cleanWord, reason: 'Wort nicht im Wörterbuch gefunden' };
   }
 
   if (langKey === 'french') {
-    if (cleanWord.length === 3) {
-      if (VERIFIED_3_LETTER_FRENCH.has(cleanWord)) {
-        return { isValid: true, cleanWord, partOfSpeech: 'mot' };
-      }
-      return { isValid: false, cleanWord, reason: 'Mot invalide de 3 lettres' };
+    if (cleanWord.length === 3 && VERIFIED_3_LETTER_FRENCH.has(cleanWord)) {
+      return { isValid: true, cleanWord, partOfSpeech: 'mot' };
     }
-    return { isValid: true, cleanWord, partOfSpeech: 'mot' };
+    return { isValid: false, cleanWord, reason: 'Mot non trouvé dans le dictionnaire' };
   }
 
   if (langKey === 'italian') {
-    if (cleanWord.length === 3) {
-      if (VERIFIED_3_LETTER_ITALIAN.has(cleanWord)) {
-        return { isValid: true, cleanWord, partOfSpeech: 'parola' };
-      }
-      return { isValid: false, cleanWord, reason: 'Parola non valida di 3 lettere' };
+    if (cleanWord.length === 3 && VERIFIED_3_LETTER_ITALIAN.has(cleanWord)) {
+      return { isValid: true, cleanWord, partOfSpeech: 'parola' };
     }
-    return { isValid: true, cleanWord, partOfSpeech: 'parola' };
+    return { isValid: false, cleanWord, reason: 'Parola non trovata nel dizionario' };
   }
 
-  return { isValid: true, cleanWord, partOfSpeech: 'word' };
+  return { isValid: false, cleanWord, reason: 'Unrecognized word in language dictionary' };
 }
