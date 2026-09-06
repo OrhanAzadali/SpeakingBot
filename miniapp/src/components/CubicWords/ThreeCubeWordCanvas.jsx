@@ -408,7 +408,7 @@ export const ThreeCubeWordCanvas = ({
           setAquaticMood(newMood);
         }
       })
-      .catch(() => {});
+      .catch(() => { });
   }, [language, comboWordMinLength, comboWordMaxLength]);
 
   // Clean up aquatic music on unmount
@@ -914,7 +914,7 @@ export const ThreeCubeWordCanvas = ({
     }
 
     const isTargetMatch = targetQuestRef.current?.word && word.toUpperCase() === targetQuestRef.current.word.toUpperCase();
-    
+
     // Calculate points gained according to user rule:
     // "IF FOUND MULTIPLIES THE POINTS BY 5 IF ANY EXIST OR IF NON ADD UP 500 POINTS TO THE USERS POINTS"
     let pointsToAdd = verification.points;
@@ -1456,11 +1456,10 @@ export const ThreeCubeWordCanvas = ({
               const active = toggleAquaticMusic();
               setIsMusicActive(active);
             }}
-            className={`flex items-center gap-2 px-3 py-1.5 rounded-xl border text-xs sm:text-sm font-black transition shadow-md ${
-              isMusicActive
-                ? 'bg-cyan-500/25 border-cyan-400 text-cyan-200 shadow-cyan-500/25 ring-2 ring-cyan-400/40'
-                : 'bg-slate-800/90 hover:bg-slate-750 border-slate-700 text-slate-400'
-            }`}
+            className={`flex items-center gap-2 px-3 py-1.5 rounded-xl border text-xs sm:text-sm font-black transition shadow-md ${isMusicActive
+              ? 'bg-cyan-500/25 border-cyan-400 text-cyan-200 shadow-cyan-500/25 ring-2 ring-cyan-400/40'
+              : 'bg-slate-800/90 hover:bg-slate-750 border-slate-700 text-slate-400'
+              }`}
             title={isMusicActive ? 'Mute Relaxing Aquatic Ocean Music' : 'Play Relaxing Aquatic Ocean Music'}
           >
             <Waves className={`w-4 h-4 ${isMusicActive ? 'text-cyan-300 animate-pulse' : 'text-slate-400'}`} />
@@ -1585,13 +1584,12 @@ export const ThreeCubeWordCanvas = ({
       {/* Dynamic Announcement Banner */}
       {announcement && (
         <div
-          className={`w-full text-center py-2.5 px-4 rounded-xl text-xs sm:text-sm font-black mb-2.5 shadow-xl transition-all animate-in fade-in zoom-in-95 ${
-            announcement.type === 'magic'
-              ? 'bg-gradient-to-r from-amber-400 via-yellow-300 to-amber-400 text-slate-950 border-2 border-yellow-200 ring-2 ring-yellow-400/40'
-              : announcement.type === 'warning'
+          className={`w-full text-center py-2.5 px-4 rounded-xl text-xs sm:text-sm font-black mb-2.5 shadow-xl transition-all animate-in fade-in zoom-in-95 ${announcement.type === 'magic'
+            ? 'bg-gradient-to-r from-amber-400 via-yellow-300 to-amber-400 text-slate-950 border-2 border-yellow-200 ring-2 ring-yellow-400/40'
+            : announcement.type === 'warning'
               ? 'bg-gradient-to-r from-rose-950 via-rose-900 to-rose-950 text-rose-200 border border-rose-600 ring-1 ring-rose-500/30'
               : 'bg-gradient-to-r from-indigo-950 via-indigo-900 to-indigo-950 text-indigo-200 border border-indigo-600'
-          }`}
+            }`}
         >
           {announcement.text}
         </div>
@@ -1599,11 +1597,10 @@ export const ThreeCubeWordCanvas = ({
 
       {/* 3D WebGL Canvas Arena Container with Dragging Interaction - Scaled Up Height */}
       <div
-        className={`relative w-full h-[560px] sm:h-[630px] md:h-[670px] rounded-2xl overflow-hidden border-2 shadow-2xl bg-gradient-to-b from-[#020713] via-[#040c1e] to-[#01040a] transition-all ${
-          isDragging
-            ? 'border-cyan-400 shadow-cyan-500/20 ring-2 ring-cyan-500/40'
-            : 'border-slate-800 shadow-black'
-        }`}
+        className={`relative w-full h-[560px] sm:h-[630px] md:h-[670px] rounded-2xl overflow-hidden border-2 shadow-2xl bg-gradient-to-b from-[#020713] via-[#040c1e] to-[#01040a] transition-all ${isDragging
+          ? 'border-cyan-400 shadow-cyan-500/20 ring-2 ring-cyan-500/40'
+          : 'border-slate-800 shadow-black'
+          }`}
       >
         {/* Canvas DOM Element */}
         <div
@@ -1612,9 +1609,8 @@ export const ThreeCubeWordCanvas = ({
           onPointerMove={handlePointerMove}
           onPointerUp={handlePointerUp}
           onPointerCancel={handlePointerCancel}
-          className={`w-full h-full touch-none select-none ${
-            isDragging ? 'cursor-grabbing' : 'cursor-grab'
-          }`}
+          className={`w-full h-full touch-none select-none ${isDragging ? 'cursor-grabbing' : 'cursor-grab'
+            }`}
         />
 
         {/* Floating Active Face & Letter Indicator Pill */}

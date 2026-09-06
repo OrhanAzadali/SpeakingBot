@@ -11,7 +11,7 @@ function getAudioContext() {
     }
   }
   if (audioCtx && audioCtx.state === 'suspended') {
-    audioCtx.resume().catch(() => {});
+    audioCtx.resume().catch(() => { });
   }
   return audioCtx;
 }
@@ -351,7 +351,7 @@ export function isAquaticMusicActive() {
 export function resumeAudioAndMusic() {
   const ctx = getAudioContext();
   if (ctx && ctx.state === 'suspended') {
-    ctx.resume().catch(() => {});
+    ctx.resume().catch(() => { });
   }
 }
 
@@ -360,7 +360,7 @@ export function startAquaticMusic() {
   if (!ctx) return;
 
   if (ctx.state === 'suspended') {
-    ctx.resume().catch(() => {});
+    ctx.resume().catch(() => { });
   }
 
   if (isMusicPlaying) return;

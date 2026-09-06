@@ -27,7 +27,6 @@ import ListeningMatch from "./components/ListeningMatch.jsx";
 import SpeakingGame from "./components/SpeakingGame.jsx";
 import Summary from "./components/Summary.jsx";
 import { CubeWordCard } from "./components/CubicWords/CubeWordCard.jsx";
-// import { isAdvanced } from "../../bot/index.js"
 import { CubeWordGame } from "./components/CubicWords/CubeWordGame.jsx";
 export default function App() {
   // Point directly to your Render backend
@@ -35,9 +34,18 @@ export default function App() {
 
   // Navigation state: 'games' | 'grammar' | 'roadmap'
   const [activeTab, setActiveTab] = useState("games");
-  // Active game mode: null (hub) | 'flashcards' | 'quiz' | 'listening' | 'match' | 'speaking' | 'summary'
-  const [activeGame, setActiveGame] = useState("cubeGame");
+  // Active game mode: null (hub) | 'flashcards' | 'quiz' | 'listening' | 'match' | 'speaking' | 'summary' | 'cubeGame'
+  const [activeGame, setActiveGame] = useState(null);
   const [mediatorLanguage, setMediatorLanguage] = useState("english");
+  // Language the 3D Cube Word game was launched with (picked on the card, before entering the game)
+  const [cubeGameLanguage, setCubeGameLanguage] = useState("english");
+  const [cubeGameHighScore, setCubeGameHighScore] = useState(() => {
+    try {
+      return Number(localStorage.getItem("cubeword_highscore") || "0");
+    } catch {
+      return 0;
+    }
+  });
 
   const [targetLanguage, setTargetLanguage] = useState("");
   const [availableLanguages, setAvailableLanguages] = useState([]);
@@ -66,14 +74,34 @@ export default function App() {
   const [newMeaning, setNewMeaning] = useState("");
   const [showAddModal, setShowAddModal] = useState(false);
 
+  // Launched from the CubeWordCard on the games hub: remember the chosen
+  // language, then switch the main view into the 3D game.
   const startCubeGame = (lang) => {
-    return (
-      <CubeWordGame
-        //  onClose={ }
-        initialLanguage={lang}
-        // onSaveToVocabulary={ }
-        apiBase='' />
-    )
+    setCubeGameLanguage(lang || "english");
+    setActiveGame("cubeGame");
+  };
+
+  // Adapts the 3D game's onSaveToVocabulary(word, definition, partOfSpeech)
+  // callback to this app's shared handleSaveWordToDeck(card) saver so words
+  // discovered in the cube game land in the same flashcard deck as every
+  // other game.
+  const handleSaveWordFromCubeGame = async (word, definition, partOfSpeech) => {
+    const ok = await handleSaveWordToDeck({
+      word,
+      correction: definition,
+      meaning: definition,
+      language: cubeGameLanguage,
+      part_of_speech: partOfSpeech || "word",
+    });
+    if (ok) {
+      try {
+        const stored = Number(localStorage.getItem("cubeword_highscore") || "0");
+        setCubeGameHighScore(stored);
+      } catch {
+        // ignore
+      }
+    }
+    return ok;
   };
 
   const handleAddCustomWord = async (e) => {
@@ -558,6 +586,24 @@ export default function App() {
           />
         )}
 
+        {activeGame === "cubeGame" && (
+          <CubeWordGame
+            onClose={() => {
+              // Pick up whatever high score the game just wrote to
+              // localStorage so the hub card reflects it immediately.
+              try {
+                setCubeGameHighScore(Number(localStorage.getItem("cubeword_highscore") || "0"));
+              } catch {
+                // ignore
+              }
+              setActiveGame(null);
+            }}
+            initialLanguage={cubeGameLanguage}
+            apiBase={BACKEND_URL}
+            onSaveToVocabulary={handleSaveWordFromCubeGame}
+          />
+        )}
+
 
         {/* ========================================================================= */}
         {/* TAB 1: PRACTICE GAMES & INTERACTIVE DRILLS HUB                            */}
@@ -604,6 +650,13 @@ export default function App() {
                 </div>
               </div>
             </div>
+
+            {/* 0. 3D Cube Word Game (full-width feature card) */}
+            <CubeWordCard
+              onLaunchGame={startCubeGame}
+              highScore={cubeGameHighScore}
+              currentLanguage={cubeGameLanguage}
+            />
 
             {/* 6 Game Mode Cards */}
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5">
@@ -739,12 +792,6 @@ export default function App() {
                 </div>
               </div>
 
-              <CubeWordCard
-
-                onLaunchGame={() => startCubeGame(isAdvanced ? targetLanguage : mediatorLanguage)}
-                highScore="0"
-                currentLanguage={mediatorLanguage}
-              />
 
 
             </div>
