@@ -564,10 +564,7 @@ export default function App() {
             onLaunchGame={() => startCubeGame(isAdvanced ? targetLanguage : mediatorLanguage)}
             highScore="0"
             currentLanguage={isAdvanced ? targetLanguage : mediatorLanguage}
-            onExit={() => {
-              setActiveGame(null);
-              fetchFlashcards();
-            }}
+
           />
         )}
 
