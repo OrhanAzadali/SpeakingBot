@@ -19,6 +19,8 @@ import { createServer as createViteServer } from "vite";
 import { createRequire } from "module";
 import zlib from "zlib";
 import fs from "fs";
+import cron from "node-cron";
+
 
 const customRequire = typeof require !== "undefined" ? require : createRequire(import.meta.url);
 
@@ -168,9 +170,44 @@ function ensureUserVocabStructure(user) {
   user.savedVocabulary = user.vocabularyByLanguage[activeLang];
 }
 
-const userCustomStories = {};
-const userPersonalizedRoadmaps = {};
+const STORAGE_FILE = path.join(process.cwd(), "data", "stories.json");
+const DATA_DIR = path.dirname(STORAGE_FILE);
 
+// Ensure data directory exists
+if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
+
+// Load existing stories from disk on startup
+function loadStoriesFromDisk() {
+  try {
+    if (fs.existsSync(STORAGE_FILE)) {
+      const raw = fs.readFileSync(STORAGE_FILE, "utf-8");
+      return JSON.parse(raw);
+    }
+  } catch (err) {
+    console.warn("[Storage] Failed to load stories:", err.message);
+  }
+  return { userCustomStories: {}, autoFetchedStories: [] };
+}
+
+// Save all stories to disk (gzipped internally)
+function saveStoriesToDisk() {
+  try {
+    const payload = {
+      userCustomStories,
+      autoFetchedStories,
+      savedAt: new Date().toISOString()
+    };
+    const zipped = zipText(JSON.stringify(payload));
+    fs.writeFileSync(STORAGE_FILE, zipped);
+  } catch (err) {
+    console.error("[Storage] Failed to save stories:", err.message);
+  }
+}
+
+// Initialize from disk
+const diskData = loadStoriesFromDisk();
+let userCustomStories = diskData.userCustomStories || {};
+let autoFetchedStories = diskData.autoFetchedStories || [];
 // ==========================================
 // CLEAN & ROBUST PDF EXTRACTION ENGINE
 // ==========================================
@@ -788,10 +825,76 @@ function getDailyBotStoryFeeds(targetLanguage = "English") {
   };
   return feeds[lang] || feeds.english;
 }
+async function fetchRandomGutenbergBook() {
+  try {
+    // Use Project Gutenberg's random book redirect
+    const response = await fetch("https://www.gutenberg.org/ebooks/random", { redirect: "follow" });
+    const html = await response.text();
+    const urlMatch = html.match(/href="(\/files\/[^"]+\.txt)"/);
+    if (!urlMatch) throw new Error("Could not find text URL");
+    const textUrl = `https://www.gutenberg.org${urlMatch[1]}`;
 
+    const textResponse = await fetch(textUrl);
+    const fullText = await textResponse.text();
+    const excerpt = selectBestExcerpt(fullText, 300);
+
+    // Identify book title/author from the HTML (rough)
+    const titleMatch = html.match(/<title>([^<]+)<\/title>/);
+    const title = titleMatch ? titleMatch[1].split(" by ")[0].trim() : "Public Domain Book";
+
+    return {
+      id: `auto-${Date.now()}`,
+      title,
+      author: "Unknown",
+      targetLanguage: "en", // Project Gutenberg mostly English
+      excerpt,
+      content: fullText, // could be huge; we may not store full content
+      source: "Project Gutenberg",
+      isAutoFetched: true,
+      createdAt: new Date().toISOString()
+    };
+  } catch (err) {
+    console.error("[AutoFetch] Failed to fetch book:", err.message);
+    return null;
+  }
+}
 // ==========================================
 // 1. FIXED PDF UPLOAD & NLP EXCERPT ENDPOINT
 // ==========================================
+function selectBestExcerpt(text, targetWords = 300) {
+  if (!text) return "";
+  // Split into paragraphs, sentences, and clean up
+  const paragraphs = text
+    .split(/\n\s*\n/)
+    .map(p => p.replace(/\s+/g, " ").trim())
+    .filter(p => p.length > 100); // ignore short fragments
+
+  if (paragraphs.length === 0) return text.slice(0, targetWords);
+
+  // Score each paragraph based on vocabulary richness, length, and literary markers
+  const scoreParagraph = (p) => {
+    const words = p.split(/\s+/).filter(Boolean);
+    const unique = new Set(words.map(w => w.toLowerCase())).size;
+    const avgWordLen = words.reduce((sum, w) => sum + w.length, 0) / words.length;
+    const hasLiteraryMarkers = /\b(shall|might|perhaps|never|soul|heart|mystery|shadow|dawn|twilight|melancholy|sublime)\b/i.test(p);
+    return (unique / words.length) * 2 + avgWordLen * 0.3 + (hasLiteraryMarkers ? 5 : 0);
+  };
+
+  // Sort paragraphs by score descending
+  const sorted = paragraphs
+    .map((p, idx) => ({ text: p, score: scoreParagraph(p), idx }))
+    .sort((a, b) => b.score - a.score);
+
+  // Select the top paragraph(s) to reach targetWords
+  let excerpt = "";
+  let wordCount = 0;
+  for (const para of sorted) {
+    excerpt += para.text + " ";
+    wordCount += para.text.split(/\s+/).length;
+    if (wordCount >= targetWords) break;
+  }
+  return excerpt.trim().substring(0, targetWords * 2); // safety
+}
 app.post("/api/stories/upload-pdf-book", async (req, res) => {
   try {
     const {
@@ -854,29 +957,12 @@ app.post("/api/stories/upload-pdf-book", async (req, res) => {
     const textFromDb = unzipText(zippedBookContent);
     let excerptSlice = "";
 
+    // If text is simulation trigger, keep as is
     if (textFromDb.startsWith("SIMULATION_PROMPT_TRIGGER:")) {
       excerptSlice = textFromDb;
     } else {
-      let narrativeStart = 0;
-      const chapterMatch = textFromDb.match(/\b(CHAPTER\s+(1|I\b|ONE)|Loomings|Call me Ishmael|Book\s+(1|I))\b/i);
-      if (chapterMatch && chapterMatch.index !== undefined) {
-        narrativeStart = chapterMatch.index;
-      }
-
-      const narrativeText = textFromDb.slice(narrativeStart);
-      const words = narrativeText.split(/\s+/);
-      const TARGET_WORDS_COUNT = 300;
-      if (words.length > TARGET_WORDS_COUNT) {
-        const rawSample = words.slice(0, TARGET_WORDS_COUNT).join(" ");
-        const lastPeriod = rawSample.lastIndexOf(".");
-        if (lastPeriod > 100) {
-          excerptSlice = rawSample.slice(0, lastPeriod + 1).trim();
-        } else {
-          excerptSlice = rawSample;
-        }
-      } else {
-        excerptSlice = narrativeText.trim();
-      }
+      // Use smart selection
+      excerptSlice = selectBestExcerpt(textFromDb, 1000);
     }
 
     console.log(`[SpeakBot PDF Engine] Excerpt ready for "${resolvedTitle}". Synthesizing story card with Gemini...`);
@@ -1128,6 +1214,7 @@ Return ONLY valid JSON matching this schema:
 
     if (!userCustomStories[userId]) userCustomStories[userId] = [];
     userCustomStories[userId].unshift(finalStory);
+    saveStoriesToDisk()
 
     res.json({
       success: true,
@@ -1258,17 +1345,10 @@ app.get("/api/health", (req, res) => {
 app.get("/api/stories/custom-list", (req, res) => {
   const userId = String(req.query.userId || "default-user");
   const targetLanguage = String(req.query.targetLanguage || "English");
-  const custom = (userCustomStories[userId] || []).filter(
-    (story) => story.targetLanguage === targetLanguage
-  );
-  const dailyFeeds = getDailyBotStoryFeeds(targetLanguage);
-
-  res.json({
-    success: true,
-    customStories: custom,
-    dailyFeeds: dailyFeeds,
-    timestamp: new Date().toISOString()
-  });
+  const userStories = (userCustomStories[userId] || []).filter(s => s.targetLanguage === targetLanguage);
+  const autoStories = autoFetchedStories.filter(s => s.targetLanguage === targetLanguage);
+  const combined = [...autoStories, ...userStories]; // order: auto first? or combine
+  res.json({ success: true, customStories: combined, dailyFeeds: getDailyBotStoryFeeds(targetLanguage) });
 });
 
 app.get("/api/user/profile", (req, res) => {
@@ -1513,6 +1593,7 @@ Return ONLY a valid JSON object with keys:
       }
     }
     const feeds = getDailyBotStoryFeeds(targetLanguage);
+
     const fallbackStory = feeds[0] || getDailyBotStoryFeeds("English")[0];
     res.json({ success: true, story: fallbackStory });
   } catch (error) {
@@ -1525,6 +1606,7 @@ app.delete("/api/stories/custom-story/:storyId", (req, res) => {
   const userId = String(req.query.userId || "default-user");
   if (userCustomStories[userId]) {
     userCustomStories[userId] = userCustomStories[userId].filter((s) => s.id !== storyId);
+    saveStoriesToDisk()
   }
   res.json({
     success: true,
@@ -1837,7 +1919,21 @@ async function startServer() {
 
 startServer();
 
-
+// Schedule auto-fetch 3-5 times daily (e.g., every 6 hours)
+cron.schedule("0 */6 * * *", async () => {
+  const rawStory = await fetchRandomGutenbergBook();
+  if (rawStory) {
+    // Generate full story using AI
+    const aiPrompt = `...` // same as upload, but with rawStory.excerpt
+    const parsedStory = await callGeminiWithResilience(aiPrompt);
+    if (parsedStory) {
+      rawStory.storyData = parsedStory;
+      autoFetchedStories.unshift(rawStory);
+      saveStoriesToDisk();
+      console.log(`[AutoFetch] Added story: ${rawStory.title}`);
+    }
+  }
+});
 
 
 // KIMI VERSION (cannot find a word - the page says red lines 'cannot find words' below the form):
@@ -3141,6 +3237,7 @@ startServer();
 
 //     if (!userCustomStories[userId]) userCustomStories[userId] = [];
 //     userCustomStories[userId].unshift(finalStory);
+// saveStoriesToDisk()
 
 //     res.json({
 //       success: true,
