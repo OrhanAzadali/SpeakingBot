@@ -6,10 +6,11 @@ import { GoogleGenAI } from "@google/genai";
 import { createServer as createViteServer } from "vite";
 import { createRequire } from "module";
 
-const require = createRequire(import.meta.url);
+const customRequire = typeof require !== "undefined" ? require : createRequire(import.meta.url);
+
 let PDFParse = null;
 try {
-  const pdfModule = require("pdf-parse");
+  const pdfModule = customRequire("pdf-parse");
   PDFParse = pdfModule.PDFParse || pdfModule.default?.PDFParse || pdfModule.default || pdfModule;
 } catch (e) {
   console.warn("[PDF Engine] Notice loading pdf-parse module:", e.message);
