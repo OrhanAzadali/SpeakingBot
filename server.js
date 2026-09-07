@@ -8,6 +8,8 @@
 // AND THERE IS NOT AT ALL ANY SYNCE BETWEEN ALL THESE STATE, DATA AND FEATURES WITH TELEGRAM BOT'S STATE, DATA & FEATURES RESPECTIVELY!
 // I DON'T EVEN KNOW HOW TO ENSURE THE BOT SHOWS THE SAME UI SINCE IN MY BOT THERE IS STILL THE OLD UI!! FIX IT AND EXPLAIN WHAT TO DO TO SEE NEW UI IN BOT'S APP AS WELL!! AND KEEP BOT'S MINIAPP IN TRACK AND PROPERLY SYNCED WITH THIS WEBAPP!
 
+// GEMINI VERSION = REPEATEDLY REVISED, HONED, RE-HONED AND FINALLY FIXED
+// -----------------------------------------------
 import express from "express";
 import path from "path";
 import { fileURLToPath } from "url";
@@ -35,6 +37,12 @@ const currentDirname = typeof __dirname !== "undefined" ? __dirname : path.dirna
 const app = express();
 const PORT = Number(process.env.PORT) || 3000;
 
+// ========== CRITICAL FIX: Prevent caching of API responses ==========
+app.use((req, res, next) => {
+  res.setHeader("Cache-Control", "no-store");
+  next();
+});
+
 app.use(express.json({ limit: "35mb" }));
 app.use(express.urlencoded({ limit: "35mb", extended: true }));
 
@@ -59,13 +67,11 @@ function getGeminiClient() {
 
 async function callGeminiWithResilience(
   prompt,
-  preferredModel = "gemini-3.1-flash-lite",
-  fallbackModels = ["gemini-3.5-flash-lite", "gemini-3.5-flash", "gemini-3.7-flash", "gemini-flash-lite-latest"]
+  preferredModel = "gemini-1.5-flash",
+  fallbackModels = ["gemini-1.5-pro", "gemini-flash-latest"]
 ) {
   const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) {
-    return null;
-  }
+  if (!apiKey) return null;
   const ai = getGeminiClient();
   const candidateModels = [preferredModel, ...fallbackModels];
   for (const model of candidateModels) {
@@ -73,17 +79,13 @@ async function callGeminiWithResilience(
       const generatePromise = ai.models.generateContent({
         model,
         contents: prompt,
-        config: {
-          responseMimeType: "application/json"
-        }
+        config: { responseMimeType: "application/json" }
       });
       const timeoutPromise = new Promise((_, reject) => {
         setTimeout(() => reject(new Error("TIMEOUT_SPIKE")), 15000);
       });
       const response = await Promise.race([generatePromise, timeoutPromise]);
-      if (response && response.text) {
-        return response.text;
-      }
+      if (response && response.text) return response.text;
     } catch (err) {
       const msg = err?.message || String(err);
       console.warn(`[SpeakBot AI Engine] Candidate ${model} notice (${msg.slice(0, 80)}). Trying next candidate model...`);
@@ -93,14 +95,13 @@ async function callGeminiWithResilience(
   return null;
 }
 
-// Function to compress text into Base64 Gzip string
+// Gzip helpers
 function zipText(text) {
   if (!text) return "";
   const buffer = zlib.gzipSync(Buffer.from(text, "utf-8"));
   return buffer.toString("base64");
 }
 
-// Function to unpack Gzip Base64 string back to readable text
 function unzipText(zippedBase64) {
   if (!zippedBase64) return "";
   try {
@@ -112,6 +113,7 @@ function unzipText(zippedBase64) {
   }
 }
 
+// User Database (in-memory)
 const syncedUsersDatabase = {
   "default-user": {
     userId: "usr_speakbot_84920482",
@@ -121,13 +123,7 @@ const syncedUsersDatabase = {
     mediatorLanguage: "az",
     overallScore: 68,
     testHistory: [
-      {
-        date: new Date(Date.now() - 864e5 * 3).toISOString(),
-        testType: "Initial Diagnostic /start",
-        level: "B1",
-        score: 68,
-        source: "telegram_bot"
-      }
+      { date: new Date(Date.now() - 864e5 * 3).toISOString(), testType: "Initial Diagnostic /start", level: "B1", score: 68, source: "telegram_bot" }
     ],
     skillLevels: {
       grammar: { level: "B1", score: 65, lastTested: new Date(Date.now() - 864e5 * 2).toISOString() },
@@ -145,38 +141,11 @@ const syncedUsersDatabase = {
     },
     vocabularyByLanguage: {
       English: [
-        {
-          id: "vocab-en-1",
-          word: "synthesize",
-          translation: "birləşdirmək, sintez etmək",
-          targetLanguage: "English",
-          pos: "verb",
-          ipa: "/ˈsɪnθəsaɪz/",
-          example: "Researchers synthesize novel linguistic data models.",
-          savedAt: new Date().toISOString()
-        },
-        {
-          id: "vocab-en-2",
-          word: "meticulous",
-          translation: "hədsiz dərəcədə diqqətli, dəqiq",
-          targetLanguage: "English",
-          pos: "adjective",
-          ipa: "/məˈtɪkjələs/",
-          example: "He maintained meticulous grammatical accuracy.",
-          savedAt: new Date().toISOString()
-        }
+        { id: "vocab-en-1", word: "synthesize", translation: "birləşdirmək, sintez etmək", targetLanguage: "English", pos: "verb", ipa: "/ˈsɪnθəsaɪz/", example: "Researchers synthesize novel linguistic data models.", savedAt: new Date().toISOString() },
+        { id: "vocab-en-2", word: "meticulous", translation: "hədsiz dərəcədə diqqətli, dəqiq", targetLanguage: "English", pos: "adjective", ipa: "/məˈtɪkjələs/", example: "He maintained meticulous grammatical accuracy.", savedAt: new Date().toISOString() }
       ],
       German: [
-        {
-          id: "vocab-de-1",
-          word: "Nachhaltigkeit",
-          translation: "davamlılıq / dayanıqlılıq",
-          targetLanguage: "German",
-          pos: "noun",
-          ipa: "/ˈnaːxhaltɪçkaɪt/",
-          example: "Nachhaltigkeit ist ein zentrales Prinzip moderner Sprachförderung.",
-          savedAt: new Date().toISOString()
-        }
+        { id: "vocab-de-1", word: "Nachhaltigkeit", translation: "davamlılıq / dayanıqlılıq", targetLanguage: "German", pos: "noun", ipa: "/ˈnaːxhaltɪçkaɪt/", example: "Nachhaltigkeit ist ein zentrales Prinzip moderner Sprachförderung.", savedAt: new Date().toISOString() }
       ]
     },
     savedVocabulary: [],
@@ -261,7 +230,6 @@ function extractTextFromPdfStreams(buffer) {
       }
 
       if (decompressed && decompressed.length > 10) {
-        // 1. Array TJ format: [(text1) 120 (text2)] TJ
         const tjMatches = decompressed.matchAll(/\[([\s\S]*?)\]\s*TJ/g);
         for (const m of tjMatches) {
           const inner = m[1];
@@ -271,7 +239,6 @@ function extractTextFromPdfStreams(buffer) {
             if (token) collectedTokens.push(token);
           }
         }
-        // 2. Direct Tj format: (text) Tj
         const directTj = decompressed.matchAll(/\(([^()]*)\)\s*T[jJ]/g);
         for (const m of directTj) {
           const token = m[1].replace(/\\([nrtbf()])/g, "$1").trim();
@@ -292,7 +259,6 @@ function isReadableLiteraryText(text) {
   if (!text || text.trim().length < 40) return false;
   const sample = text.slice(0, 4000);
 
-  // Reject if it contains raw PDF internal structural tags (indicates binary stream dump)
   const pdfInternalMarkers = [
     /<<\s*\/[A-Z]/i,
     /\/Filter\s*\/[A-Za-z]+/i,
@@ -311,11 +277,9 @@ function isReadableLiteraryText(text) {
   }
   if (markerHits >= 2) return false;
 
-  // Reject if majority of characters are non-alphabetic symbols or unprintable
   const lettersAndSpaces = (sample.match(/[A-Za-z\u00C0-\u024F\u0400-\u04FF\s.,!?'"()\-—:;]/g) || []).length;
   if (lettersAndSpaces / sample.length < 0.60) return false;
 
-  // Reject if it does not contain enough authentic words (at least 2 consecutive letters)
   const words = sample.split(/\s+/).filter((w) => /[A-Za-z\u00C0-\u024F\u0400-\u04FF]{2,}/.test(w));
   if (words.length < 8) return false;
 
@@ -335,7 +299,6 @@ function parseBookMetadata(fileName = "", bookTitle = "", author = "", rawText =
     .replace(/_/g, " ")
     .trim();
 
-  // If title still has underscores or raw filename format
   if (cleanTitle.includes("_") || cleanTitle === baseName || isGenericAuthor) {
     const dashParts = baseName.split(/\s*[-–—]\s*/);
     if (dashParts.length >= 2) {
@@ -353,68 +316,28 @@ function parseBookMetadata(fileName = "", bookTitle = "", author = "", rawText =
 
   // Literary canon auto-identification
   if (probe.includes("moby") || probe.includes("ishmael") || probe.includes("melville")) {
-    return {
-      title: "Moby-Dick; or, The Whale",
-      author: "Herman Melville",
-      era: "American Renaissance (1851)",
-      canonKey: "moby_dick"
-    };
+    return { title: "Moby-Dick; or, The Whale", author: "Herman Melville", era: "American Renaissance (1851)", canonKey: "moby_dick" };
   }
   if (probe.includes("dorian gray") || probe.includes("oscar wilde")) {
-    return {
-      title: "The Picture of Dorian Gray",
-      author: "Oscar Wilde",
-      era: "Victorian Aestheticism (1890)",
-      canonKey: "dorian_gray"
-    };
+    return { title: "The Picture of Dorian Gray", author: "Oscar Wilde", era: "Victorian Aestheticism (1890)", canonKey: "dorian_gray" };
   }
   if (probe.includes("frankenstein") || probe.includes("mary shelley") || probe.includes("victor frankenstein")) {
-    return {
-      title: "Frankenstein; or, The Modern Prometheus",
-      author: "Mary Shelley",
-      era: "Romantic Gothic (1818)",
-      canonKey: "frankenstein"
-    };
+    return { title: "Frankenstein; or, The Modern Prometheus", author: "Mary Shelley", era: "Romantic Gothic (1818)", canonKey: "frankenstein" };
   }
   if (probe.includes("pride and prejudice") || probe.includes("jane austen") || probe.includes("elizabeth bennet")) {
-    return {
-      title: "Pride and Prejudice",
-      author: "Jane Austen",
-      era: "Regency Romance & Satire (1813)",
-      canonKey: "pride_and_prejudice"
-    };
+    return { title: "Pride and Prejudice", author: "Jane Austen", era: "Regency Romance & Satire (1813)", canonKey: "pride_and_prejudice" };
   }
   if (probe.includes("gatsby") || probe.includes("fitzgerald") || probe.includes("daisy buchanan")) {
-    return {
-      title: "The Great Gatsby",
-      author: "F. Scott Fitzgerald",
-      era: "Jazz Age Modernism (1925)",
-      canonKey: "great_gatsby"
-    };
+    return { title: "The Great Gatsby", author: "F. Scott Fitzgerald", era: "Jazz Age Modernism (1925)", canonKey: "great_gatsby" };
   }
   if (probe.includes("alice") && (probe.includes("wonderland") || probe.includes("carroll"))) {
-    return {
-      title: "Alice's Adventures in Wonderland",
-      author: "Lewis Carroll",
-      era: "Victorian Literary Nonsense (1865)",
-      canonKey: "alice_in_wonderland"
-    };
+    return { title: "Alice's Adventures in Wonderland", author: "Lewis Carroll", era: "Victorian Literary Nonsense (1865)", canonKey: "alice_in_wonderland" };
   }
   if (probe.includes("dracula") || probe.includes("bram stoker") || probe.includes("transylvania")) {
-    return {
-      title: "Dracula",
-      author: "Bram Stoker",
-      era: "Victorian Gothic (1897)",
-      canonKey: "dracula"
-    };
+    return { title: "Dracula", author: "Bram Stoker", era: "Victorian Gothic (1897)", canonKey: "dracula" };
   }
   if (probe.includes("metamorphosis") || probe.includes("kafka") || probe.includes("gregor samsa")) {
-    return {
-      title: "The Metamorphosis",
-      author: "Franz Kafka",
-      era: "Modernist Absurdism (1915)",
-      canonKey: "metamorphosis"
-    };
+    return { title: "The Metamorphosis", author: "Franz Kafka", era: "Modernist Absurdism (1915)", canonKey: "metamorphosis" };
   }
 
   return {
@@ -503,14 +426,12 @@ async function extractTextFromPdfBuffer(buffer) {
   try {
     console.log(`[PDF Engine] Attempting extraction from buffer. Size: ${buffer.length} bytes`);
 
-    // Method 1: pdf-parse class with page windowing (fast for large books like Moby Dick)
     if (PDFParse) {
       const ParserClass = typeof PDFParse === "function" ? PDFParse : PDFParse.PDFParse;
       if (ParserClass) {
         try {
           const parser = new ParserClass({ data: buffer });
           let res = null;
-          // Try opening chapters (first 30 pages) first to avoid hanging on 500+ page tomes
           try {
             res = await parser.getText({ first: 30 });
           } catch (_) {
@@ -529,7 +450,6 @@ async function extractTextFromPdfBuffer(buffer) {
           console.warn("[PDF Engine] PDFParse class extraction notice:", e1.message);
         }
 
-        // 2. Direct legacy call if available
         try {
           const parseFunc = typeof PDFParse === "function" ? PDFParse : PDFParse.default;
           if (typeof parseFunc === "function") {
@@ -550,7 +470,7 @@ async function extractTextFromPdfBuffer(buffer) {
     console.warn("[SpeakBot PDF Engine] Core parse notice:", err.message);
   }
 
-  // Method 2: Robust binary FlateDecode stream decompressor
+  // FlateDecode stream extraction
   try {
     console.log("[PDF Engine] Inspecting internal compressed FlateDecode streams...");
     const rawStreamText = extractTextFromPdfStreams(buffer);
@@ -573,7 +493,6 @@ async function extractTextFromPdfBuffer(buffer) {
 function generateLocalFallbackStory(params) {
   const { bookTitle, author, authorEra, canonKey, targetLanguage, mediatorLanguage, userLevel, excerptSlice, isSimulated } = params;
 
-  // 1. Check if we have an authentic canon entry for this masterpiece
   const canon = canonKey && LITERARY_CANON_EXCERPTS[canonKey] ? LITERARY_CANON_EXCERPTS[canonKey] : null;
 
   let sentences = [];
@@ -590,7 +509,6 @@ function generateLocalFallbackStory(params) {
       translation: mediatorLanguage === "az" ? v.translation : `[${mediatorLanguage.toUpperCase()}] ${v.translation}`
     }));
   } else if (!isSimulated && excerptSlice && !excerptSlice.startsWith("SIMULATION_PROMPT_TRIGGER:") && excerptSlice.length > 50) {
-    // Sliced directly from the real extracted book text!
     const rawMatches = excerptSlice.match(/[^.!?]+[.!?]+/g);
     if (rawMatches && rawMatches.length > 0) {
       sentences = rawMatches.map((s) => s.trim()).filter((s) => s.length > 20 && s.length < 240).slice(0, 5);
@@ -617,7 +535,6 @@ function generateLocalFallbackStory(params) {
       example: sentences.find((s) => s.toLowerCase().includes(word.toLowerCase())) || `Notable term from "${bookTitle}".`
     }));
   } else {
-    // Distinctive book-tailored fallback (never repetitive boilerplate)
     sentences = [
       `The opening chapter of "${bookTitle}" introduces the reader to the unique literary world envisioned by ${author}.`,
       `Every scene establishes distinct psychological depth and moral tension through evocative dialogue and descriptive prose.`,
@@ -891,7 +808,6 @@ app.post("/api/stories/upload-pdf-book", async (req, res) => {
 
     console.log(`[SpeakBot PDF Endpoint] Processing "${bookTitle}" by "${author}" (${fileName})`);
 
-    // 1. Check size limit
     if (fileBase64) {
       const approxSizeMb = (fileBase64.length * 0.75) / (1024 * 1024);
       const MAX_ALLOWED_MB = 25;
@@ -905,7 +821,6 @@ app.post("/api/stories/upload-pdf-book", async (req, res) => {
 
     let extractedText = String(fileText || "").trim();
 
-    // 2. CRITICAL FIX: Extract text from PDF buffer when fileBase64 is passed
     if (!extractedText && fileBase64) {
       try {
         const cleanBase64 = fileBase64.replace(/^data:application\/pdf;base64,/, "").replace(/^data:text\/plain;base64,/, "");
@@ -917,7 +832,6 @@ app.post("/api/stories/upload-pdf-book", async (req, res) => {
       }
     }
 
-    // Resolve accurate title, author, and literary era from filename and text
     const meta = parseBookMetadata(fileName, bookTitle, author, extractedText);
     const resolvedTitle = meta.title;
     const resolvedAuthor = meta.author;
@@ -925,7 +839,6 @@ app.post("/api/stories/upload-pdf-book", async (req, res) => {
 
     console.log(`[SpeakBot PDF Endpoint] Identified book: "${resolvedTitle}" by "${resolvedAuthor}" (${resolvedEra})`);
 
-    // 3. Fallback to AI simulation if text is empty or image scan
     const isTextScannedOrEmpty = !extractedText || extractedText.trim().length < 20;
     let cleanedText = "";
 
@@ -944,7 +857,6 @@ app.post("/api/stories/upload-pdf-book", async (req, res) => {
     if (textFromDb.startsWith("SIMULATION_PROMPT_TRIGGER:")) {
       excerptSlice = textFromDb;
     } else {
-      // Find beginning of narrative: Chapter 1 / first chapter heading
       let narrativeStart = 0;
       const chapterMatch = textFromDb.match(/\b(CHAPTER\s+(1|I\b|ONE)|Loomings|Call me Ishmael|Book\s+(1|I))\b/i);
       if (chapterMatch && chapterMatch.index !== undefined) {
@@ -1160,7 +1072,6 @@ Return ONLY valid JSON matching this schema:
       }
     }
 
-    // Dynamic, book-specific fallback if AI was offline
     if (!parsedStory || !parsedStory.sentences || parsedStory.sentences.length === 0) {
       console.log(`[SpeakBot PDF Engine] Using dynamic book-specific fallback for "${resolvedTitle}"`);
       parsedStory = generateLocalFallbackStory({
@@ -1176,9 +1087,9 @@ Return ONLY valid JSON matching this schema:
       });
     }
 
-    // Ensure all conversations and exercises have normalized IDs, categories, and point values
+    // FIX: Remove TypeScript annotations
     if (Array.isArray(parsedStory.conversations)) {
-      parsedStory.conversations = parsedStory.conversations.map((c: any, idx: number) => ({
+      parsedStory.conversations = parsedStory.conversations.map((c, idx) => ({
         id: c.id || `socratic-${idx + 1}`,
         stepNumber: c.stepNumber || idx + 1,
         persona: c.persona || "SpeakBot Socratic Mentor",
@@ -1192,7 +1103,7 @@ Return ONLY valid JSON matching this schema:
     }
 
     if (Array.isArray(parsedStory.exercises)) {
-      parsedStory.exercises = parsedStory.exercises.map((e: any, idx: number) => ({
+      parsedStory.exercises = parsedStory.exercises.map((e, idx) => ({
         id: e.id || `task-${idx + 1}`,
         taskNumber: e.taskNumber || idx + 1,
         category: e.category || `Task ${idx + 1}`,
@@ -1211,7 +1122,8 @@ Return ONLY valid JSON matching this schema:
       sourceBook: fileName,
       isSimulated: isTextScannedOrEmpty,
       uploadedAt: new Date().toISOString(),
-      coverImage: "https://images.unsplash.com/photo-1456513080510-7bf3a84b82f8?auto=format&fit=crop&w=800&q=80"
+      coverImage: "https://images.unsplash.com/photo-1456513080510-7bf3a84b82f8?auto=format&fit=crop&w=800&q=80",
+      targetLanguage: targetLanguage // Ensure correct language is stored
     };
 
     if (!userCustomStories[userId]) userCustomStories[userId] = [];
@@ -1260,7 +1172,7 @@ ${excerpt.slice(0, 1200)}
 """
 
 Recent Chat History:
-${chatHistory.slice(-4).map((m: any) => `${m.role === 'user' ? 'Learner' : 'Socratic Mentor'}: ${m.text}`).join('\n')}
+${chatHistory.slice(-4).map((m) => `${m.role === 'user' ? 'Learner' : 'Socratic Mentor'}: ${m.text}`).join('\n')}
 
 Learner's latest message:
 "${userMessage}"
@@ -1315,7 +1227,7 @@ Return ONLY valid JSON matching this schema:
       ...replyData,
       totalXp: user.xp
     });
-  } catch (err: any) {
+  } catch (err) {
     console.error("[Socratic Chat Error]:", err);
     res.status(500).json({ success: false, error: err.message || "Socratic chat failed." });
   }
@@ -1342,10 +1254,13 @@ app.get("/api/health", (req, res) => {
   });
 });
 
+// ========== FIX: Filter custom stories by language ==========
 app.get("/api/stories/custom-list", (req, res) => {
   const userId = String(req.query.userId || "default-user");
   const targetLanguage = String(req.query.targetLanguage || "English");
-  const custom = userCustomStories[userId] || [];
+  const custom = (userCustomStories[userId] || []).filter(
+    (story) => story.targetLanguage === targetLanguage
+  );
   const dailyFeeds = getDailyBotStoryFeeds(targetLanguage);
 
   res.json({
@@ -1838,7 +1753,6 @@ app.get("/api/cubeword/block-faces", (req, res) => {
         faces.push(randChar);
       }
     }
-    // Shuffle faces
     for (let i = faces.length - 1; i > 0; i--) {
       const j = Math.floor(Math.random() * (i + 1));
       [faces[i], faces[j]] = [faces[j], faces[i]];
