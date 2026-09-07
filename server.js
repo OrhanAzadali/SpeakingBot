@@ -21,7 +21,7 @@ import zlib from "zlib";
 import fs from "fs";
 import cron from "node-cron";
 import Tesseract from "tesseract.js";
-import * as pdfjsLib from "pdfjs-dist/legacy/build/pdf.js";
+import * as pdfjsLib from "pdfjs-dist/build/pdf.mjs";
 import { createCanvas } from "@napi-rs/canvas"; // or "canvas", choose the one that is in package.json
 async function extractTextFromScannedPdf(buffer) {
   // Convert PDF to images
