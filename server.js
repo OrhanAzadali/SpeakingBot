@@ -16,8 +16,12 @@ try {
   console.warn("[PDF Engine] Notice loading pdf-parse module:", e.message);
 }
 dotenv.config();
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+
+// Если сервер запущен в скомпилированном CJS-формате, эти переменные уже существуют.
+// Если мы в dev-режиме ESM, вычисляем их через import.meta.url.
+const currentFilename = typeof __filename !== "undefined" ? __filename : fileURLToPath(import.meta.url);
+const currentDirname = typeof __dirname !== "undefined" ? __dirname : path.dirname(currentFilename);
+
 const app = express();
 const PORT = process.env.PORT || 3000;
 
@@ -2476,13 +2480,13 @@ async function startServer() {
     });
     app.use(vite.middlewares);
   } else {
-    // Так как server.cjs уже лежит внутри dist, фронтенд находится прямо рядом с ним!
-    const distPath = __dirname;
+    const distPath = currentDirname;
     app.use(express.static(distPath));
     app.get("*", (req, res) => {
       res.sendFile(path.join(distPath, "index.html"));
     });
   }
+
   app.listen(PORT, "0.0.0.0", () => {
     console.log(`[SpeakBot Server] Running on http://0.0.0.0:${PORT}`);
   });
