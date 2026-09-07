@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "node server.js",
-    "build": "vite build && esbuild server.js --bundle --platform=node --format=cjs --packages=external --sourcemap --external:pdf-parse --outfile=dist/server.cjs",
+    "build": "vite build && esbuild server.js --bundle --platform=node --format=esm --packages=external --sourcemap --external:pdf-parse --outfile=dist/server.cjs",
     "start": "node dist/server.cjs",
     "preview": "vite preview",
     "clean": "rm -rf dist",

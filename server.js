@@ -21,13 +21,8 @@ import zlib from "zlib";
 import fs from "fs";
 import cron from "node-cron";
 import Tesseract from "tesseract.js";
-import pdfjsLib from "pdfjs-dist/legacy/build/pdf.js";
-import fs from "fs";
 import * as pdfjsLib from "pdfjs-dist/legacy/build/pdf.js";
-import { createWorker } from "tesseract.js";
-import { createCanvas } from "canvas"; // If canvas fails, you can use a fallback
-import { createCanvas } from "@napi-rs/canvas";
-
+import { createCanvas } from "@napi-rs/canvas"; // or "canvas", choose the one that is in package.json
 async function extractTextFromScannedPdf(buffer) {
   // Convert PDF to images
   const pdf = await pdfjsLib.getDocument({ data: new Uint8Array(buffer) }).promise;
@@ -535,7 +530,7 @@ async function extractTextFromPdfBuffer(buffer) {
           if (typeof parser.destroy === "function") {
             try { await parser.destroy(); } catch (_) { }
           }
-          const cleaned = cleanExtractedPdfText(raw);
+          let cleaned = cleanExtractedPdfText(raw);
           if (!cleaned) {
             cleaned = await extractTextFromScannedPdf(buffer);
           }
@@ -576,7 +571,7 @@ async function extractTextFromPdfBuffer(buffer) {
           if (typeof parseFunc === "function") {
             const res = await parseFunc(buffer, { max: 30 });
             const raw = typeof res === "string" ? res : (res && res.text ? res.text : "");
-            const cleaned = cleanExtractedPdfText(raw);
+            let cleaned = cleanExtractedPdfText(raw);
             if (!cleaned) {
               cleaned = await extractTextFromScannedPdf(buffer);
             }
@@ -622,7 +617,7 @@ async function extractTextFromPdfBuffer(buffer) {
     console.log("[PDF Engine] Inspecting internal compressed FlateDecode streams...");
     const rawStreamText = extractTextFromPdfStreams(buffer);
     if (rawStreamText && rawStreamText.length > 60) {
-      const cleaned = cleanExtractedPdfText(rawStreamText);
+      let cleaned = cleanExtractedPdfText(rawStreamText);
       if (isReadableLiteraryText(cleaned) && cleaned.length > 50) {
         console.log(`[PDF Engine] Success via FlateDecode stream extraction! Extracted ${cleaned.length} clean characters.`);
         return cleaned;
