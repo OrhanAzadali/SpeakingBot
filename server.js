@@ -408,9 +408,9 @@ const LITERARY_CANON_EXCERPTS = {
     ],
     vocabulary: [
       { word: "spleen", ipa: "/spliːn/", pos: "noun", translation: "bəd əhval / qüssə", cefr: "B2", example: "It is a way I have of driving off the spleen." },
-      { word: "circulation", ipa: "/ˌsɜːrkjəˈleɪʃən/", pos: "noun", translation: "qan dövranı", cefr: "B1", example: "Regulating the circulation of vital spirits." },
-      { word: "precisely", ipa: "/prɪˈsaɪsli/", pos: "adverb", translation: "dəqiq şəkildə", cefr: "B1", example: "Never mind how long precisely." },
-      { word: "drizzly", ipa: "/ˈdrɪzli/", pos: "adjective", translation: "çiskinli", cefr: "B2", example: "Whenever it is a damp, drizzly November in my soul." }
+      { word: "circulation", ipa: "/ˌsɜːrkjəˈleɪʃən/", pos: "noun", "translation": "", "cefr": "B1", example: "Regulating the circulation of vital spirits." },
+      { word: "precisely", ipa: "/prɪˈsaɪsli/", pos: "adverb", "translation": "", "cefr": "B1", example: "Never mind how long precisely." },
+      { word: "drizzly", ipa: "/ˈdrɪzli/", pos: "adjective", "translation": "", "cefr": "B2", example: "Whenever it is a damp, drizzly November in my soul." }
     ]
   },
   dorian_gray: {
@@ -539,13 +539,14 @@ function generateLocalFallbackStory(params) {
 
   if (canon) {
     sentences = canon.sentences;
-    translations = canon.translationsAz.map((az) => mediatorLanguage === "az" ? az : `[${mediatorLanguage.toUpperCase()}] ${az}`);
+    translations = canon.translationsAz.map((az) => mediatorLanguage === "az" ? az : ""); // leave empty if not az
     literaryNotes = canon.literaryNotes;
     keyVocabulary = canon.vocabulary.map((v) => ({
       ...v,
-      translation: mediatorLanguage === "az" ? v.translation : `[${mediatorLanguage.toUpperCase()}] ${v.translation}`
+      translation: mediatorLanguage === "az" ? v.translation : ""
     }));
   } else if (!isSimulated && excerptSlice && !excerptSlice.startsWith("SIMULATION_PROMPT_TRIGGER:") && excerptSlice.length > 50) {
+    // Use actual excerpt text (which is in targetLanguage)
     const rawMatches = excerptSlice.match(/[^.!?]+[.!?]+/g);
     if (rawMatches && rawMatches.length > 0) {
       sentences = rawMatches.map((s) => s.trim()).filter((s) => s.length > 20 && s.length < 240).slice(0, 5);
@@ -554,203 +555,81 @@ function generateLocalFallbackStory(params) {
       sentences = [excerptSlice.slice(0, 180).trim() + "."];
     }
 
-    translations = sentences.map((s) => `[${mediatorLanguage.toUpperCase()}] ${s}`);
-    literaryNotes = sentences.map((_, idx) => `Syntactic constituent cadence analyzed in sentence ${idx + 1} of "${bookTitle}" by ${author}.`);
+    translations = sentences.map(() => ""); // no translation available
+    literaryNotes = sentences.map((_, idx) => `Sentence ${idx + 1} extracted from the book.`);
 
+    // Extract vocabulary from the excerpt
     const stopWords = new Set(["the", "and", "that", "this", "with", "from", "have", "were", "been", "which", "their", "there", "about", "would", "could", "into"]);
     const allWords = sentences.join(" ").replace(/[^\w\s]/g, "").split(/\s+/);
     const candidateWords = Array.from(new Set(allWords.filter((w) => w.length >= 6 && !stopWords.has(w.toLowerCase()))));
     const pickedWords = candidateWords.slice(0, 4);
-    if (pickedWords.length === 0) pickedWords.push("narrative", "reflection", "perspective");
+    if (pickedWords.length === 0) pickedWords.push("example");
 
     keyVocabulary = pickedWords.map((word) => ({
       word: word.toLowerCase(),
       ipa: `/${word.toLowerCase()}/`,
-      pos: "noun/adjective",
-      translation: `[${mediatorLanguage.toUpperCase()}] ${word.toLowerCase()}`,
+      pos: "unknown",
+      translation: "",
       cefr: userLevel,
-      example: sentences.find((s) => s.toLowerCase().includes(word.toLowerCase())) || `Notable term from "${bookTitle}".`
+      example: sentences.find((s) => s.toLowerCase().includes(word.toLowerCase())) || `Word from the book.`
     }));
   } else {
+    // No excerpt available – minimal fallback (avoid philosophical nonsense)
     sentences = [
-      `The opening chapter of "${bookTitle}" introduces the reader to the unique literary world envisioned by ${author}.`,
-      `Every scene establishes distinct psychological depth and moral tension through evocative dialogue and descriptive prose.`,
-      `Through disciplined phrasing and vivid narrative pacing, the passage invites learners to explore authentic grammatical structures.`
+      `This is an excerpt from "${bookTitle}" by ${author}.`,
+      `The original text is in ${targetLanguage}.`,
+      `AI processing failed. Please try again later.`
     ];
-    translations = sentences.map((s) => `[${mediatorLanguage.toUpperCase()}] ${s}`);
-    literaryNotes = [
-      `Examines thematic tone and character establishment in ${author}'s prose.`,
-      `Analyzes complex sentence coordination and subordinate clause structures.`,
-      `Highlights stylistic rhetoric and pedagogical lexical density.`
-    ];
-    keyVocabulary = [
-      { word: "evocative", ipa: "/ɪˈvɑːkətɪv/", pos: "adjective", translation: "hissləri oyadan", cefr: "B2", example: "Evocative dialogue and descriptive prose." },
-      { word: "tension", ipa: "/ˈtenʃən/", pos: "noun", translation: "gərginlik", cefr: "B1", example: "Distinct psychological depth and moral tension." },
-      { word: "pacing", ipa: "/ˈpeɪsɪŋ/", pos: "noun", translation: "ritm / sürət", cefr: "B2", example: "Disciplined phrasing and vivid narrative pacing." }
-    ];
+    translations = sentences.map(() => "");
+    literaryNotes = sentences.map(() => "Placeholder until AI generates proper content.");
+    keyVocabulary = [];
   }
 
   return {
     title: bookTitle,
     author: author,
-    authorEra: authorEra || "Literary Classic",
+    authorEra: authorEra || "Unknown",
     level: userLevel,
     mode: "both",
     duration: "3 min read • 2 min audio",
     targetLanguage: targetLanguage,
-    culturalLinguisticContext: `An authentic excerpt from "${bookTitle}" by ${author} (${authorEra || "Classic Edition"}), structured for ${targetLanguage} learners at CEFR ${userLevel}.`,
+    culturalLinguisticContext: `Excerpt from "${bookTitle}" by ${author} (${authorEra || "Unknown"}). This is a fallback generated because the AI could not process the book.`,
     paragraphs: [sentences.join(" ")],
     sentences: sentences.map((s, idx) => ({
       text: s,
-      translation: translations[idx] || `[${mediatorLanguage.toUpperCase()}] ${s}`,
-      literaryNote: literaryNotes[idx] || `Literary analysis of sentence ${idx + 1} in "${bookTitle}".`,
+      translation: translations[idx] || "",
+      literaryNote: literaryNotes[idx] || "",
       audioTime: `0:${String(idx * 7).padStart(2, "0")} - 0:${String((idx + 1) * 7).padStart(2, "0")}`
     })),
     keyVocabulary: keyVocabulary,
-    stylisticDevices: [
-      {
-        device: "Narrative Voice & Tone",
-        exampleFromText: sentences[0] || `Excerpt from ${bookTitle}`,
-        explanation: `Reflects ${author}'s characteristic prose cadence, setting the emotional and linguistic atmosphere of the story.`
-      }
-    ],
+    stylisticDevices: [],
     conversations: [
       {
         id: "socratic-1",
         stepNumber: 1,
-        persona: "SpeakBot Literary Socrates",
-        topic: "Narrative Voice & Tone",
-        prompt: `How does ${author} engage the reader in this passage from "${bookTitle}"?`,
+        persona: "SpeakBot Mentor",
+        topic: "General",
+        prompt: `What is the main topic of this excerpt from "${bookTitle}"?`,
         options: [
-          `Through deliberate narrative pacing and nuanced psychological perspective.`,
-          `Through repetitive technical accounting tables.`,
-          `Through disconnected random word lists.`
+          `The main topic is ${bookTitle} by ${author}.`,
+          `I don't know.`,
+          `It's about philosophy.`
         ],
         correctIndex: 0,
-        botFeedback: `Excellent analysis! ${author} engages the reader through thoughtful narrative voice and precise diction in "${bookTitle}".`,
-        points: 25
-      },
-      {
-        id: "socratic-2",
-        stepNumber: 2,
-        persona: "SpeakBot Literary Socrates",
-        topic: "Character Conflict & Yearning",
-        prompt: `What inner tension or yearning is revealed through the narrator's reflections?`,
-        options: [
-          `A mechanical dilemma concerning travel expenses.`,
-          `A profound tension between mundane physical routine and the search for spiritual or existential renewal.`,
-          `Complete apathy towards the outside world.`
-        ],
-        correctIndex: 1,
-        botFeedback: `A perceptive philosophical insight! Notice how this tension establishes the emotional momentum of the passage.`,
-        points: 25
-      },
-      {
-        id: "socratic-3",
-        stepNumber: 3,
-        persona: "SpeakBot Literary Socrates",
-        topic: "Stylistic Cadence & Phrasing",
-        prompt: `How does the syntactic structure of the sentences reflect the narrator's emotional state?`,
-        options: [
-          `Parenthetical clauses and expressive phrasing reflect an introspective mind in search of vitality.`,
-          `Rigid short telegraphic statements convey military detachment.`,
-          `Chaotic ungrammatical fragments indicate complete incoherence.`
-        ],
-        correctIndex: 0,
-        botFeedback: `Spot on! The cadence of the language mirrors the emotional rhythm of the speaker.`,
-        points: 25
-      },
-      {
-        id: "socratic-4",
-        stepNumber: 4,
-        persona: "SpeakBot Literary Socrates",
-        topic: "Thematic Synthesis",
-        prompt: `What universal human condition does ${author} illuminate in this excerpt?`,
-        options: [
-          `The pursuit of administrative precision in urban planning.`,
-          `The human instinct to break through spiritual confinement and seek meaning beyond the familiar.`,
-          `The superiority of mechanical isolation over human contemplation.`
-        ],
-        correctIndex: 1,
-        botFeedback: `Profound interpretation! Exploration becomes both a journey and an allegory for inner transformation.`,
-        points: 25
+        botFeedback: `This is a placeholder. AI processing failed.`,
+        points: 5
       }
     ],
     exercises: [
       {
         id: "task-1",
         taskNumber: 1,
-        category: "Comprehension & Textual Inference",
-        question: `What primary circumstance motivates the narrator's actions in this excerpt from "${bookTitle}"?`,
-        options: [
-          `A desire for psychological renewal and escape from emotional stagnation.`,
-          `An official municipal order compelling relocation.`,
-          `A sudden inheritance requiring immediate travel.`,
-          `A desire to purchase commercial merchandise.`
-        ],
+        category: "Comprehension",
+        question: `What is the title of this book?`,
+        options: [bookTitle, "Unknown", "Not provided"],
         correctIndex: 0,
-        explanation: `The passage highlights an internal yearning to drive off melancholy and find vitality through departure.`,
-        points: 25
-      },
-      {
-        id: "task-2",
-        taskNumber: 2,
-        category: "Vocabulary in Literary Context",
-        question: `In this literary excerpt, which term best characterizes the emotional atmosphere established by ${author}?`,
-        options: [
-          `Superficial`,
-          `Evocative and introspective`,
-          `Monotonous`,
-          `Bureaucratic`
-        ],
-        correctIndex: 1,
-        explanation: `The author deploys vivid diction to establish an evocative, contemplative literary atmosphere.`,
-        points: 25
-      },
-      {
-        id: "task-3",
-        taskNumber: 3,
-        category: "Grammar & Syntactic Architecture",
-        question: `How are complex clauses structured in this excerpt?`,
-        options: [
-          `Only isolated single-word utterances are employed.`,
-          `Subordinate and coordinate clauses are woven together to express nuanced reflections.`,
-          `Sentences lack subjects and finite verbs.`,
-          `Phrases are exclusively written in the future continuous tense.`
-        ],
-        correctIndex: 1,
-        explanation: `The author pairs main clauses with expressive participial and adverbial modifiers.`,
-        points: 25
-      },
-      {
-        id: "task-4",
-        taskNumber: 4,
-        category: "Stylistic & Rhetorical Devices",
-        question: `What stylistic device is prominent across the opening sentences?`,
-        options: [
-          `Sensory imagery and atmospheric parallelism`,
-          `Numerical statistical notation`,
-          `Rhymed iambic pentameter`,
-          `Satirical slapstick humor`
-        ],
-        correctIndex: 0,
-        explanation: `Rich sensory imagery establishes the narrator's mindset and emotional environment.`,
-        points: 25
-      },
-      {
-        id: "task-5",
-        taskNumber: 5,
-        category: "Critical Literary Synthesis",
-        question: `How does the excerpt prepare the reader for the unfolding narrative of "${bookTitle}"?`,
-        options: [
-          `By concluding all character developments immediately.`,
-          `By presenting a dry ledger of financial accounts.`,
-          `By establishing high thematic stakes and an intimate bond with the reader.`,
-          `By warning readers not to continue reading.`
-        ],
-        correctIndex: 2,
-        explanation: `The opening draws the reader into the narrator's psychological quest from the very start.`,
-        points: 25
+        explanation: `The title is "${bookTitle}".`,
+        points: 5
       }
     ]
   };
@@ -905,7 +784,9 @@ app.post("/api/stories/upload-pdf-book", async (req, res) => {
       bookTitle = "Uploaded Book / Excerpt",
       author = "Uploaded Author",
       targetLanguage = "English",
-      mediatorLanguage = "az",
+      mediatorLanguage = req.body.mediatorLanguage ||
+      (syncedUsersDatabase[userId]?.mediatorLanguage) ||
+      "en",
       userLevel = "B1"
     } = req.body;
 
@@ -990,7 +871,9 @@ CRITICAL REQUIREMENTS:
 3. Generate at least 4 SEQUENTIAL Socratic dialogue questions that probe narrator motives, themes, and linguistic nuances directly from this excerpt.
 4. Generate at least 5 COMPREHENSIVE, VARIED tasks & exercises (Comprehension, Vocabulary in Context, Grammar/Syntax, Stylistic Devices, Synthesis) based directly on quotes from this passage. Distribute the correct answers across options (do not make them all index 0!).
 5. Never use generic placeholder sentences or repetitive boilerplate.
+6. IMPORTANT: The book may be technical, non-fiction, or practical (e.g., programming, plumbing, martial arts). In that case, **do NOT** generate literary analysis or philosophical questions. Instead, generate comprehension questions and exercises based on the **actual subject matter** of the excerpt, focusing on vocabulary, grammar, and practical understanding.
 
+7. **Book Type Awareness**: Determine if the book is fiction (literary) or non‑fiction (technical/practical). If non‑fiction, DO NOT generate literary analysis, Socratic questions about character psychology, existential themes, or stylistic devices. Instead, generate comprehension questions related to the actual content (e.g., "What is the main idea of this excerpt?", "What specific technique does the author describe?"). The Socratic questions should focus on understanding the subject matter, not on abstract philosophy.
 Return ONLY valid JSON matching this schema:
 {
   "title": "${bookTitle}",
@@ -1008,7 +891,7 @@ Return ONLY valid JSON matching this schema:
   "sentences": [
     {
       "text": "Exact sentence in ${targetLanguage}",
-      "translation": "Accurate, natural translation in ${mediatorLanguage}",
+      "translation": "Provide translation in ${mediatorLanguage}", "cefr":
       "literaryNote": "Pedagogical or literary commentary on syntax, phrasing, or rhetoric in this sentence",
       "audioTime": "0:00 - 0:08"
     }
@@ -1018,7 +901,7 @@ Return ONLY valid JSON matching this schema:
       "word": "notable vocabulary word from excerpt",
       "ipa": "/phonetic/",
       "pos": "noun/verb/adjective/adverb",
-      "translation": "accurate translation in ${mediatorLanguage}",
+      "translation": "Provide translation in ${mediatorLanguage}", "cefr":
       "cefr": "${userLevel}",
       "example": "Contextual usage sentence in ${targetLanguage}"
     }
@@ -1242,7 +1125,9 @@ app.post("/api/socratic/chat", async (req, res) => {
       userMessage = "",
       chatHistory = [],
       targetLanguage = "English",
-      mediatorLanguage = "az"
+      mediatorLanguage = req.body.mediatorLanguage ||
+      (syncedUsersDatabase[userId]?.mediatorLanguage) ||
+      "en",
     } = req.body;
 
     if (!userMessage || !userMessage.trim()) {
@@ -1250,9 +1135,11 @@ app.post("/api/socratic/chat", async (req, res) => {
     }
 
     const aiPrompt = `You are SpeakBot Socratic Mentor, an intellectually stimulating, warm literary tutor having a live Socratic conversation with a language learner about the excerpt from "${bookTitle}" by ${author}.
-Target Language: ${targetLanguage}
-Mediator Language for explanations: ${mediatorLanguage} (e.g. az: Azerbaijani, ru: Russian, tr: Turkish, es: Spanish, en: English)
 
+Target Language: ${targetLanguage}
+
+Mediator Language for explanations: ${mediatorLanguage} (e.g. az: Azerbaijani, ru: Russian, tr: Turkish, es: Spanish, en: English)
+ 
 The Excerpt:
 """
 ${excerpt.slice(0, 1200)}
@@ -1269,6 +1156,7 @@ Respond thoughtfully in a genuine Socratic dialogue style:
 2. Pose an inquisitive follow-up question that challenges them to notice a deeper thematic, moral, or linguistic nuance.
 3. Provide a brief pedagogical linguistic note in ${mediatorLanguage} (e.g. explaining a vocabulary word or grammar structure).
 4. Provide 2 suggested short responses the learner can click if they wish.
+5. IMPORTANT: The book may be fiction or non‑fiction. If it's a technical/practical book, engage in Socratic dialogue about the **content** (concepts, techniques, explanations) rather than about literary themes or existential questions.
 
 Return ONLY valid JSON matching this schema:
 {
@@ -1460,13 +1348,15 @@ app.delete("/api/user/vocabulary", (req, res) => {
 });
 
 app.post("/api/user/mediator-language", (req, res) => {
-  const { userId = "default-user", mediatorLanguage = "az" } = req.body;
+
+  const { userId = "default-user", mediatorLanguage } = req.body;
+  const actualMediator = mediatorLanguage || syncedUsersDatabase[userId]?.mediatorLanguage || "en";
   if (!syncedUsersDatabase[userId]) {
     syncedUsersDatabase[userId] = JSON.parse(JSON.stringify(syncedUsersDatabase["default-user"]));
     syncedUsersDatabase[userId].userId = userId;
   }
-  syncedUsersDatabase[userId].mediatorLanguage = mediatorLanguage;
-  res.json({ success: true, mediatorLanguage });
+  syncedUsersDatabase[userId].mediatorLanguage = actualMediator;
+  res.json({ success: true, actualMediator });
 });
 
 app.post("/api/user/target-language", (req, res) => {
@@ -1579,8 +1469,8 @@ Return ONLY a valid JSON object with keys:
   "level": "${level}",
   "targetLanguage": "${targetLanguage}",
   "paragraphs": ["Paragraph 1", "Paragraph 2"],
-  "sentences": [{"text": "Sentence in ${targetLanguage}", "translation": "Natural translation", "literaryNote": "Grammar or nuance note"}],
-  "keyVocabulary": [{"word": "word", "ipa": "/ipa/", "pos": "noun", "cefr": "${level}", "translation": "translation", "example": "example sentence"}]
+  "sentences": [{"text": "Sentence in ${targetLanguage}", "translation": "Provide translation in ${mediatorLanguage}", "cefr": "literaryNote": "Grammar or nuance note"}],
+  "keyVocabulary": [{"word": "word", "ipa": "/ipa/", "pos": "noun", "cefr": "${level}", "translation": "", "cefr": "example": "example sentence"}]
 }`;
     const raw = await callGeminiWithResilience(prompt);
     if (raw) {
@@ -1629,7 +1519,7 @@ Return JSON:
       "title": "Module Title",
       "description": "Module overview",
       "cefr": "${userLevel}",
-      "rules": [{"rule": "Rule title", "explanation": "Rule explanation", "example": "Example in ${targetLanguage}", "translation": "Translation"}]
+      "rules": [{"rule": "Rule title", "explanation": "Rule explanation", "example": "Example in ${targetLanguage}", "translation": "Provide translation in ${mediatorLanguage}"}]
     }
   ]
 }`;
@@ -1662,7 +1552,7 @@ app.post("/api/gemini/generate-roadmap", async (req, res) => {
 app.post("/api/gemini/generate-grammar-guide", async (req, res) => {
   try {
     const { targetLanguage = "English", ruleTitle = "Verb Tenses", level = "B1" } = req.body;
-    const prompt = `Generate an in-depth grammar guide in ${targetLanguage} for level ${level} about "${ruleTitle}". Include formulas, common pitfalls, and 3 rich examples with translations. Return JSON with { "title": "${ruleTitle}", "targetLanguage": "${targetLanguage}", "level": "${level}", "content": "Markdown formatted guide", "exercises": [{"question": "Fill in the blank...", "options": ["A", "B", "C"], "correct": 0, "explanation": "..."}] }`;
+    const prompt = `Generate an in-depth grammar guide in ${targetLanguage} for level ${level} about "${ruleTitle} with informative explanatory description and samples". Include formulas, common pitfalls, and 3 rich examples with translations in ${mediatorLanguage}". Return JSON with { "title": "${ruleTitle}", "targetLanguage": "${targetLanguage}", "level": "${level}", "content": "Markdown formatted guide", "exercises": [{"question": "Fill in the blank...", "options": ["A", "B", "C","D"], "correct": 0, "explanation": "..."}] }`;
     const raw = await callGeminiWithResilience(prompt);
     if (raw) {
       const clean = raw.replace(/^```json\s*/i, "").replace(/```$/i, "").trim();
@@ -1713,7 +1603,7 @@ function getFallbackRoadmap(lang = "English", level = "B1") {
         description: "Elevating speech with cohesive literary linkages",
         cefr: level,
         rules: [
-          { rule: "Subordination & Concession", explanation: "Using 'whereas', 'notwithstanding', and 'inasmuch as'.", example: "Notwithstanding the storm, the expedition proceeded.", translation: "Fırtınaya baxmayaraq, ekspedisiya davam etdi." }
+          { rule: "Subordination & Concession", explanation: "Using 'whereas', 'notwithstanding', and 'inasmuch as'.", example: "Notwithstanding the storm, the expedition proceeded.", translation: "" }
         ]
       }
     ]
@@ -1750,18 +1640,18 @@ const SERVER_LEXICON = {
   },
   German: {
     sehnsucht: { ipa: "/ˈzeːnˌzʊxt/", pos: "noun", cefr: "C1", translation: "həsrət, intizar", note: "Yearning or wistful longing." },
-    wanderlust: { ipa: "/ˈvandɐˌlʊst/", pos: "noun", cefr: "B2", translation: "səyahət həvəsi", note: "Strong desire to travel." },
-    weltschmerz: { ipa: "/ˈvɛltˌʃmɛrts/", pos: "noun", cefr: "C2", translation: "dünya kədəri", note: "World-weariness." },
-    zeitgeist: { ipa: "/ˈtsaɪtˌɡaɪst/", pos: "noun", cefr: "C1", translation: "zamanın ruhu", note: "The spirit of the time." }
+    wanderlust: { ipa: "/ˈvandɐˌlʊst/", pos: "noun", cefr: "B2", "translation": "", note: "Strong desire to travel." },
+    weltschmerz: { ipa: "/ˈvɛltˌʃmɛrts/", pos: "noun", cefr: "C2", "translation": "", note: "World-weariness." },
+    zeitgeist: { ipa: "/ˈtsaɪtˌɡaɪst/", pos: "noun", cefr: "C1", "translation": "", note: "The spirit of the time." }
   },
   Spanish: {
-    soledad: { ipa: "/soleˈðað/", pos: "noun", cefr: "B1", translation: "tənhalıq", note: "State of being alone." },
-    esperanza: { ipa: "/espeˈɾanθa/", pos: "noun", cefr: "A2", translation: "ümid", note: "Hope or expectation." },
-    mariposa: { ipa: "/maɾiˈposa/", pos: "noun", cefr: "A1", translation: "kəpənək", note: "Butterfly." }
+    soledad: { ipa: "/soleˈðað/", pos: "noun", cefr: "B1", "translation": "", note: "State of being alone." },
+    esperanza: { ipa: "/espeˈɾanθa/", pos: "noun", cefr: "A2", "translation": "", note: "Hope or expectation." },
+    mariposa: { ipa: "/maɾiˈposa/", pos: "noun", cefr: "A1", "translation": "", note: "Butterfly." }
   },
   French: {
-    flâneur: { ipa: "/flɑ.nœʁ/", pos: "noun", cefr: "C1", translation: "avaralanan gəzən", note: "One who saunters or strolls." },
-    nostalgie: { ipa: "/nɔs.tal.ʒi/", pos: "noun", cefr: "B1", translation: "nostalgiya", note: "Sentimental longing." }
+    flâneur: { ipa: "/flɑ.nœʁ/", pos: "noun", cefr: "C1", "translation": "", note: "One who saunters or strolls." },
+    nostalgie: { ipa: "/nɔs.tal.ʒi/", pos: "noun", cefr: "B1", "translation": "", note: "Sentimental longing." }
   }
 };
 
@@ -1798,22 +1688,22 @@ function defaultTokenizeSentence(sentence, targetLanguage = "English") {
 
 const CUBEWORD_TARGET_QUESTS = {
   English: [
-    { word: "SOLITARY", clue: "Existing alone; secluded", cefr: "B2", translation: "tənha" },
-    { word: "WANDER", clue: "To roam without definite destination", cefr: "B1", translation: "gəzişmək" },
-    { word: "RESILIENCE", clue: "Capacity to recover quickly", cefr: "B2", translation: "dözümlülük" },
-    { word: "ELOQUENCE", clue: "Fluent and persuasive speech", cefr: "C1", translation: "bəlağət" }
+    { word: "SOLITARY", clue: "Existing alone; secluded", cefr: "B2", "translation": "" },
+    { word: "WANDER", clue: "To roam without definite destination", cefr: "B1", "translation": "" },
+    { word: "RESILIENCE", clue: "Capacity to recover quickly", cefr: "B2", "translation": "" },
+    { word: "ELOQUENCE", clue: "Fluent and persuasive speech", cefr: "C1", "translation": "" }
   ],
   German: [
-    { word: "SEHNSUCHT", clue: "Deep yearning or longing", cefr: "C1", translation: "həsrət" },
-    { word: "ZEITGEIST", clue: "Spirit of the era", cefr: "C1", translation: "dövrün ruhu" }
+    { word: "SEHNSUCHT", clue: "Deep yearning or longing", cefr: "C1", "translation": "" },
+    { word: "ZEITGEIST", clue: "Spirit of the era", cefr: "C1", "translation": "" }
   ],
   Spanish: [
-    { word: "SOLEDAD", clue: "Solitude or loneliness", cefr: "B1", translation: "tənhalıq" },
-    { word: "ESPERANZA", clue: "Hope", cefr: "A2", translation: "ümid" }
+    { word: "SOLEDAD", clue: "Solitude or loneliness", cefr: "B1", "translation": "" },
+    { word: "ESPERANZA", clue: "Hope", cefr: "A2", "translation": "" }
   ],
   French: [
-    { word: "FLANEUR", clue: "Passionate urban stroller", cefr: "C1", translation: "avaralanan" },
-    { word: "NOSTALGIE", clue: "Poignant longing for the past", cefr: "B1", translation: "nostalgiya" }
+    { word: "FLANEUR", clue: "Passionate urban stroller", cefr: "C1", "translation": "" },
+    { word: "NOSTALGIE", clue: "Poignant longing for the past", cefr: "B1", "translation": "" }
   ]
 };
 
@@ -1863,7 +1753,7 @@ app.get("/api/cubeword/generate-special-word", async (req, res) => {
   try {
     const targetLang = req.query.targetLanguage || "English";
     const level = req.query.level || "B2";
-    const prompt = `Provide a single elegant, expressive vocabulary word in ${targetLang} at CEFR level ${level}. Return JSON: { "word": "WORD", "clue": "Definition", "translation": "Azerbaijani translation", "cefr": "${level}" }`;
+    const prompt = `Provide a single elegant, expressive vocabulary word in ${targetLang} at CEFR level ${level}. Return JSON: { "word": "WORD", "clue": "Definition", "translation": "Provide translation in ${mediatorLanguage}", "cefr": "${level}" }`;
     const raw = await callGeminiWithResilience(prompt);
     if (raw) {
       const clean = raw.replace(/^```json\s*/i, "").replace(/```$/i, "").trim();
@@ -1872,7 +1762,7 @@ app.get("/api/cubeword/generate-special-word", async (req, res) => {
     }
     res.json({
       success: true,
-      item: { word: "EPIPHANY", clue: "Sudden striking realization", translation: "qəfil dərketmə", cefr: "C1" }
+      item: { word: "EPIPHANY", clue: "Sudden striking realization", "translation": "", "cefr": "C1" }
     });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
@@ -1924,7 +1814,186 @@ cron.schedule("0 */6 * * *", async () => {
   const rawStory = await fetchRandomGutenbergBook();
   if (rawStory) {
     // Generate full story using AI
-    const aiPrompt = `...` // same as upload, but with rawStory.excerpt
+    const aiPrompt = `You are SpeakBot's Chief NLP Literary Pedagogical Engine.
+The user uploaded a book/story titled "${resolvedTitle}" by "${resolvedAuthor}".
+Literary Era: ${resolvedEra}
+Target Language of Book: ${targetLanguage}
+User Target CEFR Level: ${userLevel}
+Mediator Language for translations & explanations: ${mediatorLanguage} (e.g. az: Azerbaijani, ru: Russian, tr: Turkish, es: Spanish, en: English, de: German)
+
+${isTextScannedOrEmpty
+        ? `The uploaded document is a scanned or image-based edition without a clean raw text layer.
+TASK: Draw upon your literary knowledge of "${resolvedTitle}" by "${resolvedAuthor}". Generate an authentic, iconic 180-260 word literary chapter excerpt from "${resolvedTitle}" by "${resolvedAuthor}" in ${targetLanguage} adapted for CEFR ${userLevel} readers. Faithfully convey ${resolvedAuthor}'s specific characters, setting, and prose cadence.`
+        : `Here is the authentic text excerpt extracted from the book "${resolvedTitle}" by "${resolvedAuthor}":
+"""
+${rawStory.excerpt}
+"""`
+      }
+
+Synthesize a complete, interactive Classic Story reading and audio study module based on this excerpt.
+CRITICAL REQUIREMENTS:
+1. Every sentence, vocabulary word, stylistic device, conversation question, and exercise MUST be uniquely tailored to "${bookTitle}" by "${author}" and this specific passage.
+2. Provide authentic, accurate translations in ${mediatorLanguage}.
+3. Generate at least 4 SEQUENTIAL Socratic dialogue questions that probe narrator motives, themes, and linguistic nuances directly from this excerpt.
+4. Generate at least 5 COMPREHENSIVE, VARIED tasks & exercises (Comprehension, Vocabulary in Context, Grammar/Syntax, Stylistic Devices, Synthesis) based directly on quotes from this passage. Distribute the correct answers across options (do not make them all index 0!).
+5. Never use generic placeholder sentences or repetitive boilerplate.
+6. IMPORTANT: The book may be technical, non-fiction, or practical (e.g., programming, plumbing, martial arts). In that case, **do NOT** generate literary analysis or philosophical questions. Instead, generate comprehension questions and exercises based on the **actual subject matter** of the excerpt, focusing on vocabulary, grammar, and practical understanding.
+
+7. **Book Type Awareness**: Determine if the book is fiction (literary) or non‑fiction (technical/practical). If non‑fiction, DO NOT generate literary analysis, Socratic questions about character psychology, existential themes, or stylistic devices. Instead, generate comprehension questions related to the actual content (e.g., "What is the main idea of this excerpt?", "What specific technique does the author describe?"). The Socratic questions should focus on understanding the subject matter, not on abstract philosophy.
+Return ONLY valid JSON matching this schema:
+{
+  "title": "${bookTitle}",
+  "author": "${author}",
+  "authorEra": "Literary Era (e.g. Victorian, Romantic, Modernist)",
+  "level": "${userLevel}",
+  "mode": "both",
+  "duration": "4 min read • 2 min audio",
+  "targetLanguage": "${targetLanguage}",
+  "culturalLinguisticContext": "2-sentence cultural and linguistic context explaining the style, tone, and grammar in this excerpt.",
+  "paragraphs": [
+    "Paragraph 1 text from the excerpt",
+    "Paragraph 2 text from the excerpt"
+  ],
+  "sentences": [
+    {
+      "text": "Exact sentence in ${targetLanguage}",
+      "translation": "Provide translation in ${mediatorLanguage}", "cefr":
+      "literaryNote": "Pedagogical or literary commentary on syntax, phrasing, or rhetoric in this sentence",
+      "audioTime": "0:00 - 0:08"
+    }
+  ],
+  "keyVocabulary": [
+    {
+      "word": "notable vocabulary word from excerpt",
+      "ipa": "/phonetic/",
+      "pos": "noun/verb/adjective/adverb",
+      "translation": "Provide translation in ${mediatorLanguage}", "cefr":
+      "cefr": "${userLevel}",
+      "example": "Contextual usage sentence in ${targetLanguage}"
+    }
+  ],
+  "stylisticDevices": [
+    {
+      "device": "Name of literary/grammatical device (e.g. Metaphor, Inversion, Imagery)",
+      "exampleFromText": "quote from excerpt",
+      "explanation": "Brief explanation of how this device functions in this excerpt"
+    }
+  ],
+  "conversations": [
+    {
+      "id": "socratic-1",
+      "stepNumber": 1,
+      "persona": "SpeakBot Socratic Mentor",
+      "topic": "Thematic or Character Motive",
+      "prompt": "Deep Socratic question testing literary comprehension and psychological perspective of this excerpt from ${bookTitle}",
+      "options": [
+        "Thoughtful, text-grounded interpretation reflecting the excerpt",
+        "Alternative interpretation missing key nuance",
+        "Superficial or erroneous interpretation"
+      ],
+      "correctIndex": 0,
+      "botFeedback": "Detailed pedagogical Socratic feedback validating insight and quoting the text.",
+      "points": 25
+    },
+    {
+      "id": "socratic-2",
+      "stepNumber": 2,
+      "persona": "SpeakBot Socratic Mentor",
+      "topic": "Tone and Rhetorical Strategy",
+      "prompt": "Socratic question probing the atmosphere and narrator's perspective in sentence 2-3 of the excerpt",
+      "options": [
+        "Incorrect literal reading",
+        "Deep, nuanced interpretation of the author's tone",
+        "Irrelevant distractor"
+      ],
+      "correctIndex": 1,
+      "botFeedback": "Encouraging explanation connecting the narrator's emotion with their choice of words.",
+      "points": 25
+    },
+    {
+      "id": "socratic-3",
+      "stepNumber": 3,
+      "persona": "SpeakBot Socratic Mentor",
+      "topic": "Linguistic & Syntactic Nuance",
+      "prompt": "Socratic inquiry examining how grammatical phrasing shapes the reader's immersion",
+      "options": [
+        "Profound explanation of sentence cadence",
+        "Superficial mechanical distractor",
+        "Incorrect claim about sentence structure"
+      ],
+      "correctIndex": 0,
+      "botFeedback": "Socratic insight revealing how syntax serves literary meaning.",
+      "points": 25
+    },
+    {
+      "id": "socratic-4",
+      "stepNumber": 4,
+      "persona": "SpeakBot Socratic Mentor",
+      "topic": "Universal Meaning & Synthesis",
+      "prompt": "Final Socratic reflection connecting this excerpt to wider philosophical or moral dilemmas",
+      "options": [
+        "Distractor 1",
+        "Resonant philosophical synthesis grounded in the passage",
+        "Distractor 2"
+      ],
+      "correctIndex": 1,
+      "botFeedback": "Concluding Socratic contemplation celebrating the reader's critical engagement.",
+      "points": 25
+    }
+  ],
+  "exercises": [
+    {
+      "id": "task-1",
+      "taskNumber": 1,
+      "category": "Comprehension & Textual Inference",
+      "question": "Comprehension question directly based on specific events or thoughts in this excerpt",
+      "options": ["Correct Option", "Distractor 1", "Distractor 2", "Distractor 3"],
+      "correctIndex": 0,
+      "explanation": "Detailed explanation based directly on the excerpt.",
+      "points": 25
+    },
+    {
+      "id": "task-2",
+      "taskNumber": 2,
+      "category": "Vocabulary in Literary Context",
+      "question": "Question on the contextual meaning or nuance of a key word from the excerpt",
+      "options": ["Distractor 1", "Correct Option", "Distractor 2", "Distractor 3"],
+      "correctIndex": 1,
+      "explanation": "Explanation explaining how the word is used in this excerpt.",
+      "points": 25
+    },
+    {
+      "id": "task-3",
+      "taskNumber": 3,
+      "category": "Grammar & Syntactic Architecture",
+      "question": "Question analyzing the syntactic structure (clauses, participial phrases, voice, or tense) in this excerpt",
+      "options": ["Distractor 1", "Distractor 2", "Correct Option", "Distractor 3"],
+      "correctIndex": 2,
+      "explanation": "Grammatical analysis explaining clause structure and linguistic function.",
+      "points": 25
+    },
+    {
+      "id": "task-4",
+      "taskNumber": 4,
+      "category": "Stylistic & Rhetorical Devices",
+      "question": "Question identifying the literary device (imagery, metaphor, antithesis, etc.) used in the excerpt",
+      "options": ["Distractor 1", "Distractor 2", "Distractor 3", "Correct Option"],
+      "correctIndex": 3,
+      "explanation": "Stylistic commentary referencing the exact phrase.",
+      "points": 25
+    },
+    {
+      "id": "task-5",
+      "taskNumber": 5,
+      "category": "Critical Literary Synthesis",
+      "question": "Question synthesizing the excerpt's central theme and character psychological trajectory",
+      "options": ["Correct Option", "Distractor 1", "Distractor 2", "Distractor 3"],
+      "correctIndex": 0,
+      "explanation": "In-depth literary synthesis reflecting ${author}'s vision in this passage.",
+      "points": 25
+    }
+  ]
+}`;
     const parsedStory = await callGeminiWithResilience(aiPrompt);
     if (parsedStory) {
       rawStory.storyData = parsedStory;
@@ -2183,7 +2252,7 @@ cron.schedule("0 */6 * * *", async () => {
 //         {
 //           id: "vocab-fr-2",
 //           word: "durabilité",
-//           translation: "davamlılıq",
+//           "translation": "", "cefr":
 //           targetLanguage: "French",
 //           pos: "noun",
 //           ipa: "/dy.ʁa.bi.li.te/",
@@ -2195,7 +2264,7 @@ cron.schedule("0 */6 * * *", async () => {
 //         {
 //           id: "vocab-it-1",
 //           word: "sviluppo",
-//           translation: "inkişaf",
+//           "translation": "", "cefr":
 //           targetLanguage: "Italian",
 //           pos: "noun",
 //           ipa: "/zviˈluppo/",
@@ -2207,7 +2276,7 @@ cron.schedule("0 */6 * * *", async () => {
 //         {
 //           id: "vocab-ru-1",
 //           word: "развитие",
-//           translation: "inkişaf",
+//           "translation": "", "cefr":
 //           targetLanguage: "Russian",
 //           pos: "noun",
 //           ipa: "/rɐzˈvʲitʲɪjə/",
@@ -2879,9 +2948,9 @@ cron.schedule("0 */6 * * *", async () => {
 //         ],
 //         keyVocabulary: [
 //           { word: "dreary", ipa: "/ˈdrɪə.ri/", pos: "adjective", translation: "tutqun, sıxıcı", cefr: "B2", example: "It was a dreary winter morning with thick fog." },
-//           { word: "refuge", ipa: "/ˈref.juːdʒ/", pos: "noun", translation: "sığınacaq", cefr: "B2", example: "The old library became his refuge from the busy city." },
+//           { word: "refuge", ipa: "/ˈref.juːdʒ/", pos: "noun", "translation": "", "cefr": "B2", example: "The old library became his refuge from the busy city." },
 //           { word: "sublime", ipa: "/səˈblaɪm/", pos: "adjective", translation: "əzəmətli, ali", cefr: "C1", example: "The majestic peaks evoked a sense of sublime awe." },
-//           { word: "consolation", ipa: "/ˌkɒn.səˈleɪ.ʃən/", pos: "noun", translation: "təsəlli", cefr: "B2", example: "Music brought him great consolation during difficult times." }
+//           { word: "consolation", ipa: "/ˌkɒn.səˈleɪ.ʃən/", pos: "noun", "translation": "", "cefr": "B2", example: "Music brought him great consolation during difficult times." }
 //         ],
 //         stylisticDevices: [
 //           { device: "Romantic Sublime", exampleFromText: "sublime and magnificent scenes", explanation: "Evokes grandeur and awe inspired by untamed nature." }
@@ -2945,7 +3014,7 @@ cron.schedule("0 */6 * * *", async () => {
 //         keyVocabulary: [
 //           { word: "der Tor", ipa: "/toːɐ̯/", pos: "noun", translation: "axmaq, nadan kəs", cefr: "B2", example: "Er fühlte sich wie ein armer Tor." },
 //           { word: "studieren", ipa: "/ʃtuˈdiːʁən/", pos: "verb", translation: "təhsil almaq, öyrənmək", cefr: "A1", example: "Ich studiere deutsche Literatur." },
-//           { word: "die Theologie", ipa: "/teoloˈɡiː/", pos: "noun", translation: "ilahiyyat", cefr: "B2", example: "Theologie befasst sich mit religiösen Lehren." }
+//           { word: "die Theologie", ipa: "/teoloˈɡiː/", pos: "noun", "translation": "", "cefr": "B2", example: "Theologie befasst sich mit religiösen Lehren." }
 //         ],
 //         stylisticDevices: [
 //           { device: "Klimax & Ausruf", exampleFromText: "Habe nun, ach! ... durchaus studiert", explanation: "Steigerung der Studienfächer bis zur bitteren Desillusionierung." }
@@ -2989,7 +3058,9 @@ cron.schedule("0 */6 * * *", async () => {
 //       bookTitle = "Uploaded Book / Excerpt",
 //       author = "Uploaded Author",
 //       targetLanguage = "English",
-//       mediatorLanguage = "az",
+//       mediatorLanguage = req.body.mediatorLanguage || 
+// (syncedUsersDatabase[userId]?.mediatorLanguage) ||
+//   "en",
 //       userLevel = "B1",
 //       customInstructions = ""
 //     } = req.body;
@@ -3111,7 +3182,7 @@ cron.schedule("0 */6 * * *", async () => {
 //   "sentences": [
 //     {
 //       "text": "Exact sentence in ${targetLanguage}",
-//       "translation": "Accurate, natural translation in ${mediatorLanguage}",
+//       "translation": "", "cefr":
 //       "literaryNote": "Pedagogical or literary commentary on syntax, phrasing, or rhetoric",
 //       "audioTime": "0:00 - 0:08"
 //     }
@@ -3121,7 +3192,7 @@ cron.schedule("0 */6 * * *", async () => {
 //       "word": "important word",
 //       "ipa": "/phonetic/",
 //       "pos": "noun/verb/adjective/adverb",
-//       "translation": "translation in ${mediatorLanguage}",
+//       "translation": "", "cefr":
 //       "cefr": "${userLevel}",
 //       "example": "Contextual usage sentence in ${targetLanguage}"
 //     }
@@ -3300,7 +3371,9 @@ cron.schedule("0 */6 * * *", async () => {
 //     grammarScore = 70,
 //     testedConcepts = ["Conditionals", "Inversion", "Subjunctive"],
 //     targetLanguage = "English",
-//     mediatorLanguage = "az",
+//     mediatorLanguage = req.body.mediatorLanguage || 
+// (syncedUsersDatabase[userId]?.mediatorLanguage) ||
+//   "en",
 //     level = "B1"
 //   } = req.body;
 //   try {
@@ -3400,7 +3473,9 @@ cron.schedule("0 */6 * * *", async () => {
 //       topic,
 //       level = "B1",
 //       targetLanguage = "English",
-//       mediatorLanguage = "az",
+//       mediatorLanguage = req.body.mediatorLanguage ||
+// (syncedUsersDatabase[userId]?.mediatorLanguage) ||
+// "en",
 //       customGoal = ""
 //     } = req.body;
 //     const ai = getGeminiClient();
@@ -3485,7 +3560,7 @@ cron.schedule("0 */6 * * *", async () => {
 //       title,
 //       level = "B1",
 //       category = "Grammar",
-//       mediatorLanguage = "az"
+//       mediatorLanguage = "en"
 //     } = req.body;
 //     const prompt = `You are SpeakBot's chief grammar and linguistic material creator.
 // Generate a complete, printable study guide PDF content for:
@@ -3563,7 +3638,7 @@ cron.schedule("0 */6 * * *", async () => {
 //   }
 // });
 // app.post("/api/gemini/tokenize", async (req, res) => {
-//   const { sentence, mediatorLanguage = "az", targetLanguage = "English" } = req.body;
+//   const { sentence, mediatorLanguage = "en", targetLanguage = "English" } = req.body;
 //   if (!sentence) {
 //     return res.status(400).json({ error: "Sentence is required" });
 //   }
@@ -3959,7 +4034,7 @@ cron.schedule("0 */6 * * *", async () => {
 //     translations: { az: "müəyyənlik artikli", ru: "определенный артикль", tr: "belirtme eki", es: "el / lo", de: "das", en: "the" }
 //   }
 // };
-// function getFallbackPersonalizedGrammarRoadmap(grammarScore, testedConcepts = ["Conditionals", "Inversion"], targetLanguage = "English", mediatorLanguage = "az", level = "B1") {
+// function getFallbackPersonalizedGrammarRoadmap(grammarScore, testedConcepts = ["Conditionals", "Inversion"], targetLanguage = "English", mediatorLanguage = "en", level = "B1") {
 //   const needsRemediation = grammarScore < 75;
 //   const focusTitle = needsRemediation ? `Targeted Grammar Recovery: ${testedConcepts[0] || "Core Syntax"} & Error Prevention` : `Advanced Grammar Mastery: Stylistic Inversion & ${testedConcepts[0] || "Nuanced Structures"}`;
 //   return {
