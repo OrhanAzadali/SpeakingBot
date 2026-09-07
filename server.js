@@ -20,7 +20,33 @@ import { createRequire } from "module";
 import zlib from "zlib";
 import fs from "fs";
 import cron from "node-cron";
+import Tesseract from "tesseract.js";
+import pdfjsLib from "pdfjs-dist/legacy/build/pdf.js";
+import fs from "fs";
+import * as pdfjsLib from "pdfjs-dist/legacy/build/pdf.js";
+import { createWorker } from "tesseract.js";
+import { createCanvas } from "canvas"; // If canvas fails, you can use a fallback
+import { createCanvas } from "@napi-rs/canvas";
 
+async function extractTextFromScannedPdf(buffer) {
+  // Convert PDF to images
+  const pdf = await pdfjsLib.getDocument({ data: new Uint8Array(buffer) }).promise;
+  let fullText = "";
+  const canvas = require("canvas");
+
+  for (let i = 1; i <= pdf.numPages; i++) {
+    const page = await pdf.getPage(i);
+    const viewport = page.getViewport({ scale: 2 });
+    const canvasObj = canvas.createCanvas(viewport.width, viewport.height);
+    const ctx = canvasObj.getContext("2d");
+    await page.render({ canvasContext: ctx, viewport }).promise;
+
+    const dataUrl = canvasObj.toDataURL();
+    const { data: { text } } = await Tesseract.recognize(dataUrl, "eng");
+    fullText += text + "\n";
+  }
+  return fullText;
+}
 
 const customRequire = typeof require !== "undefined" ? require : createRequire(import.meta.url);
 
@@ -69,8 +95,8 @@ function getGeminiClient() {
 
 async function callGeminiWithResilience(
   prompt,
-  preferredModel = "gemini-1.5-flash",
-  fallbackModels = ["gemini-1.5-pro", "gemini-flash-latest"]
+  preferredModel = "gemini-1.5-flash-latest",
+  fallbackModels = ["gemini-1.5-pro-latest", "gemini-2.0-flash-exp", "gemini-2.0-flash"]
 ) {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) return null;
@@ -241,6 +267,37 @@ function cleanExtractedPdfText(text) {
     .replace(/\n{3,}/g, "\n\n")
     .replace(/[ \t]+/g, " ")
     .trim();
+}
+
+async function extractTextFromPdfWithOCR(buffer) {
+  try {
+    // Convert PDF buffer to a Uint8Array for pdfjs
+    const pdfData = new Uint8Array(buffer);
+    const pdf = await pdfjsLib.getDocument({ data: pdfData }).promise;
+
+    const worker = await createWorker('eng'); // English; you can add more languages if needed
+
+    let fullText = '';
+
+    for (let i = 1; i <= pdf.numPages; i++) {
+      const page = await pdf.getPage(i);
+      const viewport = page.getViewport({ scale: 2 }); // 2x for better OCR
+      const canvas = createCanvas(viewport.width, viewport.height);
+      const context = canvas.getContext('2d');
+      await page.render({ canvasContext: context, viewport }).promise;
+
+      const imageBuffer = canvas.toBuffer('image/png');
+      const { data: { text } } = await worker.recognize(imageBuffer);
+      fullText += text + '\n';
+    }
+
+    await worker.terminate();
+
+    return fullText;
+  } catch (err) {
+    console.warn('[OCR] Failed:', err.message);
+    return '';
+  }
 }
 
 // Extract text directly from decompressed PDF FlateDecode streams
@@ -479,10 +536,37 @@ async function extractTextFromPdfBuffer(buffer) {
             try { await parser.destroy(); } catch (_) { }
           }
           const cleaned = cleanExtractedPdfText(raw);
+          if (!cleaned) {
+            cleaned = await extractTextFromScannedPdf(buffer);
+          }
+          if (cleaned.length === 0) {
+            // Convert PDF to images using pdfjs-dist + canvas
+            try {
+              const pdfData = new Uint8Array(buffer);
+              const pdf = await pdfjsLib.getDocument({ data: pdfData }).promise;
+              const canvas = require("canvas");
+              let ocrText = "";
+              for (let i = 1; i <= pdf.numPages; i++) {
+                const page = await pdf.getPage(i);
+                const viewport = page.getViewport({ scale: 2 });
+                const canvasObj = canvas.createCanvas(viewport.width, viewport.height);
+                const ctx = canvasObj.getContext("2d");
+                await page.render({ canvasContext: ctx, viewport }).promise;
+                const imageBuffer = canvasObj.toBuffer("image/png");
+                const text = await ocrImageFromBuffer(imageBuffer);
+                ocrText += text + "\n";
+              }
+              cleanedText = ocrText;
+            } catch (ocrErr) {
+              console.warn("[OCR] Failed:", ocrErr.message);
+            }
+          }
           if (isReadableLiteraryText(cleaned) && cleaned.length > 50) {
             console.log(`[PDF Engine] Success via PDFParse class. Extracted ${cleaned.length} clean characters.`);
             return cleaned;
           }
+
+
         } catch (e1) {
           console.warn("[PDF Engine] PDFParse class extraction notice:", e1.message);
         }
@@ -493,6 +577,31 @@ async function extractTextFromPdfBuffer(buffer) {
             const res = await parseFunc(buffer, { max: 30 });
             const raw = typeof res === "string" ? res : (res && res.text ? res.text : "");
             const cleaned = cleanExtractedPdfText(raw);
+            if (!cleaned) {
+              cleaned = await extractTextFromScannedPdf(buffer);
+            }
+            if (cleaned.length === 0) {
+              // Convert PDF to images using pdfjs-dist + canvas
+              try {
+                const pdfData = new Uint8Array(buffer);
+                const pdf = await pdfjsLib.getDocument({ data: pdfData }).promise;
+                const canvas = require("canvas");
+                let ocrText = "";
+                for (let i = 1; i <= pdf.numPages; i++) {
+                  const page = await pdf.getPage(i);
+                  const viewport = page.getViewport({ scale: 2 });
+                  const canvasObj = canvas.createCanvas(viewport.width, viewport.height);
+                  const ctx = canvasObj.getContext("2d");
+                  await page.render({ canvasContext: ctx, viewport }).promise;
+                  const imageBuffer = canvasObj.toBuffer("image/png");
+                  const text = await ocrImageFromBuffer(imageBuffer);
+                  ocrText += text + "\n";
+                }
+                cleanedText = ocrText;
+              } catch (ocrErr) {
+                console.warn("[OCR] Failed:", ocrErr.message);
+              }
+            }
             if (isReadableLiteraryText(cleaned) && cleaned.length > 50) {
               console.log(`[PDF Engine] Success via pdf-parse function call. Extracted ${cleaned.length} clean characters.`);
               return cleaned;
@@ -503,6 +612,7 @@ async function extractTextFromPdfBuffer(buffer) {
         }
       }
     }
+
   } catch (err) {
     console.warn("[SpeakBot PDF Engine] Core parse notice:", err.message);
   }
@@ -522,8 +632,14 @@ async function extractTextFromPdfBuffer(buffer) {
     console.warn("[PDF Engine] Binary stream extraction notice:", eStream.message);
   }
 
-  console.log("[PDF Engine] No readable text layer found in PDF (scanned or image-based). Handing off to AI Literary Engine.");
-  return "";
+  console.log("[PDF Engine] No readable text layer found. Attempting OCR with Tesseract.js...");
+  const ocrText = await extractTextFromPdfWithOCR(buffer);
+  if (ocrText && ocrText.trim().length > 50) {
+    console.log(`[OCR] Successfully extracted ${ocrText.length} characters.`);
+    return ocrText;
+  }
+  console.log("[OCR] Extraction failed or text too short.");
+  return ""; // will lead to simulation fallback
 }
 
 // Generate dynamic, book-specific fallback story when AI engine is offline
@@ -531,8 +647,14 @@ function generateLocalFallbackStory(params) {
   const { bookTitle, author, authorEra, canonKey, targetLanguage, mediatorLanguage, userLevel, excerptSlice, isSimulated } = params;
 
   const canon = canonKey && LITERARY_CANON_EXCERPTS[canonKey] ? LITERARY_CANON_EXCERPTS[canonKey] : null;
-
   let sentences = [];
+  if (isSimulated) {
+    sentences = [
+      `This PDF appears to be a scanned document without extractable text.`,
+      `Please try uploading a text-based PDF or provide a text file (.txt).`,
+      `AI processing was attempted but failed due to lack of text content.`
+    ];
+  }
   let translations = [];
   let literaryNotes = [];
   let keyVocabulary = [];
@@ -1083,6 +1205,8 @@ Return ONLY valid JSON matching this schema:
         points: e.points || 25
       }));
     }
+    // After determining parsedStory (either from AI or fallback)
+    const usedFallback = !parsedStory || !parsedStory.sentences || parsedStory.sentences.length === 0;
 
     const finalStory = {
       ...parsedStory,
@@ -1092,7 +1216,8 @@ Return ONLY valid JSON matching this schema:
       isSimulated: isTextScannedOrEmpty,
       uploadedAt: new Date().toISOString(),
       coverImage: "https://images.unsplash.com/photo-1456513080510-7bf3a84b82f8?auto=format&fit=crop&w=800&q=80",
-      targetLanguage: targetLanguage // Ensure correct language is stored
+      targetLanguage: targetLanguage,
+      isFallback: usedFallback   // <-- ADD THIS LINE
     };
 
     if (!userCustomStories[userId]) userCustomStories[userId] = [];
@@ -1101,10 +1226,15 @@ Return ONLY valid JSON matching this schema:
 
     res.json({
       success: true,
-      message: `Successfully processed "${fileName}". Created interactive reading & audio story card!`,
       story: finalStory,
-      allCustomStories: userCustomStories[userId]
+      message: usedFallback
+        ? "PDF processed with fallback (scanned or unreadable text). Please note that the generated content is a placeholder. For better results, upload a text-based PDF."
+        : "PDF processed successfully. Interactive story card created!",
+      warning: usedFallback
+        ? "The PDF had no extractable text. Please re-upload a text-based PDF or provide a .txt file."
+        : null
     });
+
   } catch (error) {
     console.error("[SpeakBot PDF Engine Error]:", error);
     res.status(500).json({
