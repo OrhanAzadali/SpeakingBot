@@ -1003,7 +1003,6 @@ function getDailyBotStoryFeeds(targetLanguage = "English") {
 }
 
 // 1. Upload PDF Book & Extract NLP Excerpt to generate interactive Classic Story
-
 app.post("/api/stories/upload-pdf-book", async (req, res) => {
   try {
     const {
@@ -1019,22 +1018,25 @@ app.post("/api/stories/upload-pdf-book", async (req, res) => {
       customInstructions = ""
     } = req.body;
 
-    // --- 1. ЛИМИТ НА РАЗМЕР ФАЙЛА (Защита от падения RAM на Render) ---
+    // --- 1. РЕАЛИЗАЦИЯ ЛИМИТА НА РАЗМЕР ФАЙЛА ---
+    // Вычисляем примерный размер Base64 строки в Мегабайтах
     if (fileBase64) {
       const approxSizeMb = (fileBase64.length * 0.75) / (1024 * 1024);
-      const MAX_ALLOWED_MB = 25;
+      const MAX_ALLOWED_MB = 25; // Безопасный предел для Free-тарифа Render
+
       if (approxSizeMb > MAX_ALLOWED_MB) {
         return res.status(400).json({
           success: false,
-          error: `Размер файла слишком велик (${approxSizeMb.toFixed(1)} MB). Чтобы сервер не упал, лимит составляет ${MAX_ALLOWED_MB} MB. Пожалуйста, загрузите только нужную главу.`
+          error: `Размер файла слишком велик (${approxSizeMb.toFixed(1)} MB). Чтобы сервер не упал, лимит для бесплатных аккаунтов составляет ${MAX_ALLOWED_MB} MB. Пожалуйста, сожмите PDF или загрузите только нужную главу в виде .txt.`
         });
       }
     }
 
-    // Извлекаем текст из PDF
     let extractedText = fileText || "";
     if (!extractedText && fileBase64) {
-      const base64Data = fileBase64.includes(";base64,") ? fileBase64.split(";base64,")[1] : fileBase64;
+      const base64Data = fileBase64.includes(";base64,")
+        ? fileBase64.split(";base64,")[1]
+        : fileBase64;
       const pdfBuffer = Buffer.from(base64Data, "base64");
       extractedText = await extractTextFromPdfBuffer(pdfBuffer);
     }
@@ -1046,115 +1048,122 @@ app.post("/api/stories/upload-pdf-book", async (req, res) => {
       });
     }
 
-    const cleanedText = extractedText.replace(/\r\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
+    // Очищаем текст от лишних переносов строк
+    const cleanedText = extractedText
+      .replace(/\r\n/g, "\n")
+      .replace(/\n{3,}/g, "\n\n")
+      .trim();
 
-    // --- 2. СЖИМАЕМ ВЕСЬ ТЕКСТ ДЛЯ ЭКОНОМИИ ОПЕРАТИВНОЙ ПАМЯТИ (ZIP) ---
-    const zippedBookContent = zipText(cleanedText);
-
-    // Эмулируем запись пожатой книги в вашу структуру бэкенда
-    const databaseRecordId = `story-custom-pdf-${Date.now()}`;
-    const dbMockRecord = {
-      id: databaseRecordId,
-      title: bookTitle,
-      author: author,
-      fileName: fileName,
-      targetLanguage,
-      userLevel,
-      zippedContent: zippedBookContent // В памяти хранится компактный Gzip Base64
-    };
-
-    // --- 3. РАЗЖИМАЕМ ДЛЯ РАБОТЫ И ВЫБИРАЕМ СЛУЧАЙНЫЙ ФРАГМЕНТ ИЗ СЕРЕДИНЫ КНИГИ ---
-    const textFromDb = unzipText(dbMockRecord.zippedContent);
-    const words = textFromDb.split(/\s+/);
+    // Разбираем текст на массив слов
+    const words = cleanedText.split(/\s+/);
     let excerptSlice = "";
 
+    // --- 2. РЕАЛИЗАЦИЯ СЛУЧАЙНОГО ВЫБОРА ФРАГМЕНТА ИЗ ЛЮБОЙ ЧАСТИ КНИГИ ---
     const TARGET_WORDS_COUNT = 320;
+
     if (words.length > TARGET_WORDS_COUNT) {
+      // Выбираем случайный индекс для старта (оставляя запас в конце для 320 слов)
       const maxStartIndex = words.length - TARGET_WORDS_COUNT;
       const randomStartIndex = Math.floor(Math.random() * maxStartIndex);
+
+      // Берем сырой кусок текста начиная со случайного места
       const rawSample = words.slice(randomStartIndex, randomStartIndex + TARGET_WORDS_COUNT).join(" ");
 
+      // Чтобы текст не начинался и не заканчивался на обрывках предложений,
+      // красиво обрезаем его по границам точек (если они есть)
       const firstPeriod = rawSample.indexOf(".");
       const lastPeriod = rawSample.lastIndexOf(".");
+
       if (firstPeriod !== -1 && lastPeriod > firstPeriod + 100) {
+        // Отрезаем текст от первой найденной точки до последней
         excerptSlice = rawSample.slice(firstPeriod + 1, lastPeriod + 1).trim();
       } else {
+        // Если точек не нашли, берем как есть
         excerptSlice = rawSample;
       }
     } else {
-      excerptSlice = textFromDb;
+      excerptSlice = cleanedText;
     }
 
-    console.log(`[SpeakBot Engine] Unzipped book. Sliced random fragment of ${excerptSlice.split(/\s+/).length} words from total ${words.length} words inside "${fileName}". Ssending to Gemini...`);
+    console.log(`[SpeakBot PDF Engine] Extracted random chunk of ${excerptSlice.split(/\s+/).length} words from total ${words.length} words inside "${fileName}". Sending to Gemini...`);
 
-    // --- 4. ПОЛНЫЙ ОРИГИНАЛЬНЫЙ ИИ-ПРОМПТ И ВЫЗОВ GEMINI API ---
-    const aiPrompt = `You are SpeakBot's Chief NLP Literary Pedagogical Engine. The user uploaded a custom book/story PDF titled "${bookTitle}" by "${author}". Target Language of Book: ${targetLanguage} User Target CEFR Level: ${userLevel} Modifier Language for translations & explanations: ${mediatorLanguage} (e.g. az: Azerbaijani, ru: Russian, tr: Turkish, es: Spanish, en: English, de: German) Here is the authentic excerpt extracted from the book: ${excerptSlice} Synthesize an interactive Classic Story reading and audio study module based STRICTLY on this excerpt. Return ONLY valid JSON matching this schema:
+    const aiPrompt = `You are SpeakBot's Chief NLP Literary Pedagogical Engine.
+The user uploaded a custom book/story PDF titled "${bookTitle}" by "${author}".
+Target Language of Book: ${targetLanguage}
+User Target CEFR Level: ${userLevel}
+Mediator Language for translations & explanations: ${mediatorLanguage} (e.g. az: Azerbaijani, ru: Russian, tr: Turkish, es: Spanish, en: English, de: German)
+
+Here is the authentic excerpt extracted from the book:
+"""
+${excerptSlice}
+"""
+
+Synthesize an interactive Classic Story reading and audio study module based STRICTLY on this excerpt.
+Return ONLY valid JSON matching this schema:
+{
+  "title": "${bookTitle}",
+  "author": "${author}",
+  "authorEra": "Contemporary / Selected Classic",
+  "level": "${userLevel}",
+  "mode": "both",
+  "duration": "4 min read • 2 min audio",
+  "targetLanguage": "${targetLanguage}",
+  "culturalLinguisticContext": "2-sentence cultural and linguistic context explaining the style, tone, and grammar in this excerpt.",
+  "paragraphs": [
+    "Paragraph 1 text from the excerpt",
+    "Paragraph 2 text from the excerpt"
+  ],
+  "sentences": [
     {
-      "title": "${bookTitle}",
-      "author": "${author}",
-      "authorEra": "Contemporary / Selected Classic",
-      "level": "${userLevel}",
-      "mode": "both",
-      "duration": "4 min read / 2 min audio",
-      "targetLanguage": "${targetLanguage}",
-      "culturalLinguisticContext": "2-sentence cultural and linguistic context explaining the style, tone, and grammar in this excerpt.",
-      "paragraphs": [
-        "Paragraph 1 text from the excerpt",
-        "Paragraph 2 text from the excerpt"
+      "text": "Exact sentence in ${targetLanguage}",
+      "translation": "Accurate, natural translation in ${mediatorLanguage}",
+      "literaryNote": "Pedagogical or literary commentary on syntax, phrasing, or rhetoric",
+      "audioTime": "0:00 - 0:08"
+    }
+  ],
+  "keyVocabulary": [
+    {
+      "word": "important word",
+      "ipa": "/phonetic/",
+      "pos": "noun/verb/adjective/adverb",
+      "translation": "translation in ${mediatorLanguage}",
+      "cefr": "${userLevel}",
+      "example": "Contextual usage sentence in ${targetLanguage}"
+    }
+  ],
+  "stylisticDevices": [
+    {
+      "device": "Name of literary/grammatical device (e.g. Inversion, Metaphor, SVO Emphasis)",
+      "exampleFromText": "quote from excerpt",
+      "explanation": "Brief explanation in English/Mediator"
+    }
+  ],
+  "conversations": [
+    {
+      "persona": "SpeakBot Socratic Mentor",
+      "prompt": "Socratic question testing deep comprehension or linguistic nuance of this excerpt",
+      "options": [
+        "Correct deep interpretation",
+        "Plausible but incorrect option",
+        "Superficial incorrect option"
       ],
-      "sentences": [
-        {
-          "text": "Exact sentence in ${targetLanguage}",
-          "translation": "Accurate, natural translation in ${mediatorLanguage}",
-          "literaryNote": "Pedagogical or literary commentary on syntax, phrasing, or rhetoric",
-          "audioTime": "0:00 - 0:08"
-        }
-      ],
-      "keyVocabulary": [
-        {
-          "word": "important word",
-          "ipa": "/phonetic/",
-          "pos": "noun/verb/adjective/adverb",
-          "translation": "translation in ${mediatorLanguage}",
-          "cefr": "${userLevel}",
-          "example": "Contextual usage sentence in ${targetLanguage}"
-        }
-      ],
-      "stylisticDevices": [
-        {
-          "device": "Name of literary/grammatical device (e.g. Inversion, Metaphor, SVO Emphasis)",
-          "exampleFromText": "quote from excerpt",
-          "explanation": "Brief explanation in English/Mediator"
-        }
-      ],
-      "conversations": [
-        {
-          "id": "conv-1",
-          "persona": "SpeakBot Socratic Mentor",
-          "prompt": "Socratic question testing deep comprehension or linguistic nuance of this excerpt",
-          "options": [
-            "Correct deep interpretation",
-            "Plausible but incorrect option",
-            "Superficial incorrect option"
-          ],
-          "correctIndex": 0,
-          "botFeedback": "Detailed encouraging feedback explaining why option 1 is correct."
-        }
-      ],
-      "exercises": [
-        {
-          "id": "ex-1",
-          "type": "comprehension",
-          "question": "Comprehension or grammar in context question regarding this excerpt",
-          "options": ["Option A", "Option B", "Option C"],
-          "correctIndex": 0,
-          "explanation": "Detailed explanation."
-        }
-      ]
-    }`;
+      "correctIndex": 0,
+      "botFeedback": "Detailed encouraging feedback explaining why option 1 is correct."
+    }
+  ],
+  "exercises": [
+    {
+      "question": "Comprehension or grammar in context question regarding this excerpt",
+      "options": ["Option A", "Option B", "Option C"],
+      "correctIndex": 0,
+      "explanation": "Detailed explanation."
+    }
+  ]
+}`;
 
     let parsedStory = null;
-    const rawAiResponse = await callGeminiWithResilience(aiPrompt); // Ваш устойчивый вызов
+    const rawAiResponse = await callGeminiWithResilience(aiPrompt);
+
     if (rawAiResponse) {
       try {
         const clean = rawAiResponse.replace(/```json\n?|\n?```/g, "").trim();
@@ -1164,7 +1173,7 @@ app.post("/api/stories/upload-pdf-book", async (req, res) => {
       }
     }
 
-    // --- 5. ВАШ ОРИГИНАЛЬНЫЙ ЛОКАЛЬНЫЙ ФОЛБЭК НА СЛУЧАЙ ОТКЛЮЧЕНИЯ ИИ ---
+    // Fallback if AI was unavailable
     if (!parsedStory || !parsedStory.sentences || parsedStory.sentences.length === 0) {
       const splitSentences = excerptSlice.match(/[^.!?]+[.!?]+/g) || [excerptSlice];
       parsedStory = {
@@ -1173,7 +1182,7 @@ app.post("/api/stories/upload-pdf-book", async (req, res) => {
         authorEra: "Custom Uploaded Excerpt",
         level: userLevel,
         mode: "both",
-        duration: "3 min read / 2 min audio",
+        duration: "3 min read • 2 min audio",
         targetLanguage: targetLanguage,
         culturalLinguisticContext: `An authentic excerpt from "${bookTitle}" processed for interactive ${targetLanguage} language acquisition.`,
         paragraphs: [excerptSlice],
@@ -1184,7 +1193,7 @@ app.post("/api/stories/upload-pdf-book", async (req, res) => {
           audioTime: `0:${String(idx * 7).padStart(2, '0')} - 0:${String((idx + 1) * 7).padStart(2, '0')}`
         })),
         keyVocabulary: words.slice(0, 4).map(w => ({
-          word: w.replace(/[^a-zA-Z ]/g, ''),
+          word: w.replace(/[^a-zA-ZäöüÄÖÜßáéíóúÁÉÍÓÚñÑ]/g, ''),
           ipa: `/${w.toLowerCase()}/`,
           pos: "noun",
           translation: `[${mediatorLanguage.toUpperCase()}] ${w}`,
@@ -1200,7 +1209,6 @@ app.post("/api/stories/upload-pdf-book", async (req, res) => {
         ],
         conversations: [
           {
-            id: `conv-fallback-${Date.now()}`,
             persona: "SpeakBot Socratic Mentor",
             prompt: `What is the primary thematic tone conveyed in this excerpt from "${bookTitle}"?`,
             options: [
@@ -1214,7 +1222,6 @@ app.post("/api/stories/upload-pdf-book", async (req, res) => {
         ],
         exercises: [
           {
-            id: `ex-fallback-${Date.now()}`,
             question: `Which word represents the main topic of the uploaded excerpt from "${bookTitle}"?`,
             options: [words[0] || "Theme", "Unrelated item", "Arbitrary text"],
             correctIndex: 0,
@@ -1226,11 +1233,11 @@ app.post("/api/stories/upload-pdf-book", async (req, res) => {
 
     const finalStory = {
       ...parsedStory,
-      id: databaseRecordId,
+      id: `story-custom-pdf-${Date.now()}`,
       isCustomPdf: true,
       sourceBook: fileName,
       uploadedAt: new Date().toISOString(),
-      coverImage: "https://unsplash.com"
+      coverImage: "https://images.unsplash.com/photo-1456513080510-7bf3a84b82f8?auto=format&fit=crop&w=800&q=80"
     };
 
     if (!userCustomStories[userId]) userCustomStories[userId] = [];
@@ -1242,10 +1249,14 @@ app.post("/api/stories/upload-pdf-book", async (req, res) => {
       story: finalStory,
       allCustomStories: userCustomStories[userId]
     });
-  } catch (error) { console.error("[SpeakBot PDF Engine Error]:", error); res.status(500).json({ success: false, error: error.message || "Failed to process PDF book and generate story." }); }
+  } catch (error) {
+    console.error("[SpeakBot PDF Engine Error]:", error);
+    res.status(500).json({
+      success: false,
+      error: error.message || "Failed to process PDF book and generate story."
+    });
+  }
 });
-
-
 
 // 2. Get Custom Stories & 3x Daily Bot Excerpt Feeds
 app.get("/api/stories/custom-list", (req, res) => {
