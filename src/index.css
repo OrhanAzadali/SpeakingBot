@@ -1,0 +1,17 @@
+@import "tailwindcss";
+
+/* Smooth scrolling for anchor dot jumps */
+html {
+  scroll-behavior: smooth;
+}
+
+/* Hide default browser scrollbar so the custom dot-based scroll indicator acts as the navigation */
+::-webkit-scrollbar {
+  width: 0px;
+  background: transparent;
+}
+
+* {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
