@@ -652,7 +652,10 @@ function generateLocalFallbackStory(params) {
     ],
     conversations: [
       {
+        id: "socratic-1",
+        stepNumber: 1,
         persona: "SpeakBot Literary Socrates",
+        topic: "Narrative Voice & Tone",
         prompt: `How does ${author} engage the reader in this passage from "${bookTitle}"?`,
         options: [
           `Through deliberate narrative pacing and nuanced psychological perspective.`,
@@ -660,19 +663,130 @@ function generateLocalFallbackStory(params) {
           `Through disconnected random word lists.`
         ],
         correctIndex: 0,
-        botFeedback: `Excellent analysis! ${author} engages the reader through thoughtful narrative voice and precise diction in "${bookTitle}".`
+        botFeedback: `Excellent analysis! ${author} engages the reader through thoughtful narrative voice and precise diction in "${bookTitle}".`,
+        points: 25
+      },
+      {
+        id: "socratic-2",
+        stepNumber: 2,
+        persona: "SpeakBot Literary Socrates",
+        topic: "Character Conflict & Yearning",
+        prompt: `What inner tension or yearning is revealed through the narrator's reflections?`,
+        options: [
+          `A mechanical dilemma concerning travel expenses.`,
+          `A profound tension between mundane physical routine and the search for spiritual or existential renewal.`,
+          `Complete apathy towards the outside world.`
+        ],
+        correctIndex: 1,
+        botFeedback: `A perceptive philosophical insight! Notice how this tension establishes the emotional momentum of the passage.`,
+        points: 25
+      },
+      {
+        id: "socratic-3",
+        stepNumber: 3,
+        persona: "SpeakBot Literary Socrates",
+        topic: "Stylistic Cadence & Phrasing",
+        prompt: `How does the syntactic structure of the sentences reflect the narrator's emotional state?`,
+        options: [
+          `Parenthetical clauses and expressive phrasing reflect an introspective mind in search of vitality.`,
+          `Rigid short telegraphic statements convey military detachment.`,
+          `Chaotic ungrammatical fragments indicate complete incoherence.`
+        ],
+        correctIndex: 0,
+        botFeedback: `Spot on! The cadence of the language mirrors the emotional rhythm of the speaker.`,
+        points: 25
+      },
+      {
+        id: "socratic-4",
+        stepNumber: 4,
+        persona: "SpeakBot Literary Socrates",
+        topic: "Thematic Synthesis",
+        prompt: `What universal human condition does ${author} illuminate in this excerpt?`,
+        options: [
+          `The pursuit of administrative precision in urban planning.`,
+          `The human instinct to break through spiritual confinement and seek meaning beyond the familiar.`,
+          `The superiority of mechanical isolation over human contemplation.`
+        ],
+        correctIndex: 1,
+        botFeedback: `Profound interpretation! Exploration becomes both a journey and an allegory for inner transformation.`,
+        points: 25
       }
     ],
     exercises: [
       {
-        question: `What is the central stylistic feature of this excerpt from "${bookTitle}"?`,
+        id: "task-1",
+        taskNumber: 1,
+        category: "Comprehension & Textual Inference",
+        question: `What primary circumstance motivates the narrator's actions in this excerpt from "${bookTitle}"?`,
         options: [
-          `Expressive literary phrasing combined with authentic lexical depth.`,
-          `Purely numerical mathematical formulas.`,
-          `Unedited machine data logs.`
+          `A desire for psychological renewal and escape from emotional stagnation.`,
+          `An official municipal order compelling relocation.`,
+          `A sudden inheritance requiring immediate travel.`,
+          `A desire to purchase commercial merchandise.`
         ],
         correctIndex: 0,
-        explanation: `Reflects the authentic literary prose of "${bookTitle}".`
+        explanation: `The passage highlights an internal yearning to drive off melancholy and find vitality through departure.`,
+        points: 25
+      },
+      {
+        id: "task-2",
+        taskNumber: 2,
+        category: "Vocabulary in Literary Context",
+        question: `In this literary excerpt, which term best characterizes the emotional atmosphere established by ${author}?`,
+        options: [
+          `Superficial`,
+          `Evocative and introspective`,
+          `Monotonous`,
+          `Bureaucratic`
+        ],
+        correctIndex: 1,
+        explanation: `The author deploys vivid diction to establish an evocative, contemplative literary atmosphere.`,
+        points: 25
+      },
+      {
+        id: "task-3",
+        taskNumber: 3,
+        category: "Grammar & Syntactic Architecture",
+        question: `How are complex clauses structured in this excerpt?`,
+        options: [
+          `Only isolated single-word utterances are employed.`,
+          `Subordinate and coordinate clauses are woven together to express nuanced reflections.`,
+          `Sentences lack subjects and finite verbs.`,
+          `Phrases are exclusively written in the future continuous tense.`
+        ],
+        correctIndex: 1,
+        explanation: `The author pairs main clauses with expressive participial and adverbial modifiers.`,
+        points: 25
+      },
+      {
+        id: "task-4",
+        taskNumber: 4,
+        category: "Stylistic & Rhetorical Devices",
+        question: `What stylistic device is prominent across the opening sentences?`,
+        options: [
+          `Sensory imagery and atmospheric parallelism`,
+          `Numerical statistical notation`,
+          `Rhymed iambic pentameter`,
+          `Satirical slapstick humor`
+        ],
+        correctIndex: 0,
+        explanation: `Rich sensory imagery establishes the narrator's mindset and emotional environment.`,
+        points: 25
+      },
+      {
+        id: "task-5",
+        taskNumber: 5,
+        category: "Critical Literary Synthesis",
+        question: `How does the excerpt prepare the reader for the unfolding narrative of "${bookTitle}"?`,
+        options: [
+          `By concluding all character developments immediately.`,
+          `By presenting a dry ledger of financial accounts.`,
+          `By establishing high thematic stakes and an intimate bond with the reader.`,
+          `By warning readers not to continue reading.`
+        ],
+        correctIndex: 2,
+        explanation: `The opening draws the reader into the narrator's psychological quest from the very start.`,
+        points: 25
       }
     ]
   };
@@ -865,7 +979,9 @@ Synthesize a complete, interactive Classic Story reading and audio study module 
 CRITICAL REQUIREMENTS:
 1. Every sentence, vocabulary word, stylistic device, conversation question, and exercise MUST be uniquely tailored to "${bookTitle}" by "${author}" and this specific passage.
 2. Provide authentic, accurate translations in ${mediatorLanguage}.
-3. Never use generic placeholder sentences or repetitive placeholder vocabulary.
+3. Generate at least 4 SEQUENTIAL Socratic dialogue questions that probe narrator motives, themes, and linguistic nuances directly from this excerpt.
+4. Generate at least 5 COMPREHENSIVE, VARIED tasks & exercises (Comprehension, Vocabulary in Context, Grammar/Syntax, Stylistic Devices, Synthesis) based directly on quotes from this passage. Distribute the correct answers across options (do not make them all index 0!).
+5. Never use generic placeholder sentences or repetitive boilerplate.
 
 Return ONLY valid JSON matching this schema:
 {
@@ -908,23 +1024,116 @@ Return ONLY valid JSON matching this schema:
   ],
   "conversations": [
     {
+      "id": "socratic-1",
+      "stepNumber": 1,
       "persona": "SpeakBot Socratic Mentor",
-      "prompt": "Socratic question testing deep comprehension of this excerpt from ${bookTitle}",
+      "topic": "Thematic or Character Motive",
+      "prompt": "Deep Socratic question testing literary comprehension and psychological perspective of this excerpt from ${bookTitle}",
       "options": [
-        "Correct deep interpretation reflecting the excerpt",
-        "Plausible but incorrect option",
-        "Superficial incorrect option"
+        "Thoughtful, text-grounded interpretation reflecting the excerpt",
+        "Alternative interpretation missing key nuance",
+        "Superficial or erroneous interpretation"
       ],
       "correctIndex": 0,
-      "botFeedback": "Detailed encouraging feedback explaining why option 1 is correct."
+      "botFeedback": "Detailed pedagogical Socratic feedback validating insight and quoting the text.",
+      "points": 25
+    },
+    {
+      "id": "socratic-2",
+      "stepNumber": 2,
+      "persona": "SpeakBot Socratic Mentor",
+      "topic": "Tone and Rhetorical Strategy",
+      "prompt": "Socratic question probing the atmosphere and narrator's perspective in sentence 2-3 of the excerpt",
+      "options": [
+        "Incorrect literal reading",
+        "Deep, nuanced interpretation of the author's tone",
+        "Irrelevant distractor"
+      ],
+      "correctIndex": 1,
+      "botFeedback": "Encouraging explanation connecting the narrator's emotion with their choice of words.",
+      "points": 25
+    },
+    {
+      "id": "socratic-3",
+      "stepNumber": 3,
+      "persona": "SpeakBot Socratic Mentor",
+      "topic": "Linguistic & Syntactic Nuance",
+      "prompt": "Socratic inquiry examining how grammatical phrasing shapes the reader's immersion",
+      "options": [
+        "Profound explanation of sentence cadence",
+        "Superficial mechanical distractor",
+        "Incorrect claim about sentence structure"
+      ],
+      "correctIndex": 0,
+      "botFeedback": "Socratic insight revealing how syntax serves literary meaning.",
+      "points": 25
+    },
+    {
+      "id": "socratic-4",
+      "stepNumber": 4,
+      "persona": "SpeakBot Socratic Mentor",
+      "topic": "Universal Meaning & Synthesis",
+      "prompt": "Final Socratic reflection connecting this excerpt to wider philosophical or moral dilemmas",
+      "options": [
+        "Distractor 1",
+        "Resonant philosophical synthesis grounded in the passage",
+        "Distractor 2"
+      ],
+      "correctIndex": 1,
+      "botFeedback": "Concluding Socratic contemplation celebrating the reader's critical engagement.",
+      "points": 25
     }
   ],
   "exercises": [
     {
-      "question": "Comprehension or grammar question directly based on this excerpt",
-      "options": ["Correct Option", "Incorrect Option 1", "Incorrect Option 2"],
+      "id": "task-1",
+      "taskNumber": 1,
+      "category": "Comprehension & Textual Inference",
+      "question": "Comprehension question directly based on specific events or thoughts in this excerpt",
+      "options": ["Correct Option", "Distractor 1", "Distractor 2", "Distractor 3"],
       "correctIndex": 0,
-      "explanation": "Detailed explanation based directly on the excerpt."
+      "explanation": "Detailed explanation based directly on the excerpt.",
+      "points": 25
+    },
+    {
+      "id": "task-2",
+      "taskNumber": 2,
+      "category": "Vocabulary in Literary Context",
+      "question": "Question on the contextual meaning or nuance of a key word from the excerpt",
+      "options": ["Distractor 1", "Correct Option", "Distractor 2", "Distractor 3"],
+      "correctIndex": 1,
+      "explanation": "Explanation explaining how the word is used in this excerpt.",
+      "points": 25
+    },
+    {
+      "id": "task-3",
+      "taskNumber": 3,
+      "category": "Grammar & Syntactic Architecture",
+      "question": "Question analyzing the syntactic structure (clauses, participial phrases, voice, or tense) in this excerpt",
+      "options": ["Distractor 1", "Distractor 2", "Correct Option", "Distractor 3"],
+      "correctIndex": 2,
+      "explanation": "Grammatical analysis explaining clause structure and linguistic function.",
+      "points": 25
+    },
+    {
+      "id": "task-4",
+      "taskNumber": 4,
+      "category": "Stylistic & Rhetorical Devices",
+      "question": "Question identifying the literary device (imagery, metaphor, antithesis, etc.) used in the excerpt",
+      "options": ["Distractor 1", "Distractor 2", "Distractor 3", "Correct Option"],
+      "correctIndex": 3,
+      "explanation": "Stylistic commentary referencing the exact phrase.",
+      "points": 25
+    },
+    {
+      "id": "task-5",
+      "taskNumber": 5,
+      "category": "Critical Literary Synthesis",
+      "question": "Question synthesizing the excerpt's central theme and character psychological trajectory",
+      "options": ["Correct Option", "Distractor 1", "Distractor 2", "Distractor 3"],
+      "correctIndex": 0,
+      "explanation": "In-depth literary synthesis reflecting ${author}'s vision in this passage.",
+      "points": 25
     }
   ]
 }`;
@@ -957,6 +1166,34 @@ Return ONLY valid JSON matching this schema:
       });
     }
 
+    // Ensure all conversations and exercises have normalized IDs, categories, and point values
+    if (Array.isArray(parsedStory.conversations)) {
+      parsedStory.conversations = parsedStory.conversations.map((c: any, idx: number) => ({
+        id: c.id || `socratic-${idx + 1}`,
+        stepNumber: c.stepNumber || idx + 1,
+        persona: c.persona || "SpeakBot Socratic Mentor",
+        topic: c.topic || `Socratic Inquiry ${idx + 1}`,
+        prompt: c.prompt,
+        options: Array.isArray(c.options) && c.options.length > 0 ? c.options : ["Option A", "Option B", "Option C"],
+        correctIndex: typeof c.correctIndex === "number" ? c.correctIndex : 0,
+        botFeedback: c.botFeedback || "Thoughtful perspective on this passage.",
+        points: c.points || 25
+      }));
+    }
+
+    if (Array.isArray(parsedStory.exercises)) {
+      parsedStory.exercises = parsedStory.exercises.map((e: any, idx: number) => ({
+        id: e.id || `task-${idx + 1}`,
+        taskNumber: e.taskNumber || idx + 1,
+        category: e.category || `Task ${idx + 1}`,
+        question: e.question,
+        options: Array.isArray(e.options) && e.options.length > 0 ? e.options : ["Option A", "Option B", "Option C", "Option D"],
+        correctIndex: typeof e.correctIndex === "number" ? e.correctIndex : 0,
+        explanation: e.explanation || "Directly grounded in the literary excerpt.",
+        points: e.points || 25
+      }));
+    }
+
     const finalStory = {
       ...parsedStory,
       id: `story-custom-pdf-${Date.now()}`,
@@ -982,6 +1219,95 @@ Return ONLY valid JSON matching this schema:
       success: false,
       error: error?.message || "Failed to process PDF book and generate story."
     });
+  }
+});
+
+// Live Interactive Socratic Chat with Mentor
+app.post("/api/socratic/chat", async (req, res) => {
+  try {
+    const {
+      userId = "default-user",
+      bookTitle = "Literary Classic",
+      author = "Author",
+      excerpt = "",
+      userMessage = "",
+      chatHistory = [],
+      targetLanguage = "English",
+      mediatorLanguage = "az"
+    } = req.body;
+
+    if (!userMessage || !userMessage.trim()) {
+      return res.status(400).json({ success: false, error: "userMessage is required" });
+    }
+
+    const aiPrompt = `You are SpeakBot Socratic Mentor, an intellectually stimulating, warm literary tutor having a live Socratic conversation with a language learner about the excerpt from "${bookTitle}" by ${author}.
+Target Language: ${targetLanguage}
+Mediator Language for explanations: ${mediatorLanguage} (e.g. az: Azerbaijani, ru: Russian, tr: Turkish, es: Spanish, en: English)
+
+The Excerpt:
+"""
+${excerpt.slice(0, 1200)}
+"""
+
+Recent Chat History:
+${chatHistory.slice(-4).map((m: any) => `${m.role === 'user' ? 'Learner' : 'Socratic Mentor'}: ${m.text}`).join('\n')}
+
+Learner's latest message:
+"${userMessage}"
+
+Respond thoughtfully in a genuine Socratic dialogue style:
+1. Validate or build upon their interpretation, referencing a specific phrase, mood, or character thought from the excerpt.
+2. Pose an inquisitive follow-up question that challenges them to notice a deeper thematic, moral, or linguistic nuance.
+3. Provide a brief pedagogical linguistic note in ${mediatorLanguage} (e.g. explaining a vocabulary word or grammar structure).
+4. Provide 2 suggested short responses the learner can click if they wish.
+
+Return ONLY valid JSON matching this schema:
+{
+  "reply": "Your conversational Socratic response...",
+  "pointsAwarded": 20,
+  "pedagogicalTip": "Helpful linguistic or cultural note in ${mediatorLanguage}",
+  "suggestedReplies": ["Suggested quick reply 1", "Suggested quick reply 2"]
+}`;
+
+    let replyData = null;
+    const raw = await callGeminiWithResilience(aiPrompt);
+    if (raw) {
+      try {
+        const clean = raw.replace(/```json\n?|\n?```/g, "").trim();
+        replyData = JSON.parse(clean);
+      } catch (err) {
+        console.warn("[Socratic Chat] Parse error:", err);
+      }
+    }
+
+    if (!replyData || !replyData.reply) {
+      replyData = {
+        reply: `That is a perceptive observation regarding "${bookTitle}". In this passage, ${author} uses evocative language to mirror the narrator's state of mind. How do you feel the narrator's emotional restlessness influences how they perceive the sea or their surroundings?`,
+        pointsAwarded: 20,
+        pedagogicalTip: `Qeyd: Bu dialoq ${author}-ın üslubundakı daxili psixoloji ziddiyyəti və təsvir sənətini dərindən anlamağa kömək edir.`,
+        suggestedReplies: [
+          `The surroundings reflect the narrator's inner desire for freedom.`,
+          `It creates a sharp contrast between safe terrestrial comfort and dangerous adventure.`
+        ]
+      };
+    }
+
+    // Award XP to user in synced database
+    if (!syncedUsersDatabase[userId]) {
+      syncedUsersDatabase[userId] = JSON.parse(JSON.stringify(syncedUsersDatabase["default-user"]));
+      syncedUsersDatabase[userId].userId = userId;
+    }
+    const user = syncedUsersDatabase[userId];
+    user.xp = (user.xp || 0) + (replyData.pointsAwarded || 20);
+
+    res.json({
+      success: true,
+      ...replyData,
+      totalXp: user.xp
+    });
+  } catch (err: any) {
+    console.error("[Socratic Chat Error]:", err);
+    res.status(500).json({ success: false, error: err.message || "Socratic chat failed." });
   }
 });
 
