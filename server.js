@@ -692,15 +692,22 @@ const userCustomStories = {};
 
 async function extractTextFromPdfBuffer(buffer) {
   try {
-    if (typeof PDFParse === 'function') {
+    console.log(`[PDF Engine] Attempting extraction from buffer. Size: ${buffer.length} bytes`);
+
+    // Попытка 1: Проверяем, загрузился ли нативный pdf-parse
+    if (typeof PDFParse === 'function' || PDFParse) {
       try {
-        const res = await PDFParse(buffer);
+        const parseFunc = typeof PDFParse === 'function' ? PDFParse : (PDFParse.PDFParse || PDFParse.default);
+        const res = await parseFunc(buffer);
         if (res && res.text && res.text.trim().length > 0) {
+          console.log(`[PDF Engine] Success via pdf-parse. Extracted ${res.text.length} chars.`);
           return res.text;
         }
       } catch (e1) {
-        // try class instantiation if applicable
-        if (typeof PDFParse === 'function') {
+        console.warn("[PDF Engine] pdf-parse call failed, trying constructor format:", e1.message);
+
+        // Попытка 2: Формат инстанса класса
+        try {
           const parser = new PDFParse({});
           if (typeof parser.load === 'function') {
             await parser.load({ data: buffer });
@@ -709,30 +716,58 @@ async function extractTextFromPdfBuffer(buffer) {
               return text;
             }
           }
+        } catch (e2) {
+          console.warn("[PDF Engine] Class instance format failed:", e2.message);
         }
       }
     }
   } catch (err) {
-    console.warn("[SpeakBot PDF Engine] Extraction fallback:", err.message);
+    console.warn("[SpeakBot PDF Engine] Core parse crashed, entering text-stream fallbacks:", err.message);
   }
 
-  // Regex string extractor fallback for PDF stream contents
+  // Попытка 3: Безопасный текстовый экстрактор (Regex-стриппер)
+  // Если это текстовый PDF (не сканированная картинка), этот код нативно вытащит из него все слова без сторонних библиотек
   try {
+    console.log("[PDF Engine] Activating native regex binary text-stream reader...");
     const rawStr = buffer.toString('utf-8');
-    const textMatches = rawStr.match(/\(([^()]+)\)T[jJ]/g) || rawStr.match(/BT[\s\S]*?ET/g);
+
+    // Ищем блоки текста внутри скобок PDF операторов (TJ, Tj)
+    const textMatches = rawStr.match(/\(([^()]*)\)\s*T[jJ]/g);
     if (textMatches && textMatches.length > 0) {
       const extracted = textMatches
-        .map(m => m.replace(/[\(\)TjETBT\/\\n\\r]/g, ' ').trim())
-        .filter(m => m.length > 2)
+        .map(m => {
+          // Вытаскиваем текст между скобками
+          const match = m.match(/\(([^()]*)\)/);
+          return match ? match[1] : '';
+        })
+        .filter(m => m.trim().length > 1)
         .join(' ');
-      if (extracted.trim().length > 50) return extracted;
+
+      if (extracted.trim().length > 100) {
+        console.log(`[PDF Engine] Success via regex binary stream! Extracted ${extracted.length} chars.`);
+        return extracted;
+      }
     }
-    const cleanChars = rawStr.replace(/[^\x20-\x7E\n\r\t\u00C0-\u024F\u0400-\u04FF]/g, ' ');
-    return cleanChars.slice(0, 30000);
+
+    // Попытка 4: Грубая очистка всего бинарного потока от мусора управляющих символов PDF
+    console.log("[PDF Engine] Regex failed. Running absolute brute-force character rescue clean...");
+    const cleanChars = rawStr
+      .replace(/[^\x20-\x7E\n\r\t\u00C0-\u024F\u0400-\u04FF]/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+
+    if (cleanChars.length > 100) {
+      console.log(`[PDF Engine] Brute-force success. Rescued ${cleanChars.length} characters.`);
+      return cleanChars.slice(0, 40000);
+    }
+
+    return buffer.toString('utf-8').slice(0, 15000);
   } catch (e) {
-    return buffer.toString('utf-8').slice(0, 10000);
+    console.error("[PDF Engine] All text fallbacks failed critically:", e.message);
+    return "Fallback error text container empty. Please check file structure.";
   }
 }
+
 
 function getDailyBotStoryFeeds(targetLanguage = "English") {
   const lang = targetLanguage.toLowerCase();
