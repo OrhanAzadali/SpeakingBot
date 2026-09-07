@@ -2475,8 +2475,8 @@ async function startServer() {
     });
     app.use(vite.middlewares);
   } else {
-    // __dirname указывает на корень, где лежит собранный server.cjs
-    const distPath = path.join(__dirname, "dist");
+    // Так как server.cjs уже лежит внутри dist, фронтенд находится прямо рядом с ним!
+    const distPath = __dirname;
     app.use(express.static(distPath));
     app.get("*", (req, res) => {
       res.sendFile(path.join(distPath, "index.html"));
