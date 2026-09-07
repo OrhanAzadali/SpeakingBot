@@ -5,8 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "node server.js",
-    "build": "vite build && esbuild server.js --bundle --platform=node --format=esm --packages=external --sourcemap --external:pdf-parse --outfile=dist/server.cjs",
-    "start": "node dist/server.cjs",
+    "build": "vite build && esbuild server.js --bundle --platform=node --format=esm --packages=external --sourcemap --external:pdf-parse --outfile=dist/server.mjs",
+    "start": "node dist/server.mjs",
     "preview": "vite preview",
     "clean": "rm -rf dist",
     "lint": "node -e \"console.log('JS/JSX codebase syntax valid')\""
