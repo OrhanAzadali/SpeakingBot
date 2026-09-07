@@ -26,9 +26,10 @@ const currentDirname = typeof __dirname !== "undefined" ? __dirname : path.dirna
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Увеличиваем лимит парсера Express, чтобы он пропускал Base64 строки до 35мб
-app.use(express.json({ limit: "15mb" }));
-app.use(express.urlencoded({ limit: "15mb", extended: true }));
+// Обязательно вставляем сюда, в самый верх!
+app.use(express.json({ limit: "35mb" }));
+app.use(express.urlencoded({ limit: "35mb", extended: true }));
+
 
 let geminiClient = null;
 function getGeminiClient() {
