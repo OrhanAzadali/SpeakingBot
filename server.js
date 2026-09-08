@@ -98,8 +98,8 @@ function getGeminiClient() {
 
 async function callGeminiWithResilience(
   prompt,
-  preferredModel = "gemini-1.5-flash",
-  fallbackModels = ["gemini-1.5-pro", "gemini-1.0-pro"]
+  preferredModel = "gemini-3.5-flash",
+  fallbackModels = ["gemini-2.5-flash", "gemini-3.1-flash-lite", "gemini-2.5-flash-lite"]
 ) {
   const apiKey = process.env.GEMINI_API_KEY;
 
@@ -928,11 +928,59 @@ function getDailyBotStoryFeeds(targetLanguage = "English") {
   };
   return feeds[lang] || feeds.english;
 }
+// Maps Project Gutenberg's language metadata (either a 2-letter code from the
+// schema.org "inLanguage" tag, or the plain-English label from the "Language:"
+// row on the book's info page) to this app's canonical target language names.
+// Returns null for languages the app doesn't support as a target language, so
+// callers can skip the book rather than mislabeling it.
+function mapGutenbergLanguageToTargetLanguage(rawLangValue) {
+  if (!rawLangValue) return null;
+  const val = rawLangValue.trim().toLowerCase();
+  const table = {
+    en: "English", english: "English",
+    de: "German", german: "German", deutsch: "German",
+    es: "Spanish", spanish: "Spanish", "español": "Spanish",
+    fr: "French", french: "French", "français": "French",
+    it: "Italian", italian: "Italian", italiano: "Italian",
+    ru: "Russian", russian: "Russian", "русский": "Russian",
+    tr: "Turkish", turkish: "Turkish", "türkçe": "Turkish"
+  };
+  return table[val] || null;
+}
+
+// Extracts the book's actual language from its Project Gutenberg info page
+// HTML. Project Gutenberg hosts books in dozens of languages, and a "random"
+// pick can land on any of them — this MUST be read from the page, never
+// assumed, or classic-story excerpts end up mislabeled and mixed across
+// target languages.
+function detectGutenbergBookLanguage(html) {
+  // Primary: schema.org markup, e.g. <meta itemprop="inLanguage" content="en">
+  const schemaMatch = html.match(/itemprop=["']inLanguage["']\s+content=["']([a-zA-Z-]+)["']/i);
+  if (schemaMatch) {
+    const mapped = mapGutenbergLanguageToTargetLanguage(schemaMatch[1].split("-")[0]);
+    if (mapped) return mapped;
+  }
+  // Fallback: the "Language" row in the bibliographic table, e.g.
+  // <th>Language</th>\n<td>English</td> (also matches "Language:" variants)
+  const rowMatch = html.match(/Language:?\s*<\/th>\s*<td[^>]*>\s*([^<]+?)\s*<\/td>/i);
+  if (rowMatch) {
+    const mapped = mapGutenbergLanguageToTargetLanguage(rowMatch[1]);
+    if (mapped) return mapped;
+  }
+  return null;
+}
+
 async function fetchRandomGutenbergBook() {
   try {
     const response = await fetch("https://www.gutenberg.org/ebooks/random", { redirect: "follow" });
     const html = await response.text();
     const finalUrl = response.url;
+
+    const detectedLanguage = detectGutenbergBookLanguage(html);
+    if (!detectedLanguage) {
+      console.warn("[AutoFetch] Could not confidently detect book language (or it's a language we don't support as a target). Skipping this book.");
+      return null;
+    }
 
     // Extract book ID from final URL (e.g., /ebooks/12345)
     let bookId = null;
@@ -975,7 +1023,7 @@ async function fetchRandomGutenbergBook() {
               id: `auto-${Date.now()}`,
               title,
               author: "Unknown",
-              targetLanguage: "en",
+              targetLanguage: detectedLanguage,
               excerpt,
               content: fullText,
               source: "Project Gutenberg",
@@ -1882,7 +1930,11 @@ Return ONLY valid JSON matching this exact schema:
         console.warn("Roadmap JSON parse warning:", err.message);
       }
     }
-    if (!roadmap) {
+    // Reject not just a missing roadmap, but a sparse/incomplete one (e.g. the
+    // AI call "succeeded" but returned no real milestones) — otherwise the
+    // PDF ends up with just a one-line summary and no content.
+    if (!roadmap || !Array.isArray(roadmap.milestones) || roadmap.milestones.length === 0) {
+      console.warn("[Grammar Roadmap] AI response missing/incomplete milestones — using fallback roadmap.");
       roadmap = getFallbackRoadmap(targetLanguage, userLevel);
     }
 
@@ -1916,7 +1968,10 @@ app.post("/api/gemini/generate-roadmap", async (req, res) => {
         roadmap = JSON.parse(clean);
       } catch (e) { console.error("Roadmap JSON parse error:", e); }
     }
-    if (!roadmap) {
+    // Same completeness check as /generate-grammar-roadmap — a "successful"
+    // but sparse AI response (no milestones) must not reach the client as-is.
+    if (!roadmap || !Array.isArray(roadmap.milestones) || roadmap.milestones.length === 0) {
+      console.warn("[Roadmap] AI response missing/incomplete milestones — using fallback roadmap.");
       roadmap = getFallbackRoadmap(targetLanguage, level, topic); // улучшенный fallback
     }
     res.json({ success: true, roadmap });
@@ -1984,8 +2039,10 @@ Return ONLY valid JSON:
       }
     }
 
-    // Fallback if AI fails
-    if (!guide) {
+    // Fallback if AI fails OR returns a sparse/incomplete guide (e.g. no
+    // coreRules) — a "successful" JSON.parse doesn't guarantee real content.
+    if (!guide || !Array.isArray(guide.coreRules) || guide.coreRules.length === 0) {
+      console.warn("[Grammar Guide] AI response missing/incomplete coreRules — using fallback guide.");
       guide = getFallbackGrammarGuide(targetLanguage, ruleTitle, level);
     }
 
