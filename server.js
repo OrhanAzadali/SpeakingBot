@@ -902,32 +902,67 @@ function getDailyBotStoryFeeds(targetLanguage = "English") {
 }
 async function fetchRandomGutenbergBook() {
   try {
-    // Use Project Gutenberg's random book redirect
     const response = await fetch("https://www.gutenberg.org/ebooks/random", { redirect: "follow" });
     const html = await response.text();
-    const urlMatch = html.match(/href="(\/files\/[^"]+\.txt)"/);
-    if (!urlMatch) throw new Error("Could not find text URL");
-    const textUrl = `https://www.gutenberg.org${urlMatch[1]}`;
+    const finalUrl = response.url;
 
-    const textResponse = await fetch(textUrl);
-    const fullText = await textResponse.text();
-    const excerpt = selectBestExcerpt(fullText, 300);
+    // Extract book ID from final URL (e.g., /ebooks/12345)
+    let bookId = null;
+    const idFromUrl = finalUrl.match(/\/(\d+)(?:\.|\/|$)/);
+    if (idFromUrl) {
+      bookId = idFromUrl[1];
+    }
 
-    // Identify book title/author from the HTML (rough)
-    const titleMatch = html.match(/<title>([^<]+)<\/title>/);
-    const title = titleMatch ? titleMatch[1].split(" by ")[0].trim() : "Public Domain Book";
+    // Fallback: extract from HTML
+    if (!bookId) {
+      const idFromHtml = html.match(/\/ebooks\/(\d+)/);
+      if (idFromHtml) bookId = idFromHtml[1];
+    }
 
-    return {
-      id: `auto-${Date.now()}`,
-      title,
-      author: "Unknown",
-      targetLanguage: "en", // Project Gutenberg mostly English
-      excerpt,
-      content: fullText, // could be huge; we may not store full content
-      source: "Project Gutenberg",
-      isAutoFetched: true,
-      createdAt: new Date().toISOString()
-    };
+    if (!bookId) throw new Error("Could not identify book ID");
+
+    // Candidate plain‑text URLs (try in order)
+    const candidates = [
+      `https://www.gutenberg.org/cache/epub/${bookId}/pg${bookId}.txt`,
+      `https://www.gutenberg.org/files/${bookId}/${bookId}-0.txt`,
+      `https://www.gutenberg.org/files/${bookId}/${bookId}.txt`,
+      `https://www.gutenberg.org/ebooks/${bookId}.txt.utf-8`,
+    ];
+
+    for (const url of candidates) {
+      try {
+        const textResponse = await fetch(url);
+        if (textResponse.ok) {
+          const fullText = await textResponse.text();
+          if (fullText && fullText.trim().length > 100) {
+            const excerpt = selectBestExcerpt(fullText, 300);
+
+            // Extract title (simple fallback)
+            const titleMatch = html.match(/<title>([^<]+)<\/title>/);
+            const title = titleMatch
+              ? titleMatch[1].split(" by ")[0].trim()
+              : `Gutenberg Book ${bookId}`;
+
+            return {
+              id: `auto-${Date.now()}`,
+              title,
+              author: "Unknown",
+              targetLanguage: "en",
+              excerpt,
+              content: fullText,
+              source: "Project Gutenberg",
+              isAutoFetched: true,
+              createdAt: new Date().toISOString(),
+            };
+          }
+        }
+      } catch (e) {
+        // continue to next candidate
+      }
+    }
+
+    // If all fail, throw and return null
+    throw new Error("Could not find text URL");
   } catch (err) {
     console.error("[AutoFetch] Failed to fetch book:", err.message);
     return null;
