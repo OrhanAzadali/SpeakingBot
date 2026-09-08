@@ -55,39 +55,46 @@ export const GAMES_INFO = [
     badge: '3D Spatial',
     xp: 45,
   },
-  { id: 'memory', title: 'Memory Match', description: 'Flip and match word pairs to boost memory.', icon: '🧠', xp: 25 },
-  { id: 'wordbuilder', title: 'Word Builder', description: 'Construct words from given letters.', icon: '🔤', xp: 30 },
+  {
+    id: 'memory',
+    title: 'Memory Match Sprint',
+    description: 'Flip cards, match synonym pairs, and improve retention with spaced intervals.',
+    icon: '🧠',
+    badge: 'Cognitive',
+    xp: 35,
+  },
+  {
+    id: 'wordbuilder',
+    title: 'Word Builder Studio',
+    description: 'Construct valid sub-words using interactive letter tiles from target root words.',
+    icon: '🔤',
+    badge: 'Anagram',
+    xp: 40,
+  },
 ];
 
 export const GamesHub = ({
-  initialActiveGame,
-  onCloseGame,
   targetLanguage = 'English',
   mediatorLanguage = 'az',
-  userLevel = 'B1',
   onGainXp,
   onSaveToVocabulary,
   onSelectToken,
+  initialActiveGame = null,
+  onCloseGame,
   asSection = false,
 }) => {
+  const { t } = useTranslation();
   const [activeGame, setActiveGame] = useState(initialActiveGame);
+  const [gameLanguage, setGameLanguage] = useState(targetLanguage);
 
   useEffect(() => {
-    if (initialActiveGame) {
-      setActiveGame(initialActiveGame);
-    }
+    setActiveGame(initialActiveGame);
   }, [initialActiveGame]);
-
-  // Add handleCloseGame that also clears parent state
-  const handleCloseGame = () => {
-    setActiveGame(null);
-    if (onCloseGame) onCloseGame();
-  }; const { t } = useTranslation();
-  const [gameLanguage, setGameLanguage] = useState(targetLanguage);
 
   useEffect(() => {
     setGameLanguage(targetLanguage);
   }, [targetLanguage]);
+
   const [cubeHighScore, setCubeHighScore] = useState(() => {
     try {
       return Number(localStorage.getItem('cubeword_highscore') || '0');
@@ -99,6 +106,13 @@ export const GamesHub = ({
   const handleLaunchGame = (gameId, lang = targetLanguage) => {
     setGameLanguage(lang);
     setActiveGame(gameId);
+  };
+
+  const handleCloseGame = () => {
+    setActiveGame(null);
+    if (onCloseGame) {
+      onCloseGame();
+    }
   };
 
   // If a game is active, render it full-screen taking the entire page space
@@ -127,7 +141,6 @@ export const GamesHub = ({
             onGainXp={(pts) => {
               if (onGainXp) onGainXp('cubeword', pts, 25);
             }}
-            userLevel={userLevel}
             apiBase=""
           />
         </div>
@@ -160,7 +173,6 @@ export const GamesHub = ({
             onGainXp={(xp) => {
               if (onGainXp) onGainXp('flashcards', xp, 10);
             }}
-            userLevel={userLevel}
           />
         </div>
       </div>
@@ -191,7 +203,6 @@ export const GamesHub = ({
             onGainXp={(xp) => {
               if (onGainXp) onGainXp('wordpairs', xp, 20);
             }}
-            userLevel={userLevel}
           />
         </div>
       </div>
@@ -218,7 +229,6 @@ export const GamesHub = ({
           <WordQuest3DGame
             targetLanguage={targetLanguage}
             mediatorLanguage={mediatorLanguage}
-            userLevel={userLevel}
             onSaveToVocabulary={onSaveToVocabulary}
             onGainXp={(xp) => {
               if (onGainXp) onGainXp('wordquest3d', xp, 25);
@@ -228,15 +238,33 @@ export const GamesHub = ({
       </div>
     );
   }
+
   if (activeGame === 'memory') {
     return (
       <div className="fixed inset-0 z-50 bg-slate-950 overflow-y-auto p-3 sm:p-6 flex flex-col justify-start animate-in fade-in duration-200">
         <div className="max-w-5xl w-full mx-auto mb-4 flex items-center justify-between bg-slate-900/90 border border-slate-800 rounded-2xl p-3 px-4 shadow-xl">
-          <button onClick={handleCloseGame} className="...">Close</button>
-          <span>Memory Match</span>
+          <button
+            type="button"
+            onClick={handleCloseGame}
+            className="flex items-center gap-2 px-4 py-2 rounded-xl bg-slate-800 hover:bg-rose-950/40 text-slate-200 hover:text-rose-300 text-xs font-bold transition border border-slate-700 hover:border-rose-500/40 cursor-pointer shadow-md"
+          >
+            <X className="w-4 h-4 text-rose-400" />
+            <span>Close & Exit Game</span>
+          </button>
+          <span className="text-xs font-bold text-sky-400 font-mono">
+            Memory Match &bull; {targetLanguage}
+          </span>
         </div>
         <div className="max-w-5xl w-full mx-auto pb-12">
-          <MemoryMatch targetLanguage={targetLanguage} userLevel={userLevel} />
+          <MemoryMatch
+            targetLanguage={targetLanguage}
+            userLevel="B1"
+            onSaveToVocabulary={onSaveToVocabulary}
+            onClose={handleCloseGame}
+            onGainXp={(xp) => {
+              if (onGainXp) onGainXp('memory', xp, 20);
+            }}
+          />
         </div>
       </div>
     );
@@ -246,11 +274,28 @@ export const GamesHub = ({
     return (
       <div className="fixed inset-0 z-50 bg-slate-950 overflow-y-auto p-3 sm:p-6 flex flex-col justify-start animate-in fade-in duration-200">
         <div className="max-w-5xl w-full mx-auto mb-4 flex items-center justify-between bg-slate-900/90 border border-slate-800 rounded-2xl p-3 px-4 shadow-xl">
-          <button onClick={handleCloseGame} className="...">Close</button>
-          <span>Word Builder</span>
+          <button
+            type="button"
+            onClick={handleCloseGame}
+            className="flex items-center gap-2 px-4 py-2 rounded-xl bg-slate-800 hover:bg-rose-950/40 text-slate-200 hover:text-rose-300 text-xs font-bold transition border border-slate-700 hover:border-rose-500/40 cursor-pointer shadow-md"
+          >
+            <X className="w-4 h-4 text-rose-400" />
+            <span>Close & Exit Game</span>
+          </button>
+          <span className="text-xs font-bold text-emerald-400 font-mono">
+            Word Builder Anagram &bull; {targetLanguage}
+          </span>
         </div>
         <div className="max-w-5xl w-full mx-auto pb-12">
-          <WordBuilder targetLanguage={targetLanguage} userLevel={userLevel} />
+          <WordBuilder
+            targetLanguage={targetLanguage}
+            userLevel="B1"
+            onSaveToVocabulary={onSaveToVocabulary}
+            onClose={handleCloseGame}
+            onGainXp={(xp) => {
+              if (onGainXp) onGainXp('wordbuilder', xp, 25);
+            }}
+          />
         </div>
       </div>
     );
@@ -299,11 +344,11 @@ export const GamesHub = ({
               <h2 className="text-lg sm:text-xl font-extrabold text-white tracking-tight flex items-center gap-2">
                 <span>Interactive Games & 3D Quests</span>
                 <span className="text-[10px] px-2 py-0.5 rounded-full bg-cyan-500/15 text-cyan-300 border border-cyan-500/30 font-bold uppercase tracking-wider">
-                  4 Interactive Modes
+                  6 Interactive Modes
                 </span>
               </h2>
               <p className="text-xs text-slate-400">
-                Sharpen lexical agility with WebGL 3D cube physics, spaced repetition, and matching drills
+                Sharpen lexical agility with WebGL 3D cube physics, spaced repetition, memory sprints, and anagram builders
               </p>
             </div>
           </div>
@@ -459,74 +504,91 @@ export const GamesHub = ({
             <ArrowRight className="w-4 h-4" />
           </button>
         </div>
-        {/* Card 4: Memory Match */}
-        <div className="flex flex-col justify-between p-6 rounded-3xl bg-gradient-to-b from-slate-900/90 to-slate-950 border border-slate-800 hover:border-cyan-500/50 transition-all shadow-xl hover:shadow-2xl hover:shadow-cyan-950/20 group relative overflow-hidden">
-          <div className="absolute top-0 right-0 w-32 h-32 bg-cyan-500/10 rounded-full blur-2xl pointer-events-none group-hover:bg-cyan-500/20 transition-all" />
+
+        {/* Card 4: Memory Match Sprint */}
+        <div className="flex flex-col justify-between p-6 rounded-3xl bg-gradient-to-b from-slate-900/90 to-slate-950 border border-slate-800 hover:border-sky-500/50 transition-all shadow-xl hover:shadow-2xl hover:shadow-sky-950/20 group relative overflow-hidden">
+          <div className="absolute top-0 right-0 w-32 h-32 bg-sky-500/10 rounded-full blur-2xl pointer-events-none group-hover:bg-sky-500/20 transition-all" />
           <div>
             <div className="flex items-center justify-between gap-2 mb-3">
-              <span className="px-2.5 py-0.5 rounded-lg text-xs font-extrabold bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 flex items-center gap-1">
-                🧠 Memory Drill
+              <span className="px-2.5 py-0.5 rounded-lg text-xs font-extrabold bg-sky-500/20 text-sky-300 border border-sky-500/30 flex items-center gap-1">
+                <Sparkles className="w-3.5 h-3.5" />
+                Cognitive Match
               </span>
               <span className="text-[11px] font-semibold text-slate-400 bg-slate-800/80 px-2 py-0.5 rounded-md border border-slate-700">
-                Pair Matching
+                Spaced Recall
               </span>
             </div>
-            <h3 className="text-lg font-bold text-white group-hover:text-cyan-300 transition-colors mb-2">
-              Memory Match
+
+            <h3 className="text-lg font-bold text-white group-hover:text-sky-300 transition-colors mb-2">
+              Memory Match Sprint
             </h3>
             <p className="text-xs text-slate-400 line-clamp-3 mb-4 leading-relaxed">
-              Flip cards to match word pairs and improve memory retention.
+              Flip hidden cards to discover matching synonym pairs. Keep track of moves and streak combos to reinforce retention.
             </p>
+
             <div className="space-y-1.5 py-2 border-t border-slate-800 text-xs text-slate-300">
               <div className="flex items-center gap-2">
-                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
-                <span>Simple tap to flip</span>
+                <Flame className="w-3.5 h-3.5 text-amber-400" />
+                <span>Streak combos & score multipliers</span>
               </div>
               <div className="flex items-center gap-2">
-                <RotateCcw className="w-3.5 h-3.5 text-amber-400" />
-                <span>Instant feedback</span>
+                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+                <span>AI-generated CEFR vocabulary cards</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <Trophy className="w-3.5 h-3.5 text-sky-400" />
+                <span>+35 XP completion reward</span>
               </div>
             </div>
           </div>
+
           <button
             type="button"
             onClick={() => handleLaunchGame('memory')}
-            className="w-full mt-5 py-3 rounded-2xl bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white font-bold text-xs sm:text-sm shadow-md transition-all active:scale-95 flex items-center justify-center gap-2 cursor-pointer"
+            className="w-full mt-5 py-3 rounded-2xl bg-gradient-to-r from-sky-600 to-blue-600 hover:from-sky-500 hover:to-blue-500 text-white font-bold text-xs sm:text-sm shadow-md transition-all active:scale-95 flex items-center justify-center gap-2 cursor-pointer"
           >
             <span>Play Memory Match</span>
             <ArrowRight className="w-4 h-4" />
           </button>
         </div>
 
-        {/* Card 5: Word Builder */}
+        {/* Card 5: Word Builder Studio */}
         <div className="flex flex-col justify-between p-6 rounded-3xl bg-gradient-to-b from-slate-900/90 to-slate-950 border border-slate-800 hover:border-emerald-500/50 transition-all shadow-xl hover:shadow-2xl hover:shadow-emerald-950/20 group relative overflow-hidden">
           <div className="absolute top-0 right-0 w-32 h-32 bg-emerald-500/10 rounded-full blur-2xl pointer-events-none group-hover:bg-emerald-500/20 transition-all" />
           <div>
             <div className="flex items-center justify-between gap-2 mb-3">
               <span className="px-2.5 py-0.5 rounded-lg text-xs font-extrabold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 flex items-center gap-1">
-                🔤 Word Craft
+                <Zap className="w-3.5 h-3.5" />
+                Anagram Studio
               </span>
               <span className="text-[11px] font-semibold text-slate-400 bg-slate-800/80 px-2 py-0.5 rounded-md border border-slate-700">
-                Letter Puzzle
+                Word Crafting
               </span>
             </div>
+
             <h3 className="text-lg font-bold text-white group-hover:text-emerald-300 transition-colors mb-2">
-              Word Builder
+              Word Builder Studio
             </h3>
             <p className="text-xs text-slate-400 line-clamp-3 mb-4 leading-relaxed">
-              Construct valid words using letters from a target word.
+              Construct valid lexical sub-words using interactive letter tiles from target root words to maximize vocabulary recall.
             </p>
+
             <div className="space-y-1.5 py-2 border-t border-slate-800 text-xs text-slate-300">
               <div className="flex items-center gap-2">
-                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
-                <span>Anagram-style gameplay</span>
+                <Sparkles className="w-3.5 h-3.5 text-emerald-400" />
+                <span>Dynamic anagram verification</span>
               </div>
               <div className="flex items-center gap-2">
                 <Flame className="w-3.5 h-3.5 text-amber-400" />
-                <span>Progress tracking</span>
+                <span>Interactive tile click-and-type input</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <Trophy className="w-3.5 h-3.5 text-sky-400" />
+                <span>+40 XP completion reward</span>
               </div>
             </div>
           </div>
+
           <button
             type="button"
             onClick={() => handleLaunchGame('wordbuilder')}

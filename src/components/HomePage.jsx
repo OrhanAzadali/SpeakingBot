@@ -208,8 +208,8 @@ export const HomePage = ({
           onSaveToVocabulary={onSaveToVocabulary}
         />
 
-        {/* Other 3 Games Grid */}
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-5">
+        {/* Interactive Games Grid */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
           {GAMES_INFO.filter((g) => g.id !== 'cubeword').map((game) => (
             <div
               key={game.id}
@@ -583,19 +583,17 @@ export const HomePage = ({
                 key={lang}
                 type="button"
                 onClick={() => setSelectedVocabLanguage(lang)}
-                className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold transition border cursor-pointer ${
-                  isSelected
-                    ? 'bg-amber-500/20 text-amber-300 border-amber-500/50 shadow-sm'
-                    : 'bg-slate-900/80 hover:bg-slate-800 text-slate-400 hover:text-slate-200 border-slate-800'
-                }`}
+                className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold transition border cursor-pointer ${isSelected
+                  ? 'bg-amber-500/20 text-amber-300 border-amber-500/50 shadow-sm'
+                  : 'bg-slate-900/80 hover:bg-slate-800 text-slate-400 hover:text-slate-200 border-slate-800'
+                  }`}
               >
                 <span>{lang}</span>
                 <span
-                  className={`text-[10px] font-mono px-1.5 py-0.5 rounded-md ${
-                    isSelected
-                      ? 'bg-amber-500/30 text-amber-200'
-                      : 'bg-slate-800 text-slate-500'
-                  }`}
+                  className={`text-[10px] font-mono px-1.5 py-0.5 rounded-md ${isSelected
+                    ? 'bg-amber-500/30 text-amber-200'
+                    : 'bg-slate-800 text-slate-500'
+                    }`}
                 >
                   {count}
                 </span>
