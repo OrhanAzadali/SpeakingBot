@@ -5,6 +5,8 @@ import { CubeWordGame } from './CubicWords/CubeWordGame';
 import { FlashcardsGame } from './games/FlashcardsGame';
 import { WordPairsGame } from './games/WordPairsGame';
 import { WordQuest3DGame } from './games/WordQuest3DGame';
+import { MemoryMatch } from './games/MemoryMatch';
+import { WordBuilder } from './games/WordBuilder';
 import {
   Gamepad2,
   Sparkles,
@@ -53,6 +55,8 @@ export const GAMES_INFO = [
     badge: '3D Spatial',
     xp: 45,
   },
+  { id: 'memory', title: 'Memory Match', description: 'Flip and match word pairs to boost memory.', icon: '🧠', xp: 25 },
+  { id: 'wordbuilder', title: 'Word Builder', description: 'Construct words from given letters.', icon: '🔤', xp: 30 },
 ];
 
 export const GamesHub = ({
@@ -211,7 +215,12 @@ export const GamesHub = ({
       </div>
     );
   }
-
+  if (activeGame === 'memory') {
+    return <MemoryMatch />;
+  }
+  if (activeGame === 'wordbuilder') {
+    return <WordBuilder />;
+  }
   return (
     <div className="w-full space-y-6">
       {/* Header Banner (shown if full tab, or compact header if section) */}

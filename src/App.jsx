@@ -19,7 +19,6 @@ import {
   DIAGNOSTIC_PLACEMENT_QUESTIONS,
   getDiagnosticQuestionsByLanguage
 } from "./data/initialData";
-
 function MainApp() {
   const { t } = useTranslation();
   const [userProfile, setUserProfile] = useState({
@@ -312,25 +311,25 @@ function MainApp() {
       onTriggerSync={syncWithTelegramBot}
     >
       <div className="min-h-screen bg-slate-950 text-slate-100 selection:bg-sky-500 selection:text-white flex flex-col font-sans">
-        
-        {
-    /* Header with full language toggling & Telegram Bot sync status */
-  }
-        <Header
-    userProfile={userProfile}
-    onUpdateMediatorLanguage={handleUpdateMediatorLanguage}
-    onUpdateTargetLanguage={handleUpdateTargetLanguage}
-    onOpenPlacementTest={() => setActiveTab("placement-test")}
-    activeTab={activeTab}
-    setActiveTab={setActiveTab}
-    isMiniAppMode={isMiniAppMode}
-    setIsMiniAppMode={setIsMiniAppMode}
-    isSyncing={isSyncing}
-  />
 
         {
-    /* Main Workspace Body */
-  }
+          /* Header with full language toggling & Telegram Bot sync status */
+        }
+        <Header
+          userProfile={userProfile}
+          onUpdateMediatorLanguage={handleUpdateMediatorLanguage}
+          onUpdateTargetLanguage={handleUpdateTargetLanguage}
+          onOpenPlacementTest={() => setActiveTab("placement-test")}
+          activeTab={activeTab}
+          setActiveTab={setActiveTab}
+          isMiniAppMode={isMiniAppMode}
+          setIsMiniAppMode={setIsMiniAppMode}
+          isSyncing={isSyncing}
+        />
+
+        {
+          /* Main Workspace Body */
+        }
         <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 pt-6">
           {activeTab === "home" && (
             <HomePage
@@ -468,6 +467,7 @@ function MainApp() {
               onSelectToken={(token) => setInspectedToken(token)}
             />
           )}
+
         </main>
 
         {/* AI Generation Modal */}
@@ -496,6 +496,6 @@ function MainApp() {
 }
 export default function App() {
   return <TranslationProvider>
-      <MainApp />
-    </TranslationProvider>;
+    <MainApp />
+  </TranslationProvider>;
 }
