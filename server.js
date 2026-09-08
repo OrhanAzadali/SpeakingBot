@@ -95,10 +95,11 @@ function getGeminiClient() {
 }
 
 // Replace your existing function with this
+
 async function callGeminiWithResilience(
   prompt,
-  preferredModel = "gemini-3.5-flash",
-  fallbackModels = ["gemini-3.6-flash", "gemini-3.5-flash-lite", "gemini-3.1-flash-lite"]
+  preferredModel = "gemini-1.5-flash",
+  fallbackModels = ["gemini-1.5-pro", "gemini-1.0-pro"]
 ) {
   const apiKey = process.env.GEMINI_API_KEY;
 
@@ -119,14 +120,16 @@ async function callGeminiWithResilience(
         config: { responseMimeType: "application/json" }
       });
       const timeoutPromise = new Promise((_, reject) => {
-        setTimeout(() => reject(new Error("TIMEOUT_SPIKE")), 30000); // Change 15000 to 30000
+        setTimeout(() => reject(new Error("TIMEOUT_SPIKE")), 60000); // Change 15000 to 30000
       });
+
       const response = await Promise.race([generatePromise, timeoutPromise]);
       if (response && response.text) {
         return response.text;
       }
     } catch (err) {
       const msg = err?.message || String(err);
+      console.error(`[AI Engine] Model ${model} failed:`, msg);
       console.warn(`[AI Engine] Model ${model} failed (${msg.slice(0, 80)}). Trying next...`);
       // If it's a 404 (model not found), continue to next model
       if (msg.includes("404") || msg.includes("not found")) {
@@ -187,10 +190,11 @@ async function callOpenRouter(prompt, model = "openai/gpt-oss-20b:free") {
     }
 
     const data = await response.json();
-    return data.choices[0].message.content;
+    const content = data.choices[0].message.content;
+    return JSON.parse(content);
   } catch (err) {
     console.warn("[AI Engine] OpenRouter call failed:", err.message);
-    return null;
+    return null; //fallback to the generator
   }
 }
 // Gzip helpers
@@ -1891,17 +1895,23 @@ Return ONLY valid JSON matching this exact schema:
 
 app.post("/api/gemini/generate-roadmap", async (req, res) => {
   try {
-    const { targetLanguage = "English", userLevel = "B1" } = req.body;
-    // Use a simple fallback or a proper prompt if you want AI.
-    const roadmap = getFallbackRoadmap(targetLanguage, userLevel);
+    const { topic, level = "B1", targetLanguage = "English", mediatorLanguage = "en", customGoal = "" } = req.body;
 
-    if (req.query.format === 'pdf' || req.body.format === 'pdf') {
-      const buffer = generateRoadmapPdfBuffer(roadmap);
-      sendPdf(res, buffer, `roadmap-${Date.now()}.pdf`);
-      return;
+    const prompt = `You are a curriculum designer. Create a detailed roadmap for "${topic}" at CEFR ${level} in ${targetLanguage}. Enriche the roadmap with recommendations and best practices.
+    
+    Mediator language: ${mediatorLanguage}. Custom goal: ${customGoal}. Return JSON with title, summary, milestones (step, title, description, grammarPoint, sampleSentence, tokens), and checkpointQuestions.`;
+
+    const aiResponse = await callGeminiWithResilience(prompt);
+    let roadmap = null;
+    if (aiResponse) {
+      try {
+        const clean = aiResponse.replace(/```json\s*|\s*```/g, "").trim();
+        roadmap = JSON.parse(clean);
+      } catch (e) { console.error("Roadmap JSON parse error:", e); }
     }
-    saveUsersToDisk();
-
+    if (!roadmap) {
+      roadmap = getFallbackRoadmap(targetLanguage, level, topic); // улучшенный fallback
+    }
     res.json({ success: true, roadmap });
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });
@@ -2004,46 +2014,110 @@ app.post("/api/gemini/tokenize", async (req, res) => {
   }
 });
 
-function getFallbackRoadmap(lang = "English", level = "B1") {
+function getFallbackRoadmap(lang = "English", level = "B1", topic = "General") {
   return {
-    targetLanguage: lang,
-    userLevel: level,
-    modules: [
+    title: `Learning Roadmap: ${topic} (${level} in ${lang})`,
+    category: "Grammar",
+    level,
+    estimatedDuration: "2 Weeks",
+    summary: `Structured plan to achieve ${level} proficiency in ${lang}.`,
+    milestones: [
       {
-        id: "mod-foundations",
-        title: `${lang} Syntax Foundations`,
-        description: `Core structural building blocks for ${level} proficiency`,
-        cefr: level,
-        rules: [
-          { rule: "Sentence Order & Agreement", explanation: "Subject-Verb-Object alignment and noun-verb inflection.", example: "The seasoned author crafts poignant narratives.", translation: "Təcrübəli müəllif təsirli hekayələr yazır." },
-          { rule: "Aspect & Modal Expressions", explanation: "Expressing subtle probability, obligation, and temporal aspect.", example: "They ought to have considered the nuances.", translation: "Onlar incəlikləri nəzərə almalı idilər." }
+        step: 1,
+        title: "Core Vocabulary & Sentence Structure",
+        description: "Build a foundation of essential words and simple sentences.",
+        grammarPoint: "Subject-Verb-Object (SVO)",
+        sampleSentence: "I study English every day.",
+        tokens: [
+          { text: "I", lemma: "I", pos: "PRON", syntaxRole: "Subject", cefrLevel: "A1", ipa: "/aɪ/", mediatorTranslation: "mən" },
+          { text: "study", lemma: "study", pos: "VERB", syntaxRole: "Predicate", cefrLevel: "A1", ipa: "/ˈstʌdi/", mediatorTranslation: "öyrənirəm" },
+          { text: "English", lemma: "English", pos: "NOUN", syntaxRole: "Direct Object", cefrLevel: "A1", ipa: "/ˈɪŋɡlɪʃ/", mediatorTranslation: "ingilis dili" }
         ]
       },
       {
-        id: "mod-discourse",
-        title: "Discourse Markers & Complex Connectors",
-        description: "Elevating speech with cohesive literary linkages",
-        cefr: level,
-        rules: [
-          { rule: "Subordination & Concession", explanation: "Using 'whereas', 'notwithstanding', and 'inasmuch as'.", example: "Notwithstanding the storm, the expedition proceeded.", translation: "" }
+        step: 2,
+        title: "Present, Past, and Future Tenses",
+        description: "Understand when to use each tense and form correct questions.",
+        grammarPoint: "Simple tenses (Present, Past, Future)",
+        sampleSentence: "She will visit her grandmother tomorrow.",
+        tokens: [
+          { text: "She", lemma: "she", pos: "PRON", syntaxRole: "Subject", cefrLevel: "A1", ipa: "/ʃiː/", mediatorTranslation: "o" },
+          { text: "will", lemma: "will", pos: "AUX", syntaxRole: "Auxiliary", cefrLevel: "A1", ipa: "/wɪl/", mediatorTranslation: "—acaq" },
+          { text: "visit", lemma: "visit", pos: "VERB", syntaxRole: "Main Verb", cefrLevel: "A1", ipa: "/ˈvɪzɪt/", mediatorTranslation: "ziyarət edəcək" },
+          { text: "tomorrow", lemma: "tomorrow", pos: "NOUN", syntaxRole: "Adverbial", cefrLevel: "A1", ipa: "/təˈmɒroʊ/", mediatorTranslation: "sabah" }
         ]
+      },
+      {
+        step: 3,
+        title: "Modals and Conditionals",
+        description: "Express possibility, necessity, and hypothetical situations.",
+        grammarPoint: "Modal verbs (can, must, should) and First Conditional",
+        sampleSentence: "If it rains, we will stay home.",
+        tokens: [
+          { text: "If", lemma: "if", pos: "CONJ", syntaxRole: "Conjunction", cefrLevel: "A2", ipa: "/ɪf/", mediatorTranslation: "əgər" },
+          { text: "rains", lemma: "rain", pos: "VERB", syntaxRole: "Predicate", cefrLevel: "A2", ipa: "/reɪnz/", mediatorTranslation: "yağarsa" },
+          { text: "stay", lemma: "stay", pos: "VERB", syntaxRole: "Main Verb", cefrLevel: "A1", ipa: "/steɪ/", mediatorTranslation: "qalacağıq" }
+        ]
+      }
+    ],
+    checkpointQuestions: [
+      {
+        question: "What is the correct word order in a simple English sentence?",
+        options: ["SVO", "SOV", "VSO", "VOS"],
+        correctIndex: 0,
+        explanation: "English follows Subject-Verb-Object order."
+      },
+      {
+        question: "Which verb form is used for future actions?",
+        options: ["will + base verb", "past participle", "present continuous", "infinitive without 'to'"],
+        correctIndex: 0,
+        explanation: "Future simple uses 'will' + base verb."
       }
     ]
   };
 }
 
-function getFallbackGrammarGuide(lang = "English", rule = "Verb Aspects", level = "B1") {
+function getFallbackGrammarGuide(lang = "English", rule = "Verb Tenses", level = "B1") {
   return {
-    title: rule,
-    targetLanguage: lang,
-    level: level,
-    content: `### ${rule} in ${lang}\n\nMastering **${rule}** enables precise formulation of complex narrative sentences. Pay particular attention to aspectual harmony across coordinated clauses.`,
-    exercises: [
+    title: `Comprehensive Guide: ${rule} in ${lang}`,
+    category: "Grammar",
+    level,
+    summary: `A thorough reference covering ${rule} with formulas, common errors, and practice drills.`,
+    coreRules: [
       {
-        question: `Choose the correct form illustrating ${rule}:`,
-        options: ["Option A (Standard)", "Option B (Colloquial)", "Option C (Literary)"],
-        correct: 0,
-        explanation: "Matches classical grammatical agreement."
+        ruleTitle: "Present Simple",
+        explanationInMediator: "Используется для фактов, привычек и регулярных действий.",
+        formula: "Subject + V1 (s/es for 3rd person)",
+        example: "She reads books every evening.",
+        tokens: [
+          { text: "She", lemma: "she", pos: "PRON", syntaxRole: "Subject", cefrLevel: "A1", ipa: "/ʃiː/", mediatorTranslation: "o" },
+          { text: "reads", lemma: "read", pos: "VERB", syntaxRole: "Predicate", cefrLevel: "A1", ipa: "/riːdz/", mediatorTranslation: "oxuyur" },
+          { text: "books", lemma: "book", pos: "NOUN", syntaxRole: "Direct Object", cefrLevel: "A1", ipa: "/bʊks/", mediatorTranslation: "kitablar" }
+        ]
+      },
+      {
+        ruleTitle: "Past Simple",
+        explanationInMediator: "Выражает завершённые действия в прошлом с указанием времени.",
+        formula: "Subject + V2 (ed or irregular)",
+        example: "I visited the museum yesterday.",
+        tokens: [
+          { text: "visited", lemma: "visit", pos: "VERB", syntaxRole: "Predicate", cefrLevel: "A1", ipa: "/ˈvɪzɪtɪd/", mediatorTranslation: "ziyarət etdim" }
+        ]
+      }
+    ],
+    commonMistakes: [
+      {
+        incorrect: "I have seen him yesterday.",
+        correct: "I saw him yesterday.",
+        reason: "Specific past time requires Past Simple, not Present Perfect."
+      }
+    ],
+    practiceExercises: [
+      {
+        question: "Choose the correct past form: 'She _____ to the store.'",
+        options: ["go", "went", "gone", "going"],
+        correctIndex: 1,
+        explanation: "Past Simple of 'go' is 'went'."
       }
     ]
   };

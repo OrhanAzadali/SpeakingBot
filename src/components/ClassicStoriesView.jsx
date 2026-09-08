@@ -112,7 +112,7 @@ export const ClassicStoriesView = ({
     }
   };
 
-  useEffect(() => {
+  useEffect(async () => {
     loadCustomStoriesAndFeeds();
   }, [targetLanguage]);
 
@@ -408,7 +408,6 @@ export const ClassicStoriesView = ({
     e.preventDefault();
     setUploadError(null);
     setUploadSuccess(null);
-
     if (!pdfFile && !customExcerptText.trim()) {
       setUploadError("Please choose a PDF file or enter an excerpt from your book.");
       return;
@@ -452,6 +451,7 @@ export const ClassicStoriesView = ({
 
       setUploadSuccess(`"${data.story.title}" processed successfully with NLP tokenization!`);
       setCustomStories((prev) => [data.story, ...prev]);
+      await loadCustomStoriesAndFeeds(); // refresh the list
 
       // Reset form
       setPdfFile(null);
