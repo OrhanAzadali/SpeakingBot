@@ -1810,29 +1810,26 @@ app.post("/api/gemini/generate-roadmap", async (req, res) => {
 app.post('/api/gemini/generate-grammar-guide', async (req, res) => {
   try {
     const { targetLanguage = "English", ruleTitle = "Verb Tenses", level = "B1", mediatorLanguage = "en" } = req.body;
-    const prompt = `Generate an in-depth grammar guide in ${targetLanguage} for level ${level} about "${ruleTitle} with informative explanatory description and samples". Include formulas, common pitfalls, and 3 rich examples with translations in ${mediatorLanguage}". Return JSON with { "title": "${ruleTitle}", "targetLanguage": "${targetLanguage}", "level": "${level}", "content": "Markdown formatted guide", "exercises": [{"question": "Fill in the blank...", "options": ["A", "B", "C","D"], "correct": 0, "explanation": "..."}] }`;
-
+    const prompt = `Generate an in-depth grammar guide in ${targetLanguage} for level ${level} about "${ruleTitle}". Include formulas, common pitfalls, and 3 rich examples with translations in ${mediatorLanguage}. Return JSON with keys: title, targetLanguage, level, content (markdown), exercises (array of objects with question, options, correctIndex, explanation).`;
     let guide = null;
     const raw = await callGeminiWithResilience(prompt);
     if (raw) {
       try {
-        const clean = raw.replace(/^```json\s*/i, "").replace(/```$/i, "").trim();
+        const clean = raw.replace(/```json\n?|\n?```/g, "").trim();
         guide = JSON.parse(clean);
       } catch (e) {
-        console.warn("Grammar guide JSON parse warning:", e.message);
+        console.warn("Grammar guide JSON parse failed:", e.message);
       }
     }
     if (!guide) {
       guide = getFallbackGrammarGuide(targetLanguage, ruleTitle, level);
     }
-
-    // If a PDF is requested, generate and send it
+    // Now handle PDF or JSON response
     if (req.query.format === 'pdf' || req.body.format === 'pdf') {
       const buffer = generateGrammarGuidePdfBuffer(guide);
       sendPdf(res, buffer, `grammar-guide-${Date.now()}.pdf`);
       return;
     }
-
     res.json({ success: true, guide });
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });
@@ -2092,7 +2089,63 @@ app.post("/api/user/sync-game-xp", (req, res) => {
     message: `+${xpEarned} XP synchronized for ${gameMode}!`
   });
 });
+// In-memory game states
+const memoryGames = {}; // { userId: { pairs, flipped, matched } }
 
+app.post('/api/games/memory/start', (req, res) => {
+  const { userId, targetLanguage = 'en' } = req.body;
+  // Generate 4 pairs of words (you can use your vocabulary or random)
+  const words = ['apple', 'banana', 'cherry', 'date', 'elder', 'fig', 'grape', 'honey'];
+  const pairs = words.slice(0, 4).map((word, i) => ({ id: i, word, matched: false }));
+  memoryGames[userId] = { pairs, matchedIds: [] };
+  res.json({ success: true, pairs: pairs.map(p => ({ id: p.id })) }); // only IDs initially
+});
+
+app.post('/api/games/memory/flip', (req, res) => {
+  const { userId, cardId } = req.body;
+  const game = memoryGames[userId];
+  if (!game) return res.status(404).json({ error: 'Game not started' });
+  const card = game.pairs.find(p => p.id === cardId);
+  if (!card || card.matched) return res.status(400).json({ error: 'Invalid card' });
+  // Simulate flipping – in real app you'd return the word
+  res.json({ success: true, word: card.word });
+});
+
+app.post('/api/games/memory/match', (req, res) => {
+  const { userId, card1, card2 } = req.body;
+  const game = memoryGames[userId];
+  if (!game) return res.status(404).json({ error: 'Game not started' });
+  const c1 = game.pairs.find(p => p.id === card1);
+  const c2 = game.pairs.find(p => p.id === card2);
+  if (c1.word === c2.word) {
+    c1.matched = true; c2.matched = true;
+    game.matchedCount = (game.matchedCount || 0) + 1;
+    return res.json({ success: true, matched: true, matchedCount: game.matchedCount, gameOver: game.matchedCount === game.pairs.length / 2 });
+  }
+  res.json({ success: true, matched: false });
+});
+const wordBuilderGames = {};
+
+app.post('/api/games/wordbuilder/start', (req, res) => {
+  const { userId, targetWord = 'LANGUAGE' } = req.body;
+  wordBuilderGames[userId] = { targetWord, foundWords: [] };
+  res.json({ success: true, targetWord });
+});
+
+app.post('/api/games/wordbuilder/verify', async (req, res) => {
+  const { userId, word } = req.body;
+  const game = wordBuilderGames[userId];
+  if (!game) return res.status(404).json({ error: 'Game not started' });
+  const upperWord = word.toUpperCase();
+  // Check if all letters are in targetWord and word length >= 3
+  const valid = upperWord.length >= 3 && [...upperWord].every(ch => game.targetWord.includes(ch));
+  if (!valid) return res.json({ success: false, valid: false, message: 'Invalid word' });
+  // Avoid duplicates
+  if (game.foundWords.includes(upperWord)) return res.json({ success: false, valid: false, message: 'Already found' });
+  // You could also verify against a dictionary API, but for simplicity accept it.
+  game.foundWords.push(upperWord);
+  res.json({ success: true, valid: true, foundWords: game.foundWords });
+});
 async function startServer() {
   if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({

@@ -557,6 +557,47 @@ bot.command('profile', async (ctx) => {
     ctx.reply(`👤 Level: ${profile.currentLevel}\nTarget: ${profile.targetLanguage}\nXP: ${profile.xp || 0}`);
 });
 
+bot.command('memory', async (ctx) => {
+    const userId = ctx.from.id;
+    const targetLanguage = (await getUserProfile(userId)).targetLanguage || 'en';
+    const { data } = await axios.post(`${API_BASE}/api/games/memory/start`, { userId, targetLanguage });
+    ctx.reply(`Memory Match started! Cards: ${data.pairs.map(p => p.id).join(', ')}. Use /flip <id> to see a card, /match <id1> <id2> to match.`);
+});
+
+bot.command('flip', async (ctx) => {
+    const userId = ctx.from.id;
+    const cardId = parseInt(ctx.message.text.split(' ')[1]);
+    const { data } = await axios.post(`${API_BASE}/api/games/memory/flip`, { userId, cardId });
+    ctx.reply(`Card ${cardId}: ${data.word}`);
+});
+
+bot.command('match', async (ctx) => {
+    const args = ctx.message.text.split(' ');
+    if (args.length < 3) return ctx.reply('Usage: /match <id1> <id2>');
+    const card1 = parseInt(args[1]);
+    const card2 = parseInt(args[2]);
+    const { data } = await axios.post(`${API_BASE}/api/games/memory/match`, { userId: ctx.from.id, card1, card2 });
+    if (data.matched) {
+        ctx.reply(`Match! ${data.matchedCount} pairs found.`);
+        if (data.gameOver) ctx.reply('🎉 Game over! You found all pairs!');
+    } else {
+        ctx.reply('❌ Not a match.');
+    }
+});
+
+bot.command('wordbuilder', async (ctx) => {
+    const userId = ctx.from.id;
+    const { data } = await axios.post(`${API_BASE}/api/games/wordbuilder/start`, { userId, targetWord: 'LANGUAGE' });
+    ctx.reply(`Word Builder started! Target word: ${data.targetWord}. Use /word <word> to submit.`);
+});
+
+bot.command('word', async (ctx) => {
+    const word = ctx.message.text.split(' ')[1];
+    const { data } = await axios.post(`${API_BASE}/api/games/wordbuilder/verify`, { userId: ctx.from.id, word });
+    if (data.valid) ctx.reply(`✅ "${word.toUpperCase()}" added! Found words: ${data.foundWords.join(', ')}`);
+    else ctx.reply(data.message || 'Invalid word.');
+});
+
 // ==================== CALLBACKS ====================
 bot.action('show_stories', async (ctx) => {
     const userId = ctx.from.id;
