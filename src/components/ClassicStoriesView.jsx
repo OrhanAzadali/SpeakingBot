@@ -18,19 +18,18 @@ import {
   Layers,
   Clock,
   Compass,
-  Info,
   Check,
   Bot,
   Upload,
   FileText,
-  Plus,
   Trash2,
   Sunrise,
   Sun,
   Moon,
   RefreshCw,
   AlertCircle,
-  BookMarked
+  BookMarked,
+  Send
 } from "lucide-react";
 import { SaveToVocabButton } from "./SaveToVocabButton";
 
@@ -45,13 +44,9 @@ export const ClassicStoriesView = ({
   initialSelectedStoryId,
   initialMode = "all"
 }) => {
-
   const { mediatorLanguage } = useTranslation();
   const [selectedLevel, setSelectedLevel] = useState("ALL");
   const [filterMode, setFilterMode] = useState(initialMode);
-  const [selectedSentence, setSelectedSentence] = useState(null);
-  const [socraticInput, setSocraticInput] = useState('');
-  const [socraticMessages, setSocraticMessages] = useState([]); // {role: 'user'|'assistant', text}
   const [customStories, setCustomStories] = useState([]);
   const [dailyFeeds, setDailyFeeds] = useState([]);
   const [isLoadingFeeds, setIsLoadingFeeds] = useState(false);
@@ -70,7 +65,7 @@ export const ClassicStoriesView = ({
   const [activeStory, setActiveStory] = useState(() => {
     if (initialSelectedStoryId) {
       const found = CLASSIC_STORIES.find((s) => s.id === initialSelectedStoryId);
-      if (found && (found.targetLanguage || '').toLowerCase() === (targetLanguage || 'English').toLowerCase()) {
+      if (found && (found.targetLanguage || "").toLowerCase() === (targetLanguage || "English").toLowerCase()) {
         return found;
       }
     }
@@ -96,15 +91,24 @@ export const ClassicStoriesView = ({
   const [isSavingProgress, setIsSavingProgress] = useState(false);
   const [syncSuccessMessage, setSyncSuccessMessage] = useState(null);
 
-  // Load custom stories and 3x daily feeds from backend
+  // Live Socratic Interactive Chat State
+  const [liveChatMessages, setLiveChatMessages] = useState([]);
+  const [chatInput, setChatInput] = useState("");
+  const [isSendingChat, setIsSendingChat] = useState(false);
+
+  // Load custom stories and daily feeds from backend
   const loadCustomStoriesAndFeeds = async () => {
     setIsLoadingFeeds(true);
     try {
-      const res = await fetch(`/api/stories/custom-list?targetLanguage=${encodeURIComponent(targetLanguage)}&userId=default-user`);
-      const data = await res.json();
-      if (data.success) {
-        setCustomStories(data.customStories || []);
-        setDailyFeeds(data.dailyFeeds || []);
+      const res = await fetch(
+        `/api/stories/custom-list?targetLanguage=${encodeURIComponent(targetLanguage)}&userId=default-user`
+      );
+      if (res.ok) {
+        const data = await res.json();
+        if (data.success) {
+          setCustomStories(data.customStories || []);
+          setDailyFeeds(data.dailyFeeds || []);
+        }
       }
     } catch (err) {
       console.warn("Could not load custom stories/feeds:", err);
@@ -117,17 +121,18 @@ export const ClassicStoriesView = ({
     loadCustomStoriesAndFeeds();
   }, [targetLanguage]);
 
-  // Auto-switch active story or reset when targetLanguage changes
+  // Auto-switch active story when targetLanguage changes
   useEffect(() => {
-    if (activeStory && activeStory.targetLanguage?.toLowerCase() !== targetLanguage?.toLowerCase()) {
+    if (activeStory && (activeStory.targetLanguage || "").toLowerCase() !== targetLanguage?.toLowerCase()) {
       const matchingStories = [
-        ...customStories.filter((s) => s.targetLanguage?.toLowerCase() === targetLanguage?.toLowerCase()),
-        ...CLASSIC_STORIES.filter((s) => s.targetLanguage?.toLowerCase() === targetLanguage?.toLowerCase())
+        ...customStories.filter((s) => (s.targetLanguage || "").toLowerCase() === targetLanguage?.toLowerCase()),
+        ...CLASSIC_STORIES.filter((s) => (s.targetLanguage || "").toLowerCase() === targetLanguage?.toLowerCase())
       ];
       setActiveStory(matchingStories[0] || null);
       setStoryStage("story");
       setActiveSentenceIndex(null);
       setIsPlaying(false);
+      setLiveChatMessages([]);
     }
   }, [targetLanguage, activeStory, customStories]);
 
@@ -135,7 +140,7 @@ export const ClassicStoriesView = ({
   const allAvailableStories = [...customStories, ...CLASSIC_STORIES];
 
   const filteredStories = allAvailableStories.filter((story) => {
-    const matchesTarget = (story.targetLanguage || '').toLowerCase() === (targetLanguage || 'English').toLowerCase();
+    const matchesTarget = (story.targetLanguage || "English").toLowerCase() === (targetLanguage || "English").toLowerCase();
     const matchesMode = filterMode === "all" || story.mode === "both" || story.mode === filterMode;
     const matchesLevel = selectedLevel === "ALL" || story.level === selectedLevel;
     return matchesTarget && matchesMode && matchesLevel;
@@ -185,7 +190,7 @@ export const ClassicStoriesView = ({
       noise.start();
       ambientNodeRef.current = noise;
     } catch (e) {
-      console.warn("Ambient synthesizer unavailable:", e);
+      console.warn("Ambient synthesizer notice:", e);
     }
     return () => {
       if (ambientAudioCtxRef.current) {
@@ -205,7 +210,6 @@ export const ClassicStoriesView = ({
   const startAudioNarration = (fromSentenceIdx = 0) => {
     if (!activeStory) return;
     if (!("speechSynthesis" in window)) {
-      alert("Speech synthesis is not supported in this browser environment.");
       return;
     }
     window.speechSynthesis.cancel();
@@ -233,7 +237,7 @@ export const ClassicStoriesView = ({
         Russian: "ru-RU",
         Turkish: "tr-TR"
       };
-      utterance.lang = langMap[activeStory.targetLanguage] || "en-US";
+      utterance.lang = langMap[activeStory.targetLanguage || targetLanguage] || "en-US";
       utterance.rate = playbackSpeed;
       utterance.pitch = 0.95;
 
@@ -272,7 +276,7 @@ export const ClassicStoriesView = ({
     setExerciseSubmitted({});
     setFinalScore(0);
     setSyncSuccessMessage(null);
-    setSelectedSentence(null);
+    setLiveChatMessages([]);
   };
 
   const handleCloseStory = () => {
@@ -282,10 +286,9 @@ export const ClassicStoriesView = ({
 
   const handleSelectSentence = (idx) => {
     setActiveSentenceIndex(idx);
-    if (activeStory?.sentences?.[idx]) {
-      setSelectedSentence(activeStory.sentences[idx]);
+    if (isPlaying) {
+      startAudioNarration(idx);
     }
-    if (isPlaying) startAudioNarration(idx);
   };
 
   const handleSelectConversationResponse = (qId, respId) => {
@@ -293,35 +296,47 @@ export const ClassicStoriesView = ({
     setConvFeedback((prev) => ({ ...prev, [qId]: true }));
   };
 
-  const sendSocraticMessage = async () => {
-    if (!socraticInput.trim()) return;
-    const userMsg = socraticInput.trim();
-    setSocraticInput('');
-    setSocraticMessages((prev) => [...prev, { role: 'user', text: userMsg }]);
+  const handleSendSocraticMessage = async (textToSend) => {
+    const text = (textToSend || chatInput).trim();
+    if (!text || isSendingChat || !activeStory) return;
+
+    setChatInput("");
+    const userMsg = { role: "user", text, timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) };
+    setLiveChatMessages((prev) => [...prev, userMsg]);
+    setIsSendingChat(true);
 
     try {
+      const excerpt = activeStory.paragraphs?.join("\n\n") || activeStory.storyText || "";
       const res = await fetch("/api/socratic/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          userId: "default-user",
           bookTitle: activeStory.title,
           author: activeStory.author,
-          excerpt: selectedSentence ? selectedSentence.text : activeStory.paragraphs?.[0] || activeStory.storyText,
-          userMessage: userMsg,
-          targetLanguage: targetLanguage,
-          mediatorLanguage: mediatorLanguage,
-        }),
+          excerpt,
+          userMessage: text,
+          targetLanguage: activeStory.targetLanguage || targetLanguage,
+          mediatorLanguage
+        })
       });
-      const data = await res.json();
-      if (data.success) {
-        setSocraticMessages((prev) => [...prev, { role: 'assistant', text: data.reply }]);
-      } else {
-        setSocraticMessages((prev) => [...prev, { role: 'assistant', text: 'Sorry, I could not generate a response.' }]);
+
+      if (res.ok) {
+        const data = await res.json();
+        if (data.reply) {
+          setLiveChatMessages((prev) => [
+            ...prev,
+            {
+              role: "mentor",
+              text: data.reply,
+              timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+            }
+          ]);
+        }
       }
     } catch (err) {
-      console.error('Socratic chat error:', err);
-      setSocraticMessages((prev) => [...prev, { role: 'assistant', text: 'Connection error.' }]);
+      console.warn("Socratic chat error:", err);
+    } finally {
+      setIsSendingChat(false);
     }
   };
 
@@ -338,16 +353,12 @@ export const ClassicStoriesView = ({
     if (activeStory.conversations) {
       activeStory.conversations.forEach((conv) => {
         maxPoints += 10;
-        const respId = selectedConvResponses[conv.id];
+        const respId = selectedConvResponses[conv.id || conv.prompt];
         if (conv.userResponses) {
           const found = conv.userResponses.find((r) => r.id === respId);
-          if (found) {
-            totalPoints += found.scoreAwarded;
-          }
+          if (found) totalPoints += found.scoreAwarded || 10;
         } else if (conv.options) {
-          if (respId === conv.correctIndex) {
-            totalPoints += 10;
-          }
+          if (respId === conv.correctIndex) totalPoints += 10;
         }
       });
     }
@@ -355,10 +366,8 @@ export const ClassicStoriesView = ({
     if (activeStory.exercises) {
       activeStory.exercises.forEach((ex) => {
         maxPoints += 20;
-        const ans = selectedExerciseAnswers[ex.id];
-        if (ans === ex.correctIndex) {
-          totalPoints += 20;
-        }
+        const ans = selectedExerciseAnswers[ex.id || ex.question];
+        if (ans === ex.correctIndex) totalPoints += 20;
       });
     }
 
@@ -380,12 +389,10 @@ export const ClassicStoriesView = ({
           author: activeStory.author,
           mode: currentMode,
           score: calculatedScore,
-          scoreDelta,
-          source: "webapp"
+          scoreDelta
         })
       });
-      const data = await resp.json();
-      if (data.success) {
+      if (resp.ok) {
         setSyncSuccessMessage(`Progress saved! ${skillKey.toUpperCase()} boosted by +${scoreDelta}% & synced to @SpeakBot`);
         if (onStoryCompleted) {
           onStoryCompleted({
@@ -404,11 +411,12 @@ export const ClassicStoriesView = ({
     }
   };
 
-  // Upload Custom PDF or Text Book Excerpt
+  // Upload Custom PDF or Text Book Excerpt with Safe Error Guard
   const handleUploadPdfBook = async (e) => {
     e.preventDefault();
     setUploadError(null);
     setUploadSuccess(null);
+
     if (!pdfFile && !customExcerptText.trim()) {
       setUploadError("Please choose a PDF file or enter an excerpt from your book.");
       return;
@@ -418,7 +426,7 @@ export const ClassicStoriesView = ({
 
     try {
       let fileBase64 = null;
-      let fileName = pdfFile ? pdfFile.name : `${pdfBookTitle || 'Custom Book'}.txt`;
+      let fileName = pdfFile ? pdfFile.name : `${pdfBookTitle || "Custom Book"}.txt`;
 
       if (pdfFile) {
         fileBase64 = await new Promise((resolve, reject) => {
@@ -434,31 +442,32 @@ export const ClassicStoriesView = ({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           userId: "default-user",
-          // NOTE: server.js's /api/stories/upload-pdf-book destructures this
-          // field as "fileBase64" — it was previously sent as "pdfData",
-          // which the server silently ignored (defaulting to ""), so an
-          // actual uploaded PDF's content never reached the server at all.
-          // Only pasted-text uploads worked. Fixed to match the server's
-          // expected field name.
-          fileBase64: fileBase64,
+          fileBase64,
+          pdfData: fileBase64,
           fileText: customExcerptText,
           fileName,
           bookTitle: pdfBookTitle || fileName.replace(/\.[^/.]+$/, ""),
-          author: pdfAuthor || "Custom Author",
+          author: pdfAuthor || "Classic Author",
           targetLanguage,
           mediatorLanguage,
           userLevel: pdfLevel
         })
       });
 
-      const data = await res.json();
-      if (!data.success) {
-        throw new Error(data.error || "Server failed to process book excerpt.");
+      const rawText = await res.text();
+      let data;
+      try {
+        data = JSON.parse(rawText);
+      } catch (jsonErr) {
+        throw new Error("The server response could not be parsed as JSON. If the file is very large, try extracting an excerpt or uploading a .txt file.");
+      }
+
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || `Upload failed with status ${res.status}`);
       }
 
       setUploadSuccess(`"${data.story.title}" processed successfully with NLP tokenization!`);
       setCustomStories((prev) => [data.story, ...prev]);
-      await loadCustomStoriesAndFeeds(); // refresh the list
 
       // Reset form
       setPdfFile(null);
@@ -469,7 +478,7 @@ export const ClassicStoriesView = ({
       setTimeout(() => {
         setIsPdfModalOpen(false);
         handleSelectStory(data.story, "reading");
-      }, 1200);
+      }, 1000);
     } catch (err) {
       console.error("PDF upload error:", err);
       setUploadError(err.message || "Failed to process PDF book.");
@@ -484,8 +493,7 @@ export const ClassicStoriesView = ({
       const res = await fetch(`/api/stories/custom-story/${storyId}?userId=default-user`, {
         method: "DELETE"
       });
-      const data = await res.json();
-      if (data.success) {
+      if (res.ok) {
         setCustomStories((prev) => prev.filter((s) => s.id !== storyId));
         if (activeStory?.id === storyId) {
           handleCloseStory();
@@ -496,16 +504,14 @@ export const ClassicStoriesView = ({
     }
   };
 
-  // Check if a word is in savedVocabulary for the active story language
   const checkIsWordSaved = (wordStr) => {
     if (!wordStr) return false;
     const cleanWord = wordStr.toLowerCase().trim();
-    const activeTarget = (activeStory?.targetLanguage || targetLanguage || 'English').toLowerCase();
+    const activeTarget = (activeStory?.targetLanguage || targetLanguage || "English").toLowerCase();
 
-    // Check in current language array
     return savedVocabulary.some((v) => {
-      const vWord = (v.word || '').toLowerCase().trim();
-      const vLang = (v.targetLanguage || targetLanguage || 'English').toLowerCase();
+      const vWord = (v.word || "").toLowerCase().trim();
+      const vLang = (v.targetLanguage || targetLanguage || "English").toLowerCase();
       return vWord === cleanWord && vLang === activeTarget;
     });
   };
@@ -554,11 +560,11 @@ export const ClassicStoriesView = ({
                 </span>
                 {activeStory.isCustomPdf && (
                   <span className="text-xs px-2 py-0.5 rounded-full bg-sky-500/20 text-sky-400 border border-sky-500/30 font-mono font-bold">
-                    Custom PDF Excerpt
+                    Custom Book Excerpt
                   </span>
                 )}
                 <span className="text-xs font-semibold text-slate-400 font-serif italic">
-                  {activeStory.author} ({activeStory.authorEra || 'Classic Literature'})
+                  {activeStory.author} ({activeStory.authorEra || "Classic Literature"})
                 </span>
               </div>
               <h2 className="text-sm sm:text-base font-bold text-white tracking-wide">
@@ -757,7 +763,7 @@ export const ClassicStoriesView = ({
                     <Headphones className="w-16 h-16 text-emerald-500 mx-auto animate-bounce" />
                     <h3 className="text-xl font-bold text-white">Blind Listening Mode Active</h3>
                     <p className="text-sm text-slate-400 max-w-md mx-auto">
-                      Text is concealed to maximize pure auditory comprehension. Focus entirely on the narrator’s cadence, tone, and connected speech.
+                      Text is concealed to maximize pure auditory comprehension. Focus entirely on the narrator’s cadence and tone.
                     </p>
                     <button
                       onClick={() => setBlindListening(false)}
@@ -771,7 +777,7 @@ export const ClassicStoriesView = ({
                     {/* Story Title Header */}
                     <div className="border-b pb-4 mb-6 border-current/20 text-center">
                       <div className="text-xs uppercase tracking-widest font-serif opacity-75">
-                        {activeStory.authorEra || 'Classic Work'}
+                        {activeStory.authorEra || "Classic Literature"}
                       </div>
                       <h1 className="text-2xl sm:text-3xl font-serif font-black mt-1">
                         {activeStory.title}
@@ -782,13 +788,13 @@ export const ClassicStoriesView = ({
                     </div>
 
                     {/* Interactive Paragraphs */}
-                    {activeStory.paragraphs.map((para, pIdx) => (
+                    {activeStory.paragraphs?.map((para, pIdx) => (
                       <p key={pIdx} className={`font-serif leading-relaxed text-justify ${getFontSizeClass()}`}>
                         {para}
                       </p>
                     ))}
 
-                    {/* Sentence Breakdown for High-Definition Analysis */}
+                    {/* Sentence Breakdown */}
                     <div className="mt-8 pt-6 border-t border-current/20 space-y-3">
                       <div className="text-xs font-bold uppercase tracking-wider flex items-center gap-1.5 opacity-80">
                         <Feather className="w-3.5 h-3.5" />
@@ -796,7 +802,7 @@ export const ClassicStoriesView = ({
                       </div>
 
                       <div className="space-y-2">
-                        {activeStory.sentences.map((s, sIdx) => {
+                        {activeStory.sentences?.map((s, sIdx) => {
                           const isCurrent = activeSentenceIndex === sIdx;
                           return (
                             <div
@@ -842,9 +848,7 @@ export const ClassicStoriesView = ({
                 </div>
                 <button
                   onClick={() => setStoryStage("conversation")}
-                  disabled={!selectedSentence}
-                  className={`px-5 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-lg transition transform active:scale-95 cursor-pointer ${!selectedSentence ? 'opacity-50 cursor-not-allowed' : ''}`}
-
+                  className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-lg transition transform active:scale-95 cursor-pointer"
                 >
                   <span>Start Socratic Chat</span>
                   <ChevronRight className="w-4 h-4" />
@@ -852,7 +856,7 @@ export const ClassicStoriesView = ({
               </div>
             </div>
 
-            {/* Sidebar: Linguistic Intricacies, Devices & Saved Vocabulary (4 Cols) */}
+            {/* Sidebar: Linguistic Context & Saved Vocabulary (4 Cols) */}
             <div className="lg:col-span-4 space-y-6">
               {/* Cultural & Linguistic Context Card */}
               <div className="bg-slate-900 border border-slate-800 rounded-3xl p-5 shadow-xl space-y-3">
@@ -864,21 +868,38 @@ export const ClassicStoriesView = ({
                   {activeStory.culturalLinguisticContext}
                 </p>
                 <div className="pt-2 border-t border-slate-800 flex items-center justify-between text-[11px] text-slate-400">
-                  <span>Theme: {activeStory.theme || 'Literature'}</span>
+                  <span>Theme: {activeStory.theme || "Literature"}</span>
                   <span className="font-mono">Level {activeStory.level}</span>
                 </div>
               </div>
 
-              {/* Key Literary Vocabulary in Context */}
+              {/* Key Vocabulary Lexicon */}
               <div className="bg-slate-900 border border-slate-800 rounded-3xl p-5 shadow-xl space-y-3">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2 text-emerald-400 text-xs font-bold uppercase tracking-wider">
                     <Feather className="w-4 h-4" />
-                    <span>Linguistic Intricacy Lexicon</span>
+                    <span>Key Lexicon ({activeStory.keyVocabulary?.length || 0})</span>
                   </div>
-                  <span className="text-[10px] font-mono bg-emerald-500/10 text-emerald-400 px-2 py-0.5 rounded-full border border-emerald-500/20">
-                    {activeStory.keyVocabulary?.length || 0} Words
-                  </span>
+                  {onSaveToVocabulary && activeStory.keyVocabulary?.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        activeStory.keyVocabulary.forEach((v) => {
+                          onSaveToVocabulary({
+                            word: v.word,
+                            translation: v.meaning || v.translation,
+                            targetLanguage: activeStory.targetLanguage || targetLanguage,
+                            pos: v.pos,
+                            ipa: v.ipa,
+                            example: v.example
+                          });
+                        });
+                      }}
+                      className="text-[10px] font-bold text-sky-400 hover:text-sky-300 cursor-pointer"
+                    >
+                      + Save All
+                    </button>
+                  )}
                 </div>
 
                 <div className="space-y-2.5 max-h-96 overflow-y-auto pr-1">
@@ -911,7 +932,7 @@ export const ClassicStoriesView = ({
                               {vocab.pos}
                             </span>
                             <span className="text-[10px] font-mono bg-emerald-500/20 text-emerald-400 px-1.5 py-0.5 rounded">
-                              {vocab.cefr}
+                              {vocab.cefr || activeStory.level}
                             </span>
                           </div>
                         </div>
@@ -934,12 +955,12 @@ export const ClassicStoriesView = ({
                 </div>
               </div>
 
-              {/* Stylistic Devices Dissection */}
+              {/* Stylistic Devices */}
               {activeStory.stylisticDevices?.length > 0 && (
                 <div className="bg-slate-900 border border-slate-800 rounded-3xl p-5 shadow-xl space-y-3">
                   <div className="flex items-center gap-2 text-sky-400 text-xs font-bold uppercase tracking-wider">
                     <Layers className="w-4 h-4" />
-                    <span>Stylistic Devices Dissection</span>
+                    <span>Stylistic Devices</span>
                   </div>
 
                   <div className="space-y-3">
@@ -972,28 +993,27 @@ export const ClassicStoriesView = ({
             <div className="bg-gradient-to-r from-indigo-900/40 via-purple-900/40 to-slate-900 border border-indigo-700/40 p-6 rounded-3xl space-y-2">
               <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-indigo-400">
                 <MessageSquare className="w-4 h-4" />
-                <span>Socratic Dialogue & Literary Questioning</span>
+                <span>Socratic Dialogue & Literary Inquiry</span>
               </div>
               <h2 className="text-xl font-bold text-white">
                 Conversational Inquiry: Delving into Intricacies
               </h2>
               <p className="text-xs sm:text-sm text-slate-300">
-                Step into dialogue with the literary persona. Choose the response that best unravels the character psychology and linguistic mechanics of the text.
+                Engage directly with the author persona or Socratic mentor. Choose responses or chat live to explore narrator psychology.
               </p>
             </div>
 
-            {/* Conversation Dialogues List */}
+            {/* Socratic Questions List */}
             <div className="space-y-6">
               {activeStory.conversations?.map((conv) => {
-                const isAnswered = Boolean(convFeedback[conv.id]);
-                const selectedRespId = selectedConvResponses[conv.id];
-
-                // Options could be userResponses array or options string array
+                const convKey = conv.id || conv.prompt;
+                const isAnswered = Boolean(convFeedback[convKey]);
+                const selectedRespId = selectedConvResponses[convKey];
                 const hasComplexResponses = Boolean(conv.userResponses);
 
                 return (
                   <div
-                    key={conv.id || conv.prompt}
+                    key={convKey}
                     className="bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-xl space-y-4"
                   >
                     <div className="flex items-center gap-2.5">
@@ -1001,7 +1021,7 @@ export const ClassicStoriesView = ({
                         <Bot className="w-5 h-5" />
                       </div>
                       <div>
-                        <div className="text-xs font-bold text-indigo-300">{conv.persona}</div>
+                        <div className="text-xs font-bold text-indigo-300">{conv.persona || activeStory.author}</div>
                         <div className="text-xs text-slate-400">Literary Persona Question:</div>
                       </div>
                     </div>
@@ -1033,13 +1053,11 @@ export const ClassicStoriesView = ({
                             <button
                               key={resp.id}
                               disabled={isAnswered}
-                              onClick={() => handleSelectConversationResponse(conv.id, resp.id)}
+                              onClick={() => handleSelectConversationResponse(convKey, resp.id)}
                               className={`w-full text-left p-3.5 rounded-2xl border transition text-xs sm:text-sm cursor-pointer ${btnClasses}`}
                             >
                               <div className="flex items-start gap-2.5">
-                                <span className="text-slate-400 font-mono text-[10px] mt-0.5">
-                                  ▶
-                                </span>
+                                <span className="text-slate-400 font-mono text-[10px] mt-0.5">▶</span>
                                 <span>{resp.text}</span>
                               </div>
                             </button>
@@ -1062,7 +1080,7 @@ export const ClassicStoriesView = ({
                             <button
                               key={optIdx}
                               disabled={isAnswered}
-                              onClick={() => handleSelectConversationResponse(conv.id || conv.prompt, optIdx)}
+                              onClick={() => handleSelectConversationResponse(convKey, optIdx)}
                               className={`w-full text-left p-3.5 rounded-2xl border transition text-xs sm:text-sm cursor-pointer ${btnClasses}`}
                             >
                               <div className="flex items-start gap-2.5">
@@ -1090,30 +1108,82 @@ export const ClassicStoriesView = ({
                   </div>
                 );
               })}
-              {/* Live Socratic Chat (based on selected sentence) */}
-              {selectedSentence && (
-                <div className="mt-8 p-4 rounded-2xl bg-slate-800/50 border border-slate-700">
-                  <div className="text-xs font-bold text-sky-300 mb-2">Live Socratic Chat – based on selected sentence:</div>
-                  <div className="max-h-64 overflow-y-auto space-y-2 mb-3">
-                    {socraticMessages.map((msg, idx) => (
-                      <div key={idx} className={`p-2 rounded-lg ${msg.role === 'user' ? 'bg-sky-600/30 text-right' : 'bg-slate-900 text-left'}`}>
-                        <span className="text-xs">{msg.text}</span>
-                      </div>
-                    ))}
+            </div>
+
+            {/* Live Interactive Socratic Chat Chamber */}
+            <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-xl space-y-4">
+              <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+                <div className="flex items-center gap-2">
+                  <div className="w-8 h-8 rounded-xl bg-sky-500/20 text-sky-400 flex items-center justify-center border border-sky-500/30">
+                    <Sparkles className="w-4 h-4" />
                   </div>
-                  <div className="flex gap-2">
-                    <input
-                      type="text"
-                      value={socraticInput}
-                      onChange={(e) => setSocraticInput(e.target.value)}
-                      onKeyPress={(e) => { if (e.key === 'Enter') sendSocraticMessage(); }}
-                      placeholder="Ask a question about this sentence..."
-                      className="flex-1 px-3 py-2 rounded-lg bg-slate-950 border border-slate-700 text-xs text-white"
-                    />
-                    <button onClick={sendSocraticMessage} className="px-4 py-2 rounded-lg bg-indigo-600 text-white text-xs font-bold">Send</button>
+                  <div>
+                    <h4 className="text-sm font-bold text-white">Live Socratic Chat with Mentor</h4>
+                    <p className="text-[11px] text-slate-400">Ask questions or share your interpretation in {targetLanguage}</p>
                   </div>
                 </div>
-              )}
+                <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                  AI Active
+                </span>
+              </div>
+
+              {/* Chat Thread */}
+              <div className="min-h-[140px] max-h-72 overflow-y-auto space-y-3 p-2">
+                {liveChatMessages.length === 0 ? (
+                  <div className="text-center py-6 text-xs text-slate-500">
+                    Type a message below or ask about any motif in "{activeStory.title}".
+                  </div>
+                ) : (
+                  liveChatMessages.map((msg, mIdx) => (
+                    <div
+                      key={mIdx}
+                      className={`flex flex-col ${msg.role === "user" ? "items-end" : "items-start"}`}
+                    >
+                      <div
+                        className={`max-w-[85%] p-3.5 rounded-2xl text-xs sm:text-sm leading-relaxed ${msg.role === "user"
+                          ? "bg-sky-600 text-white rounded-br-none"
+                          : "bg-slate-800 text-slate-200 border border-slate-700 rounded-bl-none"
+                          }`}
+                      >
+                        {msg.text}
+                      </div>
+                      <span className="text-[10px] text-slate-500 mt-1 font-mono px-1">
+                        {msg.timestamp}
+                      </span>
+                    </div>
+                  ))
+                )}
+                {isSendingChat && (
+                  <div className="flex items-center gap-2 text-xs text-slate-400 p-2">
+                    <RefreshCw className="w-3.5 h-3.5 animate-spin text-sky-400" />
+                    <span>Mentor is formulating insight...</span>
+                  </div>
+                )}
+              </div>
+
+              {/* Chat Input */}
+              <form
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  handleSendSocraticMessage();
+                }}
+                className="flex items-center gap-2 pt-2"
+              >
+                <input
+                  type="text"
+                  value={chatInput}
+                  onChange={(e) => setChatInput(e.target.value)}
+                  placeholder={`Discuss this story in ${targetLanguage}...`}
+                  className="flex-1 px-4 py-2.5 bg-slate-950 border border-slate-700 rounded-xl text-xs text-white focus:outline-none focus:border-sky-500"
+                />
+                <button
+                  type="submit"
+                  disabled={!chatInput.trim() || isSendingChat}
+                  className="p-2.5 rounded-xl bg-sky-600 hover:bg-sky-500 text-white transition disabled:opacity-40 cursor-pointer"
+                >
+                  <Send className="w-4 h-4" />
+                </button>
+              </form>
             </div>
 
             {/* Bottom Actions */}
@@ -1166,7 +1236,7 @@ export const ClassicStoriesView = ({
                   >
                     <div className="flex items-center justify-between text-xs">
                       <span className="font-mono text-emerald-400 font-bold bg-emerald-500/10 px-2.5 py-0.5 rounded-full border border-emerald-500/20">
-                        Task #{exIdx + 1} • {(ex.type || 'Comprehension').replace("_", " ").toUpperCase()}
+                        Task #{exIdx + 1} • {(ex.type || "Comprehension").replace("_", " ").toUpperCase()}
                       </span>
                       {isSubmitted && (
                         <span className={`font-semibold ${isCorrect ? "text-emerald-400" : "text-rose-400"}`}>
@@ -1214,14 +1284,6 @@ export const ClassicStoriesView = ({
                           <span className="font-bold text-white">Explanation: </span>
                           {ex.explanation}
                         </div>
-                        {ex.linguisticIntricacyNote && (
-                          <div className="text-emerald-300 pt-1 border-t border-slate-700/60 flex items-start gap-1.5 text-xs">
-                            <Sparkles className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" />
-                            <span>
-                              <strong>Intricacy Masterclass:</strong> {ex.linguisticIntricacyNote}
-                            </span>
-                          </div>
-                        )}
                       </div>
                     )}
                   </div>
@@ -1373,7 +1435,7 @@ export const ClassicStoriesView = ({
 
   return (
     <div className="space-y-6">
-      {/* Hero Banner with Topic & Immersion Description */}
+      {/* Hero Banner */}
       <div className="bg-gradient-to-br from-slate-900 via-slate-900 to-indigo-950 border border-slate-800 rounded-3xl p-6 sm:p-8 relative overflow-hidden shadow-2xl">
         <div className="absolute right-0 top-0 w-96 h-96 bg-indigo-500/10 rounded-full blur-3xl pointer-events-none" />
 
@@ -1383,11 +1445,9 @@ export const ClassicStoriesView = ({
               <span className="px-3 py-1 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 text-xs font-bold font-mono">
                 Classical Literature & Audio Theater
               </span>
-              {/* Note: the current target language is stated once, naturally,
-                  in the paragraph just below — a separate "Target: X" badge
-                  here duplicated the same info right next to it and was
-                  removed to reduce redundant UI clutter. The global language
-                  selector in the app header remains the single control. */}
+              <span className="text-xs text-slate-400">
+                Target: <strong className="text-white">{targetLanguage}</strong>
+              </span>
             </div>
 
             {/* Upload Custom PDF Book Button */}
@@ -1408,7 +1468,6 @@ export const ClassicStoriesView = ({
             Delve deeply into classic prose in <span className="text-sky-400 font-semibold">{targetLanguage}</span> with masterworks from legendary authors or upload your own PDF books. SpeakBot uses deep NLP tokenization to parse syntactic fronting, generate Socratic literary dialogues, and create high-fidelity acoustic theater exercises.
           </p>
 
-          {/* Quick Metrics Bar */}
           <div className="pt-2 flex flex-wrap items-center gap-4 text-xs text-slate-400 font-mono">
             <span className="flex items-center gap-1.5">
               <BookOpen className="w-4 h-4 text-sky-400" />
@@ -1481,7 +1540,6 @@ export const ClassicStoriesView = ({
 
       {/* Filter Tabs: Mode & Level */}
       <div className="flex flex-wrap items-center justify-between gap-4 bg-slate-900/80 border border-slate-800 p-3 rounded-2xl">
-        {/* Mode Filter */}
         <div className="flex bg-slate-800 p-1 rounded-xl border border-slate-700">
           <button
             onClick={() => setFilterMode("all")}
@@ -1508,7 +1566,6 @@ export const ClassicStoriesView = ({
           </button>
         </div>
 
-        {/* Level Filter */}
         <div className="flex items-center gap-1">
           <span className="text-xs text-slate-400 mr-1">Level:</span>
           {["ALL", "A1", "A2", "B1", "B2", "C1"].map((lvl) => (
@@ -1565,7 +1622,6 @@ export const ClassicStoriesView = ({
               className="bg-slate-900 border border-slate-800 hover:border-slate-700 rounded-3xl p-6 flex flex-col justify-between space-y-4 shadow-xl hover:shadow-2xl transition group relative overflow-hidden"
             >
               <div className="space-y-3">
-                {/* Header Badges */}
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
                     <span className="px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 text-xs font-mono font-bold">
@@ -1574,7 +1630,7 @@ export const ClassicStoriesView = ({
                     {story.isCustomPdf && (
                       <span className="px-2 py-0.5 rounded-full bg-sky-500/20 text-sky-400 border border-sky-500/30 text-[10px] font-mono font-bold flex items-center gap-1">
                         <FileText className="w-3 h-3" />
-                        Custom PDF
+                        Custom Book
                       </span>
                     )}
                     <span className="text-[11px] font-mono text-slate-400 bg-slate-800 px-2 py-0.5 rounded-md">
@@ -1599,35 +1655,26 @@ export const ClassicStoriesView = ({
                   </div>
                 </div>
 
-                {/* Title & Author */}
                 <div>
                   <div className="text-xs text-indigo-400 font-serif italic">
-                    {story.author} • {story.authorEra || 'Classical Masterpiece'}
+                    {story.author} • {story.authorEra || "Classical Masterpiece"}
                   </div>
                   <h3 className="text-lg font-bold text-white group-hover:text-indigo-300 transition mt-0.5 line-clamp-2">
                     {story.title}
                   </h3>
                 </div>
 
-                {/* Summary */}
                 <p className="text-xs text-slate-400 line-clamp-3 leading-relaxed">
                   {story.summary || story.culturalLinguisticContext || (story.paragraphs && story.paragraphs[0])}
                 </p>
 
-                {/* Theme & Literary highlights */}
                 <div className="p-2.5 bg-slate-800/60 rounded-2xl border border-slate-700/60 text-[11px] text-slate-300 space-y-1">
                   <div>
-                    <strong className="text-slate-400">Theme:</strong> {story.theme || 'Language & Thought'}
+                    <strong className="text-slate-400">Theme:</strong> {story.theme || "Language & Thought"}
                   </div>
-                  {story.audioTone && (
-                    <div className="text-emerald-400/90 text-[10px] font-mono">
-                      🎧 {story.audioTone}
-                    </div>
-                  )}
                 </div>
               </div>
 
-              {/* Action Buttons */}
               <div className="pt-2 border-t border-slate-800 flex items-center gap-2">
                 <button
                   onClick={() => handleSelectStory(story, "reading")}
@@ -1660,7 +1707,7 @@ export const ClassicStoriesView = ({
                   <Upload className="w-5 h-5" />
                 </div>
                 <div>
-                  <h3 className="text-base font-bold text-white">Upload Custom PDF Book / Story</h3>
+                  <h3 className="text-base font-bold text-white">Upload Custom Book / Story</h3>
                   <p className="text-xs text-slate-400">
                     Extract excerpts & synthesize interactive cards for <strong className="text-sky-300">{targetLanguage}</strong>
                   </p>
@@ -1713,7 +1760,7 @@ export const ClassicStoriesView = ({
                     required
                     value={pdfBookTitle}
                     onChange={(e) => setPdfBookTitle(e.target.value)}
-                    placeholder="e.g., Der Steppenwolf, Don Quijote"
+                    placeholder="e.g. Der Steppenwolf, Don Quijote"
                     className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-xl text-xs text-white focus:outline-none focus:border-sky-500"
                   />
                 </div>
@@ -1723,7 +1770,7 @@ export const ClassicStoriesView = ({
                     type="text"
                     value={pdfAuthor}
                     onChange={(e) => setPdfAuthor(e.target.value)}
-                    placeholder="e.g., Hermann Hesse, Miguel de Cervantes"
+                    placeholder="e.g. Hermann Hesse, Miguel de Cervantes"
                     className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-xl text-xs text-white focus:outline-none focus:border-sky-500"
                   />
                 </div>
@@ -1791,7 +1838,7 @@ export const ClassicStoriesView = ({
                   {isUploadingPdf ? (
                     <>
                       <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                      <span>Parsing with NLP Tokenizer...</span>
+                      <span>Extracting with NLP...</span>
                     </>
                   ) : (
                     <>
