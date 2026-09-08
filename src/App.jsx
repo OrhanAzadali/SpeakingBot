@@ -154,9 +154,18 @@ function MainApp() {
       if (res.ok) {
         const json = await res.json();
         if (json.success) {
-          if (Array.isArray(json.data)) {
-            setSavedVocabulary(json.data);
-          }
+          // Merge with existing state to avoid overwriting
+          setSavedVocabulary((prev) => {
+            // Get existing words for this language
+            const existingForLang = prev.filter(v => (v.targetLanguage || "English").toLowerCase() === targetL.toLowerCase());
+            // Remove duplicate of new word
+            const newWord = payload;
+            const withoutDup = existingForLang.filter(v => v.word.toLowerCase() !== newWord.word.toLowerCase());
+            // Combine all other language words + updated language list
+            const otherLangs = prev.filter(v => (v.targetLanguage || "English").toLowerCase() !== targetL.toLowerCase());
+            return [...otherLangs, ...withoutDup, newWord];
+          });
+          // Also update allVocabularies if needed
           if (json.allVocabularies) {
             setAllVocabularies(json.allVocabularies);
           }

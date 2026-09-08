@@ -255,6 +255,30 @@ const syncedUsersDatabase = {
   }
 };
 
+const USERS_FILE = path.join(process.cwd(), "data", "users.json");
+
+function loadUsersFromDisk() {
+  try {
+    return fs.existsSync(USERS_FILE) ? JSON.parse(fs.readFileSync(USERS_FILE, "utf-8")) : {};
+  } catch {
+    return {};
+  }
+}
+
+function saveUsersToDisk() {
+  try {
+    fs.writeFileSync(USERS_FILE, JSON.stringify(syncedUsersDatabase, null, 2));
+  } catch (e) {
+    console.error("Save users failed:", e);
+  }
+}
+
+// Merge loaded users into syncedUsersDatabase
+const loadedUsers = loadUsersFromDisk();
+for (const uid in loadedUsers) {
+  if (!syncedUsersDatabase[uid]) syncedUsersDatabase[uid] = loadedUsers[uid];
+}
+
 syncedUsersDatabase["default-user"].savedVocabulary =
   syncedUsersDatabase["default-user"].vocabularyByLanguage[syncedUsersDatabase["default-user"].targetLanguage] ||
   syncedUsersDatabase["default-user"].vocabularyByLanguage.English;
@@ -1593,6 +1617,8 @@ app.post("/api/user/vocabulary", (req, res) => {
     user.vocabularyByLanguage[targetLanguage].unshift(newEntry);
   }
 
+  saveUsersToDisk();
+
   res.json({
     success: true,
     message: `Added "${word}" to ${targetLanguage} vocabulary.`,
@@ -1615,6 +1641,7 @@ app.delete("/api/user/vocabulary", (req, res) => {
   user.vocabularyByLanguage[targetLanguage] = user.vocabularyByLanguage[targetLanguage].filter(
     (item) => item.id !== wordId && item.word.toLowerCase() !== (word || "").toLowerCase()
   );
+  saveUsersToDisk();
 
   res.json({
     success: true,
@@ -1632,6 +1659,8 @@ app.post("/api/user/mediator-language", (req, res) => {
     syncedUsersDatabase[userId].userId = userId;
   }
   syncedUsersDatabase[userId].mediatorLanguage = actualMediator;
+  saveUsersToDisk();
+
   res.json({ success: true, actualMediator });
 });
 
@@ -1642,6 +1671,8 @@ app.post("/api/user/target-language", (req, res) => {
     syncedUsersDatabase[userId].userId = userId;
   }
   syncedUsersDatabase[userId].targetLanguage = targetLanguage;
+  saveUsersToDisk();
+
   res.json({ success: true, targetLanguage });
 });
 
@@ -1661,6 +1692,7 @@ app.post("/api/user/level-test", (req, res) => {
   syncedUsersDatabase[userId].userLevel = assessedLevel;
   syncedUsersDatabase[userId].lastTestScore = score;
   syncedUsersDatabase[userId].lastTestedAt = new Date().toISOString();
+  saveUsersToDisk();
 
   res.json({
     success: true,
@@ -1680,6 +1712,8 @@ app.post("/api/user/skill-test", (req, res) => {
     syncedUsersDatabase[userId].skillScores = {};
   }
   syncedUsersDatabase[userId].skillScores[skillType] = (syncedUsersDatabase[userId].skillScores[skillType] || 0) + score;
+  saveUsersToDisk();
+
   res.json({
     success: true,
     skillScores: syncedUsersDatabase[userId].skillScores
@@ -1699,6 +1733,7 @@ app.post("/api/stories/progress", (req, res) => {
   }
   user.xp = (user.xp || 0) + (earnedXp || 0);
 
+  saveUsersToDisk();
   res.json({
     success: true,
     xp: user.xp,
@@ -1709,6 +1744,7 @@ app.post("/api/stories/progress", (req, res) => {
 app.get("/api/bot/sync", (req, res) => {
   const userId = String(req.query.userId || "default-user");
   const user = syncedUsersDatabase[userId] || syncedUsersDatabase["default-user"];
+
   res.json({
     success: true,
     synced: true,
@@ -1727,6 +1763,7 @@ app.post("/api/bot/sync", (req, res) => {
   if (telegramChatId) user.telegramChatId = telegramChatId;
   if (telegramUsername) user.telegramUsername = telegramUsername;
   Object.assign(user, updates);
+  saveUsersToDisk();
 
   res.json({
     success: true,
@@ -1784,18 +1821,44 @@ app.delete("/api/stories/custom-story/:storyId", (req, res) => {
 app.post("/api/gemini/generate-grammar-roadmap", async (req, res) => {
   try {
     const { targetLanguage = "English", ruleTitle = "Verb Tenses", level = "B1", mediatorLanguage = "en" } = req.body;
-    const prompt = `Create a step-by-step grammar learning roadmap for ${targetLanguage} at CEFR level ${userLevel}. Topic: ${topic}.
-Return JSON:
+    const prompt = `You are a world-class language curriculum designer. Create an extremely detailed, comprehensive, and pedagogically sound roadmap for a learner studying ${targetLanguage} at CEFR ${userLevel} about the topic "${topic}". The user's mediator language is ${mediatorLanguage}. The learner's current grammar score is ${grammarScore}%, so focus on ${grammarScore < 75 ? "remedial and foundational concepts" : "advanced nuances"}.
+
+The roadmap must include:
+1. A compelling title and summary.
+2. At least 6 sequential milestones (steps). Each milestone must have:
+   - step number, title, description
+   - grammarPoint (syntactic rule/concept)
+   - sampleSentence (in target language)
+   - tokens array with 5-7 objects: {text, lemma, pos, syntaxRole, cefrLevel, ipa, mediatorTranslation}
+3. 5 checkpointQuestions (multiple choice) with 4 options, correctIndex, and explanation in ${mediatorLanguage}.
+4. Ensure all translations are accurate and natural in ${mediatorLanguage}.
+5. Avoid any broken sentences, typos, or malformed JSON.
+
+Return ONLY valid JSON matching this exact schema:
 {
-  "targetLanguage": "${targetLanguage}",
-  "userLevel": "${userLevel}",
-  "modules": [
+  "title": "...",
+  "category": "Grammar",
+  "level": "${userLevel}",
+  "estimatedDuration": "3 Weeks",
+  "summary": "...",
+  "milestones": [
     {
-      "id": "mod-1",
-      "title": "Module Title",
-      "description": "Module overview",
-      "cefr": "${userLevel}",
-      "rules": [{"rule": "Rule title", "explanation": "Rule explanation", "example": "Example in ${targetLanguage}", "translation": "Provide translation in ${mediatorLanguage}"}]
+      "step": 1,
+      "title": "...",
+      "description": "...",
+      "grammarPoint": "...",
+      "sampleSentence": "...",
+      "tokens": [
+        {"text": "...", "lemma": "...", "pos": "NOUN", "syntaxRole": "Subject", "cefrLevel": "B1", "ipa": "/.../", "mediatorTranslation": "..."}
+      ]
+    }
+  ],
+  "checkpointQuestions": [
+    {
+      "question": "...",
+      "options": ["A", "B", "C", "D"],
+      "correctIndex": 0,
+      "explanation": "..."
     }
   ]
 }`;
@@ -1818,6 +1881,7 @@ Return JSON:
       sendPdf(res, buffer, `roadmap-${Date.now()}.pdf`);
       return;
     }
+    saveUsersToDisk();
 
     res.json({ success: true, roadmap });
   } catch (error) {
@@ -1836,6 +1900,7 @@ app.post("/api/gemini/generate-roadmap", async (req, res) => {
       sendPdf(res, buffer, `roadmap-${Date.now()}.pdf`);
       return;
     }
+    saveUsersToDisk();
 
     res.json({ success: true, roadmap });
   } catch (error) {
@@ -1847,7 +1912,49 @@ app.post('/api/gemini/generate-grammar-guide', async (req, res) => {
   try {
     const { targetLanguage = "English", ruleTitle = "Verb Tenses", level = "B1", mediatorLanguage = "en" } = req.body;
 
-    const prompt = `Generate an in-depth grammar guide in ${targetLanguage} for level ${level} about "${ruleTitle}". Include formulas, common pitfalls, and 3 rich examples with translations in ${mediatorLanguage}. Return JSON with keys: title, targetLanguage, level, content (markdown), exercises (array of objects with question, options, correctIndex, explanation).`;
+    const prompt = `You are a master grammar and linguistics expert. Generate an in-depth, comprehensive grammar study guide for ${targetLanguage} at CEFR level ${level} about the topic "${ruleTitle}". The user's mediator language is ${mediatorLanguage}.
+
+The guide must include:
+1. title, category, level, summary.
+2. At least 5 coreRules. Each rule must have:
+   - ruleTitle
+   - explanationInMediator (in ${mediatorLanguage}, natural and correct)
+   - formula (syntactic formula)
+   - example (in target language)
+   - tokens array (5-7 token objects: {text, lemma, pos, syntaxRole, cefrLevel, ipa, mediatorTranslation})
+3. 5 commonMistakes: {incorrect, correct, reason (in ${mediatorLanguage})}
+4. 5 practiceExercises: {question, options (4), correctIndex, explanation (in ${mediatorLanguage})}
+5. Ensure all translations are accurate, natural, and free of typos. No malformed JSON.
+
+Return ONLY valid JSON:
+{
+  "title": "...",
+  "category": "Grammar",
+  "level": "${level}",
+  "summary": "...",
+  "coreRules": [
+    {
+      "ruleTitle": "...",
+      "explanationInMediator": "...",
+      "formula": "...",
+      "example": "...",
+      "tokens": [
+        {"text": "...", "lemma": "...", "pos": "VERB", "syntaxRole": "Predicate", "cefrLevel": "B1", "ipa": "/.../", "mediatorTranslation": "..."}
+      ]
+    }
+  ],
+  "commonMistakes": [
+    {"incorrect": "...", "correct": "...", "reason": "..."}
+  ],
+  "practiceExercises": [
+    {
+      "question": "...",
+      "options": ["A","B","C","D"],
+      "correctIndex": 0,
+      "explanation": "..."
+    }
+  ]
+}`;
 
     let guide = null;
     const raw = await callGeminiWithResilience(prompt);
@@ -1871,6 +1978,7 @@ app.post('/api/gemini/generate-grammar-guide', async (req, res) => {
       sendPdf(res, buffer, `grammar-guide-${Date.now()}.pdf`);
       return;
     }
+    saveUsersToDisk();
 
     res.json({ success: true, guide });
   } catch (error) {
@@ -1888,6 +1996,8 @@ app.post("/api/gemini/tokenize", async (req, res) => {
       return res.status(400).json({ success: false, error: "Sentence is required." });
     }
     const tokens = defaultTokenizeSentence(sentence, targetLanguage);
+    saveUsersToDisk();
+
     res.json({ success: true, tokens });
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });
@@ -2022,6 +2132,7 @@ const CUBEWORD_TARGET_QUESTS = {
 app.get("/api/cubeword/target-words", (req, res) => {
   const targetLang = String(req.query.targetLanguage || "English");
   const list = CUBEWORD_TARGET_QUESTS[targetLang] || CUBEWORD_TARGET_QUESTS["English"];
+
   res.json({ success: true, targetWords: list });
 });
 
@@ -2053,6 +2164,8 @@ app.get("/api/cubeword/block-faces", (req, res) => {
 app.post("/api/cubeword/verify", (req, res) => {
   const { submittedWord = "", targetWord = "" } = req.body;
   const isCorrect = submittedWord.trim().toUpperCase() === targetWord.trim().toUpperCase();
+  saveUsersToDisk();
+
   res.json({
     success: true,
     isCorrect,
@@ -2103,6 +2216,8 @@ app.post("/api/user/usage", (req, res) => {
   }
   const user = syncedUsersDatabase[userId];
   user.usageCount = (user.usageCount || 0) + 1;
+  saveUsersToDisk();
+
   res.json({ success: true, usageCount: user.usageCount });
 });
 
@@ -2114,6 +2229,8 @@ app.post("/api/user/premium", (req, res) => {
   }
   syncedUsersDatabase[userId].isPremium = isPremium;
   syncedUsersDatabase[userId].premiumExpiresAt = isPremium ? new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString() : null;
+  saveUsersToDisk();
+
   res.json({ success: true, isPremium });
 });
 
@@ -2127,6 +2244,7 @@ app.post("/api/user/sync-game-xp", (req, res) => {
   user.xp = (user.xp || 0) + xpEarned;
   if (!user.gameHistory) user.gameHistory = [];
   user.gameHistory.push({ gameMode, xpEarned, timestamp: new Date().toISOString() });
+  saveUsersToDisk();
 
   res.json({
     success: true,
@@ -2310,8 +2428,12 @@ cron.schedule("0 */6 * * *", async () => {
   // Use default user's mediator language as fallback (or 'en')
   const mediatorLanguage = syncedUsersDatabase["default-user"]?.mediatorLanguage || "en";
   const targetLanguage = rawStory.targetLanguage || "en";
-  const userLevel = "B2"; // or pick a default level
+  const computeLevel = () => {
+    const levels = ["A1", "A2", "B1", "B2", "C1", "C2"];
+    return levels[Math.floor(Math.random() * levels.length)];
+  };
 
+  const userLevel = computeLevel();
   const aiPrompt = `You are SpeakBot's Chief NLP Literary Pedagogical Engine.
 The user uploaded a book/story titled "${rawStory.title}" by "${rawStory.author || "Unknown"}".
 Literary Era: Unknown

@@ -47,7 +47,9 @@ export const ClassicStoriesView = ({
 }) => {
   const { t, mediatorLanguage } = useTranslation();
   const [filterMode, setFilterMode] = useState(initialMode);
-  const [selectedLevel, setSelectedLevel] = useState("ALL");
+  const [selectedSentence, setSelectedSentence] = useState(null);
+  const [socraticInput, setSocraticInput] = useState('');
+  const [socraticMessages, setSocraticMessages] = useState([]); // {role: 'user'|'assistant', text}
   const [customStories, setCustomStories] = useState([]);
   const [dailyFeeds, setDailyFeeds] = useState([]);
   const [isLoadingFeeds, setIsLoadingFeeds] = useState(false);
@@ -141,7 +143,7 @@ export const ClassicStoriesView = ({
   useEffect(() => {
     if (ambientSound === "none") {
       if (ambientAudioCtxRef.current) {
-        ambientAudioCtxRef.current.close().catch(() => {});
+        ambientAudioCtxRef.current.close().catch(() => { });
         ambientAudioCtxRef.current = null;
       }
       return;
@@ -185,7 +187,7 @@ export const ClassicStoriesView = ({
     }
     return () => {
       if (ambientAudioCtxRef.current) {
-        ambientAudioCtxRef.current.close().catch(() => {});
+        ambientAudioCtxRef.current.close().catch(() => { });
       }
     };
   }, [ambientSound]);
@@ -268,6 +270,7 @@ export const ClassicStoriesView = ({
     setExerciseSubmitted({});
     setFinalScore(0);
     setSyncSuccessMessage(null);
+    setSelectedSentence(null);
   };
 
   const handleCloseStory = () => {
@@ -277,14 +280,46 @@ export const ClassicStoriesView = ({
 
   const handleSelectSentence = (idx) => {
     setActiveSentenceIndex(idx);
-    if (isPlaying) {
-      startAudioNarration(idx);
+    if (activeStory?.sentences?.[idx]) {
+      setSelectedSentence(activeStory.sentences[idx]);
     }
+    if (isPlaying) startAudioNarration(idx);
   };
 
   const handleSelectConversationResponse = (qId, respId) => {
     setSelectedConvResponses((prev) => ({ ...prev, [qId]: respId }));
     setConvFeedback((prev) => ({ ...prev, [qId]: true }));
+  };
+
+  const sendSocraticMessage = async () => {
+    if (!socraticInput.trim()) return;
+    const userMsg = socraticInput.trim();
+    setSocraticInput('');
+    setSocraticMessages((prev) => [...prev, { role: 'user', text: userMsg }]);
+    try {
+      const res = await fetch('/api/socratic/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          userId: 'default-user',
+          bookTitle: activeStory.title,
+          author: activeStory.author,
+          excerpt: selectedSentence ? selectedSentence.text : activeStory.paragraphs?.[0] || activeStory.storyText,
+          userMessage: userMsg,
+          targetLanguage: targetLanguage,
+          mediatorLanguage: mediatorLanguage,
+        }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setSocraticMessages((prev) => [...prev, { role: 'assistant', text: data.reply }]);
+      } else {
+        setSocraticMessages((prev) => [...prev, { role: 'assistant', text: 'Sorry, I could not generate a response.' }]);
+      }
+    } catch (err) {
+      console.error('Socratic chat error:', err);
+      setSocraticMessages((prev) => [...prev, { role: 'assistant', text: 'Connection error.' }]);
+    }
   };
 
   const handleSelectExerciseOption = (exerciseId, optionIdx) => {
@@ -457,7 +492,7 @@ export const ClassicStoriesView = ({
     if (!wordStr) return false;
     const cleanWord = wordStr.toLowerCase().trim();
     const activeTarget = (activeStory?.targetLanguage || targetLanguage || 'English').toLowerCase();
-    
+
     // Check in current language array
     return savedVocabulary.some((v) => {
       const vWord = (v.word || '').toLowerCase().trim();
@@ -528,18 +563,16 @@ export const ClassicStoriesView = ({
             <div className="flex bg-slate-800 p-1 rounded-xl border border-slate-700">
               <button
                 onClick={() => setCurrentMode("reading")}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition cursor-pointer ${
-                  currentMode === "reading" ? "bg-sky-600 text-white shadow-sm" : "text-slate-400 hover:text-slate-200"
-                }`}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition cursor-pointer ${currentMode === "reading" ? "bg-sky-600 text-white shadow-sm" : "text-slate-400 hover:text-slate-200"
+                  }`}
               >
                 <BookOpen className="w-3.5 h-3.5" />
                 <span>Reading Mode</span>
               </button>
               <button
                 onClick={() => setCurrentMode("listening")}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition cursor-pointer ${
-                  currentMode === "listening" ? "bg-emerald-600 text-white shadow-sm" : "text-slate-400 hover:text-slate-200"
-                }`}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition cursor-pointer ${currentMode === "listening" ? "bg-emerald-600 text-white shadow-sm" : "text-slate-400 hover:text-slate-200"
+                  }`}
               >
                 <Headphones className="w-3.5 h-3.5" />
                 <span>Audio Theater</span>
@@ -550,25 +583,22 @@ export const ClassicStoriesView = ({
             <div className="hidden sm:flex bg-slate-800 p-1 rounded-xl border border-slate-700">
               <button
                 onClick={() => setStoryStage("story")}
-                className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition cursor-pointer ${
-                  storyStage === "story" ? "bg-indigo-600 text-white" : "text-slate-400 hover:text-slate-200"
-                }`}
+                className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition cursor-pointer ${storyStage === "story" ? "bg-indigo-600 text-white" : "text-slate-400 hover:text-slate-200"
+                  }`}
               >
                 1. Text & Audio
               </button>
               <button
                 onClick={() => setStoryStage("conversation")}
-                className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition cursor-pointer ${
-                  storyStage === "conversation" ? "bg-indigo-600 text-white" : "text-slate-400 hover:text-slate-200"
-                }`}
+                className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition cursor-pointer ${storyStage === "conversation" ? "bg-indigo-600 text-white" : "text-slate-400 hover:text-slate-200"
+                  }`}
               >
                 2. Socratic Chat
               </button>
               <button
                 onClick={() => setStoryStage("exercises")}
-                className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition cursor-pointer ${
-                  storyStage === "exercises" ? "bg-indigo-600 text-white" : "text-slate-400 hover:text-slate-200"
-                }`}
+                className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition cursor-pointer ${storyStage === "exercises" ? "bg-indigo-600 text-white" : "text-slate-400 hover:text-slate-200"
+                  }`}
               >
                 3. Exercises
               </button>
@@ -587,9 +617,8 @@ export const ClassicStoriesView = ({
                   <div className="flex items-center gap-3">
                     <button
                       onClick={togglePlayPause}
-                      className={`w-12 h-12 rounded-2xl flex items-center justify-center text-white shadow-lg transition-transform active:scale-95 cursor-pointer ${
-                        isPlaying ? "bg-amber-500 hover:bg-amber-600 animate-pulse" : "bg-emerald-600 hover:bg-emerald-500"
-                      }`}
+                      className={`w-12 h-12 rounded-2xl flex items-center justify-center text-white shadow-lg transition-transform active:scale-95 cursor-pointer ${isPlaying ? "bg-amber-500 hover:bg-amber-600 animate-pulse" : "bg-emerald-600 hover:bg-emerald-500"
+                        }`}
                       title={isPlaying ? "Pause Narration" : "Play Narration"}
                     >
                       {isPlaying ? <Pause className="w-6 h-6" /> : <Play className="w-6 h-6 ml-0.5" />}
@@ -620,9 +649,8 @@ export const ClassicStoriesView = ({
                               setTimeout(() => startAudioNarration(activeSentenceIndex ?? 0), 100);
                             }
                           }}
-                          className={`px-2 py-0.5 rounded text-xs font-semibold cursor-pointer ${
-                            playbackSpeed === spd ? "bg-sky-500 text-white" : "text-slate-400 hover:text-white"
-                          }`}
+                          className={`px-2 py-0.5 rounded text-xs font-semibold cursor-pointer ${playbackSpeed === spd ? "bg-sky-500 text-white" : "text-slate-400 hover:text-white"
+                            }`}
                         >
                           {spd}x
                         </button>
@@ -654,9 +682,8 @@ export const ClassicStoriesView = ({
                     </span>
                     <button
                       onClick={() => setBlindListening(!blindListening)}
-                      className={`px-3 py-1 rounded-xl text-xs font-bold transition cursor-pointer ${
-                        blindListening ? "bg-amber-500/20 text-amber-300 border border-amber-500/40" : "bg-slate-800 text-slate-400 hover:text-white"
-                      }`}
+                      className={`px-3 py-1 rounded-xl text-xs font-bold transition cursor-pointer ${blindListening ? "bg-amber-500/20 text-amber-300 border border-amber-500/40" : "bg-slate-800 text-slate-400 hover:text-white"
+                        }`}
                     >
                       {blindListening ? "Conceal Mode Active" : "Conceal Text"}
                     </button>
@@ -713,9 +740,8 @@ export const ClassicStoriesView = ({
 
               {/* Story Content Canvas */}
               <div
-                className={`p-6 sm:p-10 rounded-3xl border shadow-2xl transition-colors ${getThemeClasses()} ${
-                  blindListening ? "backdrop-blur-lg filter select-none" : ""
-                }`}
+                className={`p-6 sm:p-10 rounded-3xl border shadow-2xl transition-colors ${getThemeClasses()} ${blindListening ? "backdrop-blur-lg filter select-none" : ""
+                  }`}
               >
                 {blindListening ? (
                   <div className="text-center py-16 space-y-4">
@@ -767,11 +793,10 @@ export const ClassicStoriesView = ({
                             <div
                               key={sIdx}
                               onClick={() => handleSelectSentence(sIdx)}
-                              className={`p-3 rounded-2xl cursor-pointer transition border text-sm sm:text-base font-serif ${
-                                isCurrent
-                                  ? "bg-emerald-500/20 border-emerald-500/60 shadow-md ring-1 ring-emerald-500/50"
-                                  : "hover:bg-current/5 border-transparent"
-                              }`}
+                              className={`p-3 rounded-2xl cursor-pointer transition border text-sm sm:text-base font-serif ${isCurrent
+                                ? "bg-emerald-500/20 border-emerald-500/60 shadow-md ring-1 ring-emerald-500/50"
+                                : "hover:bg-current/5 border-transparent"
+                                }`}
                             >
                               <div className="flex items-start gap-2.5">
                                 <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-current/10 opacity-70 mt-0.5">
@@ -808,7 +833,9 @@ export const ClassicStoriesView = ({
                 </div>
                 <button
                   onClick={() => setStoryStage("conversation")}
-                  className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-lg transition transform active:scale-95 cursor-pointer"
+                  disabled={!selectedSentence}
+                  className={`px-5 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-lg transition transform active:scale-95 cursor-pointer ${!selectedSentence ? 'opacity-50 cursor-not-allowed' : ''}`}
+
                 >
                   <span>Start Socratic Chat</span>
                   <ChevronRight className="w-4 h-4" />
@@ -945,7 +972,30 @@ export const ClassicStoriesView = ({
                 Step into dialogue with the literary persona. Choose the response that best unravels the character psychology and linguistic mechanics of the text.
               </p>
             </div>
-
+            {/* Live Socratic Chat (based on selected sentence) */}
+            {selectedSentence && (
+              <div className="mt-8 p-4 rounded-2xl bg-slate-800/50 border border-slate-700">
+                <div className="text-xs font-bold text-sky-300 mb-2">Live Socratic Chat – based on selected sentence:</div>
+                <div className="max-h-64 overflow-y-auto space-y-2 mb-3">
+                  {socraticMessages.map((msg, idx) => (
+                    <div key={idx} className={`p-2 rounded-lg ${msg.role === 'user' ? 'bg-sky-600/30 text-right' : 'bg-slate-900 text-left'}`}>
+                      <span className="text-xs">{msg.text}</span>
+                    </div>
+                  ))}
+                </div>
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={socraticInput}
+                    onChange={(e) => setSocraticInput(e.target.value)}
+                    onKeyPress={(e) => { if (e.key === 'Enter') sendSocraticMessage(); }}
+                    placeholder="Ask a question about this sentence..."
+                    className="flex-1 px-3 py-2 rounded-lg bg-slate-950 border border-slate-700 text-xs text-white"
+                  />
+                  <button onClick={sendSocraticMessage} className="px-4 py-2 rounded-lg bg-indigo-600 text-white text-xs font-bold">Send</button>
+                </div>
+              </div>
+            )}
             {/* Conversation Dialogues List */}
             <div className="space-y-6">
               {activeStory.conversations?.map((conv) => {
@@ -981,63 +1031,63 @@ export const ClassicStoriesView = ({
 
                       {hasComplexResponses
                         ? conv.userResponses.map((resp) => {
-                            const isChosen = selectedRespId === resp.id;
-                            let btnClasses = "bg-slate-800/80 border-slate-700/80 text-slate-300 hover:bg-slate-800";
-                            if (isAnswered) {
-                              if (resp.isDeepInsight) {
-                                btnClasses = "bg-emerald-500/20 border-emerald-500 text-emerald-200 font-medium";
-                              } else if (isChosen) {
-                                btnClasses = "bg-amber-500/20 border-amber-500 text-amber-200";
-                              }
+                          const isChosen = selectedRespId === resp.id;
+                          let btnClasses = "bg-slate-800/80 border-slate-700/80 text-slate-300 hover:bg-slate-800";
+                          if (isAnswered) {
+                            if (resp.isDeepInsight) {
+                              btnClasses = "bg-emerald-500/20 border-emerald-500 text-emerald-200 font-medium";
                             } else if (isChosen) {
-                              btnClasses = "bg-indigo-500/20 border-indigo-500 text-indigo-200 font-medium";
+                              btnClasses = "bg-amber-500/20 border-amber-500 text-amber-200";
                             }
+                          } else if (isChosen) {
+                            btnClasses = "bg-indigo-500/20 border-indigo-500 text-indigo-200 font-medium";
+                          }
 
-                            return (
-                              <button
-                                key={resp.id}
-                                disabled={isAnswered}
-                                onClick={() => handleSelectConversationResponse(conv.id, resp.id)}
-                                className={`w-full text-left p-3.5 rounded-2xl border transition text-xs sm:text-sm cursor-pointer ${btnClasses}`}
-                              >
-                                <div className="flex items-start gap-2.5">
-                                  <span className="text-slate-400 font-mono text-[10px] mt-0.5">
-                                    ▶
-                                  </span>
-                                  <span>{resp.text}</span>
-                                </div>
-                              </button>
-                            );
-                          })
+                          return (
+                            <button
+                              key={resp.id}
+                              disabled={isAnswered}
+                              onClick={() => handleSelectConversationResponse(conv.id, resp.id)}
+                              className={`w-full text-left p-3.5 rounded-2xl border transition text-xs sm:text-sm cursor-pointer ${btnClasses}`}
+                            >
+                              <div className="flex items-start gap-2.5">
+                                <span className="text-slate-400 font-mono text-[10px] mt-0.5">
+                                  ▶
+                                </span>
+                                <span>{resp.text}</span>
+                              </div>
+                            </button>
+                          );
+                        })
                         : conv.options?.map((opt, optIdx) => {
-                            const isChosen = selectedRespId === optIdx;
-                            let btnClasses = "bg-slate-800/80 border-slate-700/80 text-slate-300 hover:bg-slate-800";
-                            if (isAnswered) {
-                              if (optIdx === conv.correctIndex) {
-                                btnClasses = "bg-emerald-500/20 border-emerald-500 text-emerald-200 font-medium";
-                              } else if (isChosen) {
-                                btnClasses = "bg-rose-500/20 border-rose-500 text-rose-200";
-                              }
+                          const isChosen = selectedRespId === optIdx;
+                          let btnClasses = "bg-slate-800/80 border-slate-700/80 text-slate-300 hover:bg-slate-800";
+                          if (isAnswered) {
+                            if (optIdx === conv.correctIndex) {
+                              btnClasses = "bg-emerald-500/20 border-emerald-500 text-emerald-200 font-medium";
                             } else if (isChosen) {
-                              btnClasses = "bg-indigo-500/20 border-indigo-500 text-indigo-200 font-medium";
+                              btnClasses = "bg-rose-500/20 border-rose-500 text-rose-200";
                             }
+                          } else if (isChosen) {
+                            btnClasses = "bg-indigo-500/20 border-indigo-500 text-indigo-200 font-medium";
+                          }
 
-                            return (
-                              <button
-                                key={optIdx}
-                                disabled={isAnswered}
-                                onClick={() => handleSelectConversationResponse(conv.id || conv.prompt, optIdx)}
-                                className={`w-full text-left p-3.5 rounded-2xl border transition text-xs sm:text-sm cursor-pointer ${btnClasses}`}
-                              >
-                                <div className="flex items-start gap-2.5">
-                                  <span className="text-slate-400 font-mono text-[10px] mt-0.5">
-                                    {String.fromCharCode(65 + optIdx)}.
-                                  </span>
-                                  <span>{opt}</span>
-                                </div>
-                              </button>
-                            );
-                          })}
+                          return (
+                            <button
+                              key={optIdx}
+                              disabled={isAnswered}
+                              onClick={() => handleSelectConversationResponse(conv.id || conv.prompt, optIdx)}
+                              className={`w-full text-left p-3.5 rounded-2xl border transition text-xs sm:text-sm cursor-pointer ${btnClasses}`}
+                            >
+                              <div className="flex items-start gap-2.5">
+                                <span className="text-slate-400 font-mono text-[10px] mt-0.5">
+                                  {String.fromCharCode(65 + optIdx)}.
+                                </span>
+                                <span>{opt}</span>
+                              </div>
+                            </button>
+                          );
+                        })}
                     </div>
 
                     {isAnswered && (
@@ -1423,26 +1473,23 @@ export const ClassicStoriesView = ({
         <div className="flex bg-slate-800 p-1 rounded-xl border border-slate-700">
           <button
             onClick={() => setFilterMode("all")}
-            className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition cursor-pointer ${
-              filterMode === "all" ? "bg-indigo-600 text-white" : "text-slate-400 hover:text-white"
-            }`}
+            className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition cursor-pointer ${filterMode === "all" ? "bg-indigo-600 text-white" : "text-slate-400 hover:text-white"
+              }`}
           >
             All Stories ({filteredStories.length})
           </button>
           <button
             onClick={() => setFilterMode("reading")}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition cursor-pointer ${
-              filterMode === "reading" ? "bg-sky-600 text-white" : "text-slate-400 hover:text-white"
-            }`}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition cursor-pointer ${filterMode === "reading" ? "bg-sky-600 text-white" : "text-slate-400 hover:text-white"
+              }`}
           >
             <BookOpen className="w-3.5 h-3.5" />
             <span>Reading Only</span>
           </button>
           <button
             onClick={() => setFilterMode("listening")}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition cursor-pointer ${
-              filterMode === "listening" ? "bg-emerald-600 text-white" : "text-slate-400 hover:text-white"
-            }`}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition cursor-pointer ${filterMode === "listening" ? "bg-emerald-600 text-white" : "text-slate-400 hover:text-white"
+              }`}
           >
             <Headphones className="w-3.5 h-3.5" />
             <span>Audio Listening</span>
@@ -1456,9 +1503,8 @@ export const ClassicStoriesView = ({
             <button
               key={lvl}
               onClick={() => setSelectedLevel(lvl)}
-              className={`px-2.5 py-1 rounded-lg text-xs font-bold transition cursor-pointer ${
-                selectedLevel === lvl ? "bg-emerald-500 text-white shadow" : "bg-slate-800 text-slate-400 hover:text-white"
-              }`}
+              className={`px-2.5 py-1 rounded-lg text-xs font-bold transition cursor-pointer ${selectedLevel === lvl ? "bg-emerald-500 text-white shadow" : "bg-slate-800 text-slate-400 hover:text-white"
+                }`}
             >
               {lvl}
             </button>
@@ -1680,9 +1726,8 @@ export const ClassicStoriesView = ({
                       key={lvl}
                       type="button"
                       onClick={() => setPdfLevel(lvl)}
-                      className={`flex-1 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer ${
-                        pdfLevel === lvl ? "bg-sky-600 text-white" : "bg-slate-800 text-slate-400 hover:text-white"
-                      }`}
+                      className={`flex-1 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer ${pdfLevel === lvl ? "bg-sky-600 text-white" : "bg-slate-800 text-slate-400 hover:text-white"
+                        }`}
                     >
                       {lvl}
                     </button>
