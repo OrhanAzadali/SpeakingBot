@@ -47,6 +47,7 @@ export const ClassicStoriesView = ({
 }) => {
 
   const { mediatorLanguage } = useTranslation();
+  const [selectedLevel, setSelectedLevel] = useState("ALL");
   const [filterMode, setFilterMode] = useState(initialMode);
   const [selectedSentence, setSelectedSentence] = useState(null);
   const [socraticInput, setSocraticInput] = useState('');
@@ -112,7 +113,7 @@ export const ClassicStoriesView = ({
     }
   };
 
-  useEffect(async () => {
+  useEffect(() => {
     loadCustomStoriesAndFeeds();
   }, [targetLanguage]);
 

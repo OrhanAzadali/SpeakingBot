@@ -1824,19 +1824,24 @@ app.delete("/api/stories/custom-story/:storyId", (req, res) => {
 
 app.post("/api/gemini/generate-grammar-roadmap", async (req, res) => {
   try {
-    const { targetLanguage = "English", ruleTitle = "Verb Tenses", level = "B1", mediatorLanguage = "en" } = req.body;
-    const prompt = `You are a world-class language curriculum designer. Create an extremely detailed, comprehensive, and pedagogically sound roadmap for a learner studying ${targetLanguage} at CEFR ${userLevel} about the topic "${topic}". The user's mediator language is ${mediatorLanguage}. The learner's current grammar score is ${grammarScore}%, so focus on ${grammarScore < 75 ? "remedial and foundational concepts" : "advanced nuances"}.
+    const {
+      testScore = 70,
+      testedWeaknesses = ["Conditionals", "Inversion"],
+      userLevel = "B1",
+      targetLanguage = "English",
+      mediatorLanguage = "en"
+    } = req.body;
+
+    const prompt = `You are a world-class language curriculum designer. Create a detailed, personalized grammar roadmap for a learner studying ${targetLanguage} at CEFR ${userLevel}. 
+The learner's recent grammar test score is ${testScore}%. The tested concepts are: ${testedWeaknesses.join(", ")}.
+The user's mediator language is ${mediatorLanguage}.
+Focus on ${testScore < 75 ? "remedial and foundational concepts" : "advanced nuances and stylistic inversion"}.
 
 The roadmap must include:
 1. A compelling title and summary.
-2. At least 6 sequential milestones (steps). Each milestone must have:
-   - step number, title, description
-   - grammarPoint (syntactic rule/concept)
-   - sampleSentence (in target language)
-   - tokens array with 5-7 objects: {text, lemma, pos, syntaxRole, cefrLevel, ipa, mediatorTranslation}
+2. At least 6 sequential milestones. Each milestone must have: step number, title, description, grammarPoint, sampleSentence, tokens array (5-7 objects: {text, lemma, pos, syntaxRole, cefrLevel, ipa, mediatorTranslation}).
 3. 5 checkpointQuestions (multiple choice) with 4 options, correctIndex, and explanation in ${mediatorLanguage}.
 4. Ensure all translations are accurate and natural in ${mediatorLanguage}.
-5. Avoid any broken sentences, typos, or malformed JSON.
 
 Return ONLY valid JSON matching this exact schema:
 {
@@ -1866,6 +1871,7 @@ Return ONLY valid JSON matching this exact schema:
     }
   ]
 }`;
+
     let roadmap = null;
     const raw = await callGeminiWithResilience(prompt);
     if (raw) {
@@ -1889,6 +1895,7 @@ Return ONLY valid JSON matching this exact schema:
 
     res.json({ success: true, roadmap });
   } catch (error) {
+    console.error("Grammar roadmap error:", error);
     res.status(500).json({ success: false, error: error.message });
   }
 });
