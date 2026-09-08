@@ -303,6 +303,17 @@ function MainApp() {
     }
   };
 
+  const [activeGameId, setActiveGameId] = useState(null);
+
+  const handleLaunchGame = (gameId) => {
+    setActiveGameId(gameId);
+    setActiveTab("games");
+  };
+
+  const handleCloseGame = () => {
+    setActiveGameId(null);
+  };
+
   return (
     <TelegramMiniAppFrame
       isMiniAppMode={isMiniAppMode}
@@ -331,6 +342,19 @@ function MainApp() {
           /* Main Workspace Body */
         }
         <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 pt-6">
+          {activeTab === "games" && (
+            <GamesHub
+              initialActiveGame={activeGameId}
+              onCloseGame={handleCloseGame}
+              targetLanguage={userProfile.targetLanguage}
+              mediatorLanguage={userProfile.mediatorLanguage}
+              userLevel={userProfile.currentLevel}
+              onGainXp={handleGainGameXp}
+              onSaveToVocabulary={handleSaveToVocabulary}
+              onSelectToken={(token) => setInspectedToken(token)}
+              asSection={false}
+            />
+          )}
           {activeTab === "home" && (
             <HomePage
               userProfile={userProfile}
@@ -340,7 +364,7 @@ function MainApp() {
               allVocabularies={allVocabularies}
               countsByLanguage={countsByLanguage}
               onNavigateTab={setActiveTab}
-              onLaunchGame={() => setActiveTab("games")}
+              onLaunchGame={handleLaunchGame}
               onStartPlacementTest={() => setActiveTab("placement-test")}
               onLaunchStory={(mode, storyId) => {
                 setStoryLaunchConfig({ mode, storyId });

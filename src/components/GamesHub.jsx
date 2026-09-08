@@ -60,16 +60,29 @@ export const GAMES_INFO = [
 ];
 
 export const GamesHub = ({
+  initialActiveGame,
+  onCloseGame,
   targetLanguage = 'English',
   mediatorLanguage = 'az',
+  userLevel = 'B1',
   onGainXp,
   onSaveToVocabulary,
   onSelectToken,
-  initialActiveGame = null,
   asSection = false,
 }) => {
-  const { t } = useTranslation();
   const [activeGame, setActiveGame] = useState(initialActiveGame);
+
+  useEffect(() => {
+    if (initialActiveGame) {
+      setActiveGame(initialActiveGame);
+    }
+  }, [initialActiveGame]);
+
+  // Add handleCloseGame that also clears parent state
+  const handleCloseGame = () => {
+    setActiveGame(null);
+    if (onCloseGame) onCloseGame();
+  }; const { t } = useTranslation();
   const [gameLanguage, setGameLanguage] = useState(targetLanguage);
 
   useEffect(() => {
@@ -86,10 +99,6 @@ export const GamesHub = ({
   const handleLaunchGame = (gameId, lang = targetLanguage) => {
     setGameLanguage(lang);
     setActiveGame(gameId);
-  };
-
-  const handleCloseGame = () => {
-    setActiveGame(null);
   };
 
   // If a game is active, render it full-screen taking the entire page space
@@ -118,6 +127,7 @@ export const GamesHub = ({
             onGainXp={(pts) => {
               if (onGainXp) onGainXp('cubeword', pts, 25);
             }}
+            userLevel={userLevel}
             apiBase=""
           />
         </div>
@@ -150,6 +160,7 @@ export const GamesHub = ({
             onGainXp={(xp) => {
               if (onGainXp) onGainXp('flashcards', xp, 10);
             }}
+            userLevel={userLevel}
           />
         </div>
       </div>
@@ -180,6 +191,7 @@ export const GamesHub = ({
             onGainXp={(xp) => {
               if (onGainXp) onGainXp('wordpairs', xp, 20);
             }}
+            userLevel={userLevel}
           />
         </div>
       </div>
@@ -206,6 +218,7 @@ export const GamesHub = ({
           <WordQuest3DGame
             targetLanguage={targetLanguage}
             mediatorLanguage={mediatorLanguage}
+            userLevel={userLevel}
             onSaveToVocabulary={onSaveToVocabulary}
             onGainXp={(xp) => {
               if (onGainXp) onGainXp('wordquest3d', xp, 25);
@@ -216,11 +229,33 @@ export const GamesHub = ({
     );
   }
   if (activeGame === 'memory') {
-    return <MemoryMatch />;
+    return (
+      <div className="fixed inset-0 z-50 bg-slate-950 overflow-y-auto p-3 sm:p-6 flex flex-col justify-start animate-in fade-in duration-200">
+        <div className="max-w-5xl w-full mx-auto mb-4 flex items-center justify-between bg-slate-900/90 border border-slate-800 rounded-2xl p-3 px-4 shadow-xl">
+          <button onClick={handleCloseGame} className="...">Close</button>
+          <span>Memory Match</span>
+        </div>
+        <div className="max-w-5xl w-full mx-auto pb-12">
+          <MemoryMatch targetLanguage={targetLanguage} userLevel={userLevel} />
+        </div>
+      </div>
+    );
   }
+
   if (activeGame === 'wordbuilder') {
-    return <WordBuilder />;
+    return (
+      <div className="fixed inset-0 z-50 bg-slate-950 overflow-y-auto p-3 sm:p-6 flex flex-col justify-start animate-in fade-in duration-200">
+        <div className="max-w-5xl w-full mx-auto mb-4 flex items-center justify-between bg-slate-900/90 border border-slate-800 rounded-2xl p-3 px-4 shadow-xl">
+          <button onClick={handleCloseGame} className="...">Close</button>
+          <span>Word Builder</span>
+        </div>
+        <div className="max-w-5xl w-full mx-auto pb-12">
+          <WordBuilder targetLanguage={targetLanguage} userLevel={userLevel} />
+        </div>
+      </div>
+    );
   }
+
   return (
     <div className="w-full space-y-6">
       {/* Header Banner (shown if full tab, or compact header if section) */}
@@ -421,6 +456,83 @@ export const GamesHub = ({
             className="w-full mt-5 py-3 rounded-2xl bg-gradient-to-r from-fuchsia-600 to-purple-600 hover:from-fuchsia-500 hover:to-purple-500 text-white font-bold text-xs sm:text-sm shadow-md transition-all active:scale-95 flex items-center justify-center gap-2 cursor-pointer"
           >
             <span>Play Word Quest 3D</span>
+            <ArrowRight className="w-4 h-4" />
+          </button>
+        </div>
+        {/* Card 4: Memory Match */}
+        <div className="flex flex-col justify-between p-6 rounded-3xl bg-gradient-to-b from-slate-900/90 to-slate-950 border border-slate-800 hover:border-cyan-500/50 transition-all shadow-xl hover:shadow-2xl hover:shadow-cyan-950/20 group relative overflow-hidden">
+          <div className="absolute top-0 right-0 w-32 h-32 bg-cyan-500/10 rounded-full blur-2xl pointer-events-none group-hover:bg-cyan-500/20 transition-all" />
+          <div>
+            <div className="flex items-center justify-between gap-2 mb-3">
+              <span className="px-2.5 py-0.5 rounded-lg text-xs font-extrabold bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 flex items-center gap-1">
+                🧠 Memory Drill
+              </span>
+              <span className="text-[11px] font-semibold text-slate-400 bg-slate-800/80 px-2 py-0.5 rounded-md border border-slate-700">
+                Pair Matching
+              </span>
+            </div>
+            <h3 className="text-lg font-bold text-white group-hover:text-cyan-300 transition-colors mb-2">
+              Memory Match
+            </h3>
+            <p className="text-xs text-slate-400 line-clamp-3 mb-4 leading-relaxed">
+              Flip cards to match word pairs and improve memory retention.
+            </p>
+            <div className="space-y-1.5 py-2 border-t border-slate-800 text-xs text-slate-300">
+              <div className="flex items-center gap-2">
+                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+                <span>Simple tap to flip</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <RotateCcw className="w-3.5 h-3.5 text-amber-400" />
+                <span>Instant feedback</span>
+              </div>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => handleLaunchGame('memory')}
+            className="w-full mt-5 py-3 rounded-2xl bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white font-bold text-xs sm:text-sm shadow-md transition-all active:scale-95 flex items-center justify-center gap-2 cursor-pointer"
+          >
+            <span>Play Memory Match</span>
+            <ArrowRight className="w-4 h-4" />
+          </button>
+        </div>
+
+        {/* Card 5: Word Builder */}
+        <div className="flex flex-col justify-between p-6 rounded-3xl bg-gradient-to-b from-slate-900/90 to-slate-950 border border-slate-800 hover:border-emerald-500/50 transition-all shadow-xl hover:shadow-2xl hover:shadow-emerald-950/20 group relative overflow-hidden">
+          <div className="absolute top-0 right-0 w-32 h-32 bg-emerald-500/10 rounded-full blur-2xl pointer-events-none group-hover:bg-emerald-500/20 transition-all" />
+          <div>
+            <div className="flex items-center justify-between gap-2 mb-3">
+              <span className="px-2.5 py-0.5 rounded-lg text-xs font-extrabold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 flex items-center gap-1">
+                🔤 Word Craft
+              </span>
+              <span className="text-[11px] font-semibold text-slate-400 bg-slate-800/80 px-2 py-0.5 rounded-md border border-slate-700">
+                Letter Puzzle
+              </span>
+            </div>
+            <h3 className="text-lg font-bold text-white group-hover:text-emerald-300 transition-colors mb-2">
+              Word Builder
+            </h3>
+            <p className="text-xs text-slate-400 line-clamp-3 mb-4 leading-relaxed">
+              Construct valid words using letters from a target word.
+            </p>
+            <div className="space-y-1.5 py-2 border-t border-slate-800 text-xs text-slate-300">
+              <div className="flex items-center gap-2">
+                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+                <span>Anagram-style gameplay</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <Flame className="w-3.5 h-3.5 text-amber-400" />
+                <span>Progress tracking</span>
+              </div>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => handleLaunchGame('wordbuilder')}
+            className="w-full mt-5 py-3 rounded-2xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-bold text-xs sm:text-sm shadow-md transition-all active:scale-95 flex items-center justify-center gap-2 cursor-pointer"
+          >
+            <span>Play Word Builder</span>
             <ArrowRight className="w-4 h-4" />
           </button>
         </div>

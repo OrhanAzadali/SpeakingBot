@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
+import axios from 'axios';
 import {
   Volume2,
   RotateCw,
@@ -31,32 +32,91 @@ export const FlashcardsGame = ({
   const [reviewQueueIds, setReviewQueueIds] = useState(new Set());
   const [isPlayingAudio, setIsPlayingAudio] = useState(false);
 
-  // Initialize or re-filter deck when targetLanguage or level changes
+  // Function to build card objects from API/static data
+  const buildCards = (items) => {
+    return items.map((item, idx) => ({
+      id: `flash-${Date.now()}-${idx}`,
+      level: item.level || selectedLevel || 'B1',
+      language: item.language || targetLanguage,
+      word: item.word,
+      ipa: item.ipa || '',
+      pos: item.pos || 'noun',
+      sentence: item.example || item.sentence || '',
+      morphology: item.morphology || '',
+      translations: {
+        en: item.translation || item.meaning || '',
+        az: item.translation || item.meaning || '',
+        // In fallback, translations may be nested
+      },
+      definition: item.translation || item.definition || '',
+    }));
+  };
+
+  // Fetch AI vocabulary or fallback to static
+  const isGeneratingRef = useRef(false);
+
+  const fetchDeck = async () => {
+    if (isGeneratingRef.current) return;
+    isGeneratingRef.current = true;
+    const level = selectedLevel === 'ALL' ? 'B1' : selectedLevel;
+    try {
+      const { data } = await axios.post('/api/games/generate-vocabulary', {
+        targetLanguage,
+        userLevel: level,
+        count: 12,
+      });
+      if (data.success && data.vocabulary && data.vocabulary.length > 0) {
+        setDeck(buildCards(data.vocabulary));
+        setCurrentIndex(0);
+        setIsFlipped(false);
+        return;
+      }
+    } catch (err) {
+      console.warn('AI vocabulary fetch failed, falling back to static:', err);
+
+      // Fallback to static GAMES_VOCABULARY
+      const normLang = targetLanguage.toLowerCase();
+      let cards = GAMES_VOCABULARY.filter(
+        (v) => (v.language || 'English').toLowerCase() === normLang
+      );
+      if (cards.length === 0) {
+        cards = GAMES_VOCABULARY.filter(
+          (v) => (v.language || 'English').toLowerCase() === 'english'
+        );
+      }
+      if (selectedLevel !== 'ALL') {
+        const byLevel = cards.filter((v) => v.level === selectedLevel);
+        if (byLevel.length > 0) cards = byLevel;
+      }
+      const staticCards = cards
+        .slice(0, 12)
+        .map((item, idx) => ({
+          id: item.id || `static-${idx}`,
+          level: item.level,
+          language: item.language,
+          word: item.word,
+          ipa: item.ipa,
+          pos: item.pos,
+          sentence: item.sentence,
+          morphology: item.morphology,
+          translations: item.translations,
+          definition: item.definition,
+        }));
+      setDeck(staticCards);
+      setCurrentIndex(0);
+      setIsFlipped(false);
+    } finally {
+      isGeneratingRef.current = false;
+    }
+  };
+
   useEffect(() => {
-    const normLang = targetLanguage.toLowerCase();
-    let cards = GAMES_VOCABULARY.filter(
-      (v) => (v.language || 'English').toLowerCase() === normLang
-    );
-
-    if (cards.length === 0) {
-      cards = GAMES_VOCABULARY.filter((v) => (v.language || 'English').toLowerCase() === 'english');
-    }
-
-    if (selectedLevel !== 'ALL') {
-      const byLevel = cards.filter((v) => v.level === selectedLevel);
-      if (byLevel.length > 0) cards = byLevel;
-    }
-
-    setDeck(cards);
-    setCurrentIndex(0);
-    setIsFlipped(false);
-  }, [targetLanguage, selectedLevel]);
-
+    fetchDeck();
+  }, [targetLanguage, selectedLevel, userLevel]);
+  
   const currentCard = deck[currentIndex] || null;
 
-  const handleFlip = () => {
-    setIsFlipped((prev) => !prev);
-  };
+  const handleFlip = () => setIsFlipped((prev) => !prev);
 
   const handleNext = () => {
     setIsFlipped(false);
@@ -81,7 +141,6 @@ export const FlashcardsGame = ({
 
   const handleRate = (rating) => {
     if (!currentCard) return;
-
     if (rating === 'easy') {
       setMasteredIds((prev) => new Set([...prev, currentCard.id]));
       setReviewQueueIds((prev) => {
@@ -98,11 +157,9 @@ export const FlashcardsGame = ({
       });
       if (onGainXp) onGainXp(8, 'Reviewed Word');
     } else {
-      // Hard
       setReviewQueueIds((prev) => new Set([...prev, currentCard.id]));
       if (onGainXp) onGainXp(3, 'Study Attempt');
     }
-
     handleNext();
   };
 
@@ -159,11 +216,10 @@ export const FlashcardsGame = ({
                 setSelectedLevel(lvl);
                 setCurrentIndex(0);
               }}
-              className={`px-2.5 py-1 rounded-lg text-xs font-bold transition ${
-                selectedLevel === lvl
-                  ? 'bg-sky-600 text-white shadow-sm'
-                  : 'text-slate-400 hover:text-white'
-              }`}
+              className={`px-2.5 py-1 rounded-lg text-xs font-bold transition ${selectedLevel === lvl
+                ? 'bg-sky-600 text-white shadow-sm'
+                : 'text-slate-400 hover:text-white'
+                }`}
             >
               {lvl}
             </button>
@@ -222,12 +278,8 @@ export const FlashcardsGame = ({
             {/* FRONT OF CARD */}
             <div
               className="absolute inset-0 bg-gradient-to-br from-slate-900 via-slate-900 to-indigo-950/80 rounded-3xl p-6 sm:p-8 flex flex-col justify-between"
-              style={{
-                backfaceVisibility: 'hidden',
-                WebkitBackfaceVisibility: 'hidden',
-              }}
+              style={{ backfaceVisibility: 'hidden', WebkitBackfaceVisibility: 'hidden' }}
             >
-              {/* Top metadata tags */}
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <span className="px-3 py-1 rounded-full bg-sky-500/20 text-sky-400 border border-sky-500/30 text-xs font-bold font-mono">
@@ -242,7 +294,6 @@ export const FlashcardsGame = ({
                     </span>
                   )}
                 </div>
-
                 <div className="flex items-center gap-2">
                   {onSaveToVocabulary && (
                     <SaveToVocabButton
@@ -250,7 +301,7 @@ export const FlashcardsGame = ({
                       translation={
                         currentCard.translations?.[mediatorLanguage] ||
                         currentCard.translations?.en ||
-                        currentCard.definition ||
+                        currentCard.translation ||
                         ''
                       }
                       pos={currentCard.pos}
@@ -263,11 +314,10 @@ export const FlashcardsGame = ({
                   <button
                     type="button"
                     onClick={(e) => speakWord(e, currentCard.word)}
-                    className={`p-2.5 rounded-xl border transition ${
-                      isPlayingAudio
-                        ? 'bg-sky-500 text-white border-sky-400 scale-110'
-                        : 'bg-slate-800/80 text-slate-300 border-slate-700 hover:text-white hover:bg-slate-700'
-                    }`}
+                    className={`p-2.5 rounded-xl border transition ${isPlayingAudio
+                      ? 'bg-sky-500 text-white border-sky-400 scale-110'
+                      : 'bg-slate-800/80 text-slate-300 border-slate-700 hover:text-white hover:bg-slate-700'
+                      }`}
                     title="Listen to pronunciation"
                   >
                     <Volume2 className="w-5 h-5" />
@@ -275,7 +325,6 @@ export const FlashcardsGame = ({
                 </div>
               </div>
 
-              {/* Main Center Word & Phonetics */}
               <div className="text-center space-y-2 py-4">
                 <div className="text-3xl sm:text-4xl font-extrabold text-white tracking-tight">
                   {currentCard.word}
@@ -292,7 +341,6 @@ export const FlashcardsGame = ({
                 )}
               </div>
 
-              {/* Bottom hint prompt */}
               <div className="text-center">
                 <span className="inline-flex items-center gap-1.5 text-xs text-slate-400 hover:text-slate-300 bg-slate-800/50 px-3 py-1.5 rounded-full border border-slate-700/50">
                   <RotateCw className="w-3.5 h-3.5 text-sky-400" />
@@ -304,13 +352,8 @@ export const FlashcardsGame = ({
             {/* BACK OF CARD */}
             <div
               className="absolute inset-0 bg-gradient-to-br from-slate-900 via-indigo-950 to-slate-900 rounded-3xl p-6 sm:p-8 flex flex-col justify-between border-2 border-indigo-500/40"
-              style={{
-                backfaceVisibility: 'hidden',
-                WebkitBackfaceVisibility: 'hidden',
-                transform: 'rotateY(180deg)',
-              }}
+              style={{ backfaceVisibility: 'hidden', WebkitBackfaceVisibility: 'hidden', transform: 'rotateY(180deg)' }}
             >
-              {/* Top Bar */}
               <div className="flex items-center justify-between">
                 <span className="text-xs font-mono uppercase tracking-wider text-indigo-400 font-bold">
                   Translation & Linguistic Notes
@@ -322,7 +365,7 @@ export const FlashcardsGame = ({
                       translation={
                         currentCard.translations?.[mediatorLanguage] ||
                         currentCard.translations?.en ||
-                        currentCard.definition ||
+                        currentCard.translation ||
                         ''
                       }
                       pos={currentCard.pos}
@@ -343,21 +386,18 @@ export const FlashcardsGame = ({
                 </div>
               </div>
 
-              {/* Translation & Definition */}
               <div className="space-y-3 text-center my-auto">
                 <div className="text-2xl sm:text-3xl font-extrabold text-emerald-400">
                   {currentCard.translations?.[mediatorLanguage] ||
                     currentCard.translations?.en ||
-                    currentCard.translations?.az ||
+                    currentCard.translation ||
                     currentCard.word}
                 </div>
-
                 {currentCard.definition && (
                   <p className="text-xs sm:text-sm text-slate-200 leading-relaxed max-w-md mx-auto">
                     {currentCard.definition}
                   </p>
                 )}
-
                 {currentCard.morphology && (
                   <div className="inline-block text-[11px] font-mono bg-indigo-500/15 text-indigo-300 border border-indigo-500/30 px-2.5 py-1 rounded-lg">
                     {currentCard.morphology}
@@ -365,11 +405,8 @@ export const FlashcardsGame = ({
                 )}
               </div>
 
-              {/* Flip back reminder */}
               <div className="text-center">
-                <span className="text-[11px] text-slate-400">
-                  Click to flip back to target word
-                </span>
+                <span className="text-[11px] text-slate-400">Click to flip back to target word</span>
               </div>
             </div>
           </motion.div>
@@ -382,7 +419,6 @@ export const FlashcardsGame = ({
 
       {/* Navigation & Spaced Repetition Rating Buttons */}
       <div className="space-y-3">
-        {/* Rating Buttons */}
         <div className="grid grid-cols-3 gap-3">
           <button
             onClick={() => handleRate('hard')}
@@ -407,7 +443,6 @@ export const FlashcardsGame = ({
           </button>
         </div>
 
-        {/* Prev / Next controls */}
         <div className="flex items-center justify-between gap-4 pt-2">
           <button
             onClick={handlePrev}
@@ -416,7 +451,6 @@ export const FlashcardsGame = ({
             <ChevronLeft className="w-4 h-4" />
             <span>Previous</span>
           </button>
-
           <button
             onClick={handleFlip}
             className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-sky-400 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition"
@@ -424,7 +458,6 @@ export const FlashcardsGame = ({
             <RotateCw className="w-4 h-4" />
             <span>Flip Card</span>
           </button>
-
           <button
             onClick={handleNext}
             className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition"

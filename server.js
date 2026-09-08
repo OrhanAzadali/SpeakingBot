@@ -2105,9 +2105,9 @@ let memoryGames = {};
 
 app.post("/api/games/memory/start", (req, res) => {
   const { userId, targetLanguage = "en" } = req.body;
-  const words = ["apple", "banana", "cherry", "date", "elder", "fig"]; // or fetch from vocabulary
+  const words = ["apple", "banana", "cherry", "date", "elder", "fig"]; // Could be dynamic
   const pairs = words.map((word, i) => ({ id: i, word, matched: false }));
-  memoryGames[userId] = { pairs, matchedIds: [] };
+  memoryGames[userId] = { pairs };
   res.json({ success: true, pairs: pairs.map(p => ({ id: p.id })) });
 });
 
@@ -2135,6 +2135,7 @@ app.post("/api/games/memory/match", (req, res) => {
   }
 });
 
+
 // ========== WORD BUILDER GAME ==========
 let wordBuilderGames = {};
 
@@ -2154,6 +2155,94 @@ app.post("/api/games/wordbuilder/verify", (req, res) => {
   if (game.foundWords.includes(upperWord)) return res.json({ success: false, valid: false, message: "Already found" });
   game.foundWords.push(upperWord);
   res.json({ success: true, valid: true, foundWords: game.foundWords });
+});
+
+// ========== AI DYNAMIC WORD GENERATION FOR GAMES ==========
+const FALLBACK_WORDS = {
+  English: ["apple", "banana", "cherry", "date", "elder", "fig", "grape", "honey"],
+  Spanish: ["manzana", "plátano", "cereza", "dátil", "saúco", "higo", "uva", "miel"],
+  German: ["Apfel", "Banane", "Kirsche", "Dattel", "Holunder", "Feige", "Traube", "Honig"],
+  French: ["pomme", "banane", "cerise", "datte", "sureau", "figue", "raisin", "miel"],
+  Italian: ["mela", "banana", "ciliegia", "dattero", "sambuco", "fico", "uva", "miele"],
+  Russian: ["яблоко", "банан", "вишня", "финик", "бузина", "инжир", "виноград", "мёд"],
+  Turkish: ["elma", "muz", "kiraz", "hurma", "mürver", "incir", "üzüm", "bal"]
+};
+
+app.post("/api/games/generate-words", async (req, res) => {
+  try {
+    const {
+      targetLanguage = "English",
+      userLevel = "B1",
+      count = 6,
+      wordType = "noun"
+    } = req.body;
+
+    const prompt = `Generate exactly ${count} common ${wordType} words in ${targetLanguage} for a CEFR ${userLevel} learner. Return ONLY a JSON array of strings, no other text. Example: ["word1", "word2", ...]`;
+
+    const raw = await callGeminiWithResilience(prompt);
+    if (raw) {
+      const clean = raw.replace(/```json\n?|\n?```/g, "").trim();
+      const words = JSON.parse(clean);
+      if (Array.isArray(words) && words.length > 0) {
+        return res.json({ success: true, words: words.slice(0, count) });
+      }
+    }
+  } catch (err) {
+    console.warn("AI word generation failed, falling back:", err.message);
+  }
+
+  // Fallback to static list per language
+  const normalizedLang = Object.keys(FALLBACK_WORDS).find(
+    (lang) => lang.toLowerCase() === targetLanguage.toLowerCase()
+  ) || "English";
+  const words = FALLBACK_WORDS[normalizedLang].slice(0, count);
+  res.json({ success: true, words });
+});
+
+app.post("/api/games/generate-vocabulary", async (req, res) => {
+  try {
+    const {
+      targetLanguage = "English",
+      userLevel = "B1",
+      count = 8,
+      includeDetails = true
+    } = req.body;
+
+    const prompt = `Generate exactly ${count} vocabulary items for a CEFR ${userLevel} learner in ${targetLanguage}. For each item, provide:
+- word: the target language word
+- translation: meaning in English or mediator language (you can use "en" if no mediator)
+- ipa: phonetic transcription
+- pos: part of speech (noun, verb, adj, etc.)
+- level: CEFR level
+- example: a short sentence in ${targetLanguage}
+Return ONLY a JSON array of objects, no other text. Example: [{"word": "...", "translation": "...", "ipa": "/.../", "pos": "noun", "level": "B1", "example": "..."}]`;
+
+    const raw = await callGeminiWithResilience(prompt);
+    if (raw) {
+      const clean = raw.replace(/```json\n?|\n?```/g, "").trim();
+      const items = JSON.parse(clean);
+      if (Array.isArray(items) && items.length > 0) {
+        // Limit to requested count and ensure valid fields
+        const vocabulary = items.slice(0, count).map(item => ({
+          word: item.word || "",
+          translation: item.translation || item.meaning || "",
+          ipa: item.ipa || "",
+          pos: item.pos || "noun",
+          level: item.level || userLevel,
+          example: item.example || ""
+        })).filter(item => item.word);
+        if (vocabulary.length > 0) {
+          return res.json({ success: true, vocabulary });
+        }
+      }
+    }
+  } catch (err) {
+    console.warn("AI vocabulary generation failed, falling back:", err.message);
+  }
+
+  // Fallback static list (same as before, but we'll build objects)
+  const fallback = getStaticVocabulary(targetLanguage, userLevel, count);
+  res.json({ success: true, vocabulary: fallback });
 });
 
 async function startServer() {

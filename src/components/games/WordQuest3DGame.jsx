@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import confetti from 'canvas-confetti';
+import axios from 'axios';
 import {
   Sparkles,
   Heart,
@@ -31,7 +32,6 @@ export const WordQuest3DGame = ({
   const [currentPrompt, setCurrentPrompt] = useState(null);
   const [isGameOver, setIsGameOver] = useState(false);
 
-  // Internal state refs for 60fps requestAnimationFrame loop
   const gameStateRef = useRef({
     orbs: [],
     particles: [],
@@ -42,7 +42,6 @@ export const WordQuest3DGame = ({
     targetPrompt: null,
   });
 
-  // Sound generator using Web Audio API
   const playSfx = (type) => {
     if (!soundEnabled) return;
     try {
@@ -53,7 +52,6 @@ export const WordQuest3DGame = ({
       const gain = ctx.createGain();
       osc.connect(gain);
       gain.connect(ctx.destination);
-
       if (type === 'hit') {
         osc.type = 'triangle';
         osc.frequency.setValueAtTime(440, ctx.currentTime);
@@ -71,81 +69,126 @@ export const WordQuest3DGame = ({
         osc.start();
         osc.stop(ctx.currentTime + 0.25);
       }
-    } catch {}
+    } catch { }
   };
 
-  // Generate a linguistic prompt and 3 candidate 3D orbs
-  const generateNewQuestion = () => {
-    const normLang = targetLanguage.toLowerCase();
-    let pool = GAMES_VOCABULARY.filter(
-      (v) => (v.language || 'English').toLowerCase() === normLang
-    );
-    if (pool.length === 0) {
-      pool = GAMES_VOCABULARY.filter((v) => (v.language || 'English').toLowerCase() === 'english');
+  const isGeneratingRef = useRef(false);
+
+  const generateNewQuestion = async () => {
+    if (isGeneratingRef.current) return;
+    isGeneratingRef.current = true;
+    try {
+      const { data } = await axios.post('/api/games/generate-vocabulary', {
+        targetLanguage,
+        userLevel,  // use actual userLevel
+        count: 3,
+      });
+      let candidates = data.vocabulary.map((item, idx) => ({
+        ...item,
+        id: `vocab-${Date.now()}-${idx}`,
+      }));
+      candidates = candidates.sort(() => Math.random() - 0.5);
+      const correctWord = candidates[0]; let promptSentence = correctWord.example || '';
+      if (promptSentence) {
+        const regex = new RegExp(`\\b${correctWord.word}\\b`, 'i');
+        promptSentence = promptSentence.replace(regex, '_______');
+      } else {
+        promptSentence = `Identify the word meaning: "${correctWord.translation || '...'}"`;
+      }
+      const promptObj = {
+        correctId: correctWord.id,
+        correctWord: correctWord.word,
+        sentence: promptSentence,
+        nativeHint: correctWord.translation || '',
+        pos: correctWord.pos || 'noun',
+      };
+      setCurrentPrompt(promptObj);
+      gameStateRef.current.targetPrompt = promptObj;
+      const xOffsets = [-220, 0, 220];
+      const colors = [
+        { base: '#38bdf8', glow: 'rgba(56, 189, 248, 0.4)' },
+        { base: '#818cf8', glow: 'rgba(129, 140, 248, 0.4)' },
+        { base: '#34d399', glow: 'rgba(52, 211, 153, 0.4)' },
+      ];
+      const orbs = candidates.map((c, idx) => ({
+        id: c.id,
+        text: c.word,
+        x: xOffsets[idx] + (Math.random() * 40 - 20),
+        y: -20 + (Math.random() * 40 - 20),
+        z: 750 + idx * 40,
+        radius: 46,
+        color: colors[idx % colors.length],
+        isCorrect: c.id === correctWord.id,
+        rotation: Math.random() * Math.PI,
+      }));
+      gameStateRef.current.orbs = orbs;
+    } catch (err) {
+      console.warn('AI vocab fetch failed, falling back to static:', err);
+      // Fallback static
+      const normLang = targetLanguage.toLowerCase();
+      let pool = GAMES_VOCABULARY.filter(
+        (v) => (v.language || 'English').toLowerCase() === normLang
+      );
+      if (pool.length === 0) {
+        pool = GAMES_VOCABULARY.filter(
+          (v) => (v.language || 'English').toLowerCase() === 'english'
+        );
+      }
+      const shuffled = [...pool].sort(() => Math.random() - 0.5);
+      const correctWord = shuffled[0];
+      const distractors = shuffled.slice(1, 3);
+      const candidates = [correctWord, ...distractors].sort(() => Math.random() - 0.5);
+      let promptSentence = correctWord.sentence || '';
+      if (promptSentence) {
+        const regex = new RegExp(`\\b${correctWord.word}\\b`, 'i');
+        promptSentence = promptSentence.replace(regex, '_______');
+      } else {
+        promptSentence = `Identify the word meaning: "${correctWord.definition || '...'}"`;
+      }
+      const promptObj = {
+        correctId: correctWord.id,
+        correctWord: correctWord.word,
+        sentence: promptSentence,
+        nativeHint:
+          correctWord.translations?.[mediatorLanguage] ||
+          correctWord.translations?.en ||
+          correctWord.translations?.az,
+        pos: correctWord.pos,
+      };
+      setCurrentPrompt(promptObj);
+      gameStateRef.current.targetPrompt = promptObj;
+      const xOffsets = [-220, 0, 220];
+      const colors = [
+        { base: '#38bdf8', glow: 'rgba(56, 189, 248, 0.4)' },
+        { base: '#818cf8', glow: 'rgba(129, 140, 248, 0.4)' },
+        { base: '#34d399', glow: 'rgba(52, 211, 153, 0.4)' },
+      ];
+      const orbs = candidates.map((c, idx) => ({
+        id: c.id || `static-${idx}`,
+        text: c.word,
+        x: xOffsets[idx] + (Math.random() * 40 - 20),
+        y: -20 + (Math.random() * 40 - 20),
+        z: 750 + idx * 40,
+        radius: 46,
+        color: colors[idx % colors.length],
+        isCorrect: c.id === correctWord.id,
+        rotation: Math.random() * Math.PI,
+      }));
+      gameStateRef.current.orbs = orbs;
+    } finally {
+      isGeneratingRef.current = false;
     }
-
-    const shuffled = [...pool].sort(() => Math.random() - 0.5);
-    const correctWord = shuffled[0];
-    const distractors = shuffled.slice(1, 3);
-    const candidates = [correctWord, ...distractors].sort(() => Math.random() - 0.5);
-
-    // Form prompt sentence with blank
-    let promptSentence = correctWord.sentence || '';
-    if (promptSentence) {
-      const regex = new RegExp(`\\b${correctWord.word}\\b`, 'i');
-      promptSentence = promptSentence.replace(regex, '_______');
-    } else {
-      promptSentence = `Identify the word meaning: "${correctWord.definition || '...'}"`;
-    }
-
-    const promptObj = {
-      correctId: correctWord.id,
-      correctWord: correctWord.word,
-      sentence: promptSentence,
-      nativeHint:
-        correctWord.translations?.[mediatorLanguage] ||
-        correctWord.translations?.en ||
-        correctWord.translations?.az,
-      pos: correctWord.pos,
-    };
-
-    setCurrentPrompt(promptObj);
-    gameStateRef.current.targetPrompt = promptObj;
-
-    // Position 3 3D orbs spread horizontally in space
-    const xOffsets = [-220, 0, 220];
-    const colors = [
-      { base: '#38bdf8', glow: 'rgba(56, 189, 248, 0.4)' },
-      { base: '#818cf8', glow: 'rgba(129, 140, 248, 0.4)' },
-      { base: '#34d399', glow: 'rgba(52, 211, 153, 0.4)' },
-    ];
-
-    const orbs = candidates.map((c, idx) => ({
-      id: c.id,
-      text: c.word,
-      x: xOffsets[idx] + (Math.random() * 40 - 20),
-      y: -20 + (Math.random() * 40 - 20),
-      z: 750 + idx * 40,
-      radius: 46,
-      color: colors[idx % colors.length],
-      isCorrect: c.id === correctWord.id,
-      rotation: Math.random() * Math.PI,
-    }));
-
-    gameStateRef.current.orbs = orbs;
   };
 
-  // Start game session
-  const startGame = () => {
+  const startGame = async () => {
     setScore(0);
     setStreak(0);
     setLives(3);
     setLevel(1);
     setIsGameOver(false);
     setIsPlaying(true);
-    generateNewQuestion();
+    await generateNewQuestion();
   };
-
   // 3D Canvas Render & Animation Loop
   useEffect(() => {
     if (!isPlaying) return;
@@ -424,7 +467,7 @@ export const WordQuest3DGame = ({
             setLevel((prev) => prev + 1);
             try {
               confetti({ particleCount: 40, spread: 60, origin: { y: 0.7 } });
-            } catch {}
+            } catch { }
           }
 
           if (onGainXp) onGainXp(12, '3D Orb Target Hit');
@@ -496,9 +539,8 @@ export const WordQuest3DGame = ({
             {[1, 2, 3].map((heartIdx) => (
               <Heart
                 key={heartIdx}
-                className={`w-4 h-4 ${
-                  heartIdx <= lives ? 'text-rose-500 fill-rose-500' : 'text-slate-600'
-                }`}
+                className={`w-4 h-4 ${heartIdx <= lives ? 'text-rose-500 fill-rose-500' : 'text-slate-600'
+                  }`}
               />
             ))}
           </div>
