@@ -23,6 +23,12 @@ import cron from "node-cron";
 import Tesseract from "tesseract.js";
 import * as pdfjsLib from "pdfjs-dist/build/pdf.mjs";
 import { createCanvas } from "@napi-rs/canvas"; // or "canvas", choose the one that is in package.json
+import { generateGrammarGuidePdfBuffer, generateRoadmapPdfBuffer, generateVocabularyPdfBuffer, generateClassicStoryPdfBuffer } from './utils/pdfServerGenerator.js';
+function sendPdf(res, buffer, filename) {
+  res.setHeader('Content-Type', 'application/pdf');
+  res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+  res.send(Buffer.from(buffer));
+}
 async function extractTextFromScannedPdf(buffer) {
   // Convert PDF to images
   const pdf = await pdfjsLib.getDocument({ data: new Uint8Array(buffer) }).promise;
@@ -88,17 +94,24 @@ function getGeminiClient() {
   return geminiClient;
 }
 
+// Replace your existing function with this
 async function callGeminiWithResilience(
   prompt,
-  preferredModel = "gemini-1.5-flash-latest",
-  fallbackModels = ["gemini-1.5-pro-latest", "gemini-2.0-flash-exp", "gemini-2.0-flash"]
+  preferredModel = "gemini-3.5-flash",
+  fallbackModels = ["gemini-3.6-flash", "gemini-3.5-flash-lite", "gemini-3.1-flash-lite"]
 ) {
   const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) return null;
+  if (!apiKey) {
+    console.warn("GEMINI_API_KEY is not set in environment.");
+    return null;
+  }
+
   const ai = getGeminiClient();
   const candidateModels = [preferredModel, ...fallbackModels];
+
   for (const model of candidateModels) {
     try {
+      console.log(`[AI Engine] Trying model: ${model}`);
       const generatePromise = ai.models.generateContent({
         model,
         contents: prompt,
@@ -108,16 +121,77 @@ async function callGeminiWithResilience(
         setTimeout(() => reject(new Error("TIMEOUT_SPIKE")), 15000);
       });
       const response = await Promise.race([generatePromise, timeoutPromise]);
-      if (response && response.text) return response.text;
+      if (response && response.text) {
+        return response.text;
+      }
     } catch (err) {
       const msg = err?.message || String(err);
-      console.warn(`[SpeakBot AI Engine] Candidate ${model} notice (${msg.slice(0, 80)}). Trying next candidate model...`);
+      console.warn(`[AI Engine] Model ${model} failed (${msg.slice(0, 80)}). Trying next...`);
+      // If it's a 404 (model not found), continue to next model
+      if (msg.includes("404") || msg.includes("not found")) {
+        continue;
+      }
+      // For other errors, still try the next model
       continue;
     }
   }
+
+  // Dynamic discovery as a last resort
+  try {
+    const models = await ai.models.list();
+    const availableModels = models.map(m => m.name).filter(name => name.includes("gemini") && name.includes("flash"));
+    console.log("[AI Engine] Discovered available models:", availableModels);
+    // Try the first available flash model not already tried
+    const firstNewModel = availableModels.find(m => !candidateModels.includes(m));
+    if (firstNewModel) {
+      const response = await ai.models.generateContent({
+        model: firstNewModel,
+        contents: prompt,
+        config: { responseMimeType: "application/json" }
+      });
+      if (response && response.text) return response.text;
+    }
+  } catch (e) {
+    console.warn("[AI Engine] Model discovery failed:", e.message);
+  }
+
   return null;
 }
 
+// Make sure to import axios or use fetch (Node 24 has built-in fetch)
+async function callOpenRouter(prompt, model = "openai/gpt-oss-20b:free") {
+  const apiKey = process.env.OPENROUTER_API_KEY; // Need to set this
+  if (!apiKey) {
+    console.warn("OPENROUTER_API_KEY is not set.");
+    return null;
+  }
+
+  try {
+    const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${apiKey}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        model: model,
+        messages: [{ role: "user", content: prompt }],
+        // OpenRouter models work better with a plain text response for now
+        // The Gemini config uses "application/json", but we should adapt the prompt to ask for JSON.
+      })
+    });
+
+    if (!response.ok) {
+      throw new Error(`OpenRouter API error: ${response.statusText}`);
+    }
+
+    const data = await response.json();
+    return data.choices[0].message.content;
+  } catch (err) {
+    console.warn("[AI Engine] OpenRouter call failed:", err.message);
+    return null;
+  }
+}
 // Gzip helpers
 function zipText(text) {
   if (!text) return "";
@@ -140,6 +214,9 @@ function unzipText(zippedBase64) {
 const syncedUsersDatabase = {
   "default-user": {
     userId: "usr_speakbot_84920482",
+    isPremium: false,
+    usageCount: 0,
+    premiumExpiresAt: null,
     telegramUsername: "@speakbot_learner",
     currentLevel: "B1",
     targetLanguage: "English",
@@ -172,7 +249,8 @@ const syncedUsersDatabase = {
       ]
     },
     savedVocabulary: [],
-    lastSyncedAt: new Date().toISOString()
+    lastSyncedAt: new Date().toISOString(),
+
   }
 };
 
@@ -1147,9 +1225,19 @@ Return ONLY valid JSON matching this schema:
 }`;
 
     let parsedStory = null;
-    const rawAiResponse = await callGeminiWithResilience(aiPrompt);
+    const rawAiResponse = await callGeminiWithResilience(aiPrompt); // Try Gemini first
 
-    if (rawAiResponse) {
+    // If Gemini fails, try OpenRouter
+    if (!rawAiResponse) {
+      console.log("[PDF Engine] Gemini failed. Attempting OpenRouter...");
+      const openRouterResponse = await callOpenRouter(aiPrompt);
+      if (openRouterResponse) {
+        const clean = openRouterResponse.replace(/```json\n?|\n?```/g, "").trim();
+        parsedStory = JSON.parse(clean);
+      }
+    } else {
+      const clean = rawAiResponse.replace(/```json\n?|\n?```/g, "").trim();
+      parsedStory = JSON.parse(clean);
       try {
         const clean = rawAiResponse.replace(/```json\n?|\n?```/g, "").trim();
         parsedStory = JSON.parse(clean);
@@ -1364,6 +1452,29 @@ app.get("/api/stories/custom-list", (req, res) => {
   res.json({ success: true, customStories: combined, dailyFeeds: getDailyBotStoryFeeds(targetLanguage) });
 });
 
+app.get("/api/stories/custom-story/:storyId/pdf", (req, res) => {
+  const { storyId } = req.params;
+  const userId = String(req.query.userId || "default-user");
+
+  // Search in user's custom stories
+  const userStories = userCustomStories[userId] || [];
+  let story = userStories.find(s => s.id === storyId);
+
+  // If not found, search in autoFetchedStories
+  if (!story) {
+    story = autoFetchedStories.find(s => s.id === storyId);
+  }
+
+  if (!story) {
+    return res.status(404).json({ error: "Story not found" });
+  }
+
+  // Generate PDF
+  const buffer = generateClassicStoryPdfBuffer(story);
+  sendPdf(res, buffer, `story-${storyId}.pdf`);
+});
+
+
 app.get("/api/user/profile", (req, res) => {
   const userId = String(req.query.userId || "default-user");
   if (!syncedUsersDatabase[userId]) {
@@ -1377,22 +1488,26 @@ app.get("/api/user/profile", (req, res) => {
 
 app.get("/api/user/vocabulary", (req, res) => {
   const userId = String(req.query.userId || "default-user");
-  if (!syncedUsersDatabase[userId]) {
-    syncedUsersDatabase[userId] = JSON.parse(JSON.stringify(syncedUsersDatabase["default-user"]));
-    syncedUsersDatabase[userId].userId = userId;
+  let user = syncedUsersDatabase[userId];
+  if (!user) {
+    user = JSON.parse(JSON.stringify(syncedUsersDatabase["default-user"]));
+    user.userId = userId;
   }
-  const user = syncedUsersDatabase[userId];
   ensureUserVocabStructure(user);
-
   const requestedTargetLang = String(req.query.targetLanguage || user.targetLanguage || "English");
   if (!user.vocabularyByLanguage[requestedTargetLang]) {
     user.vocabularyByLanguage[requestedTargetLang] = [];
   }
-
   const countsByLanguage = {};
   Object.keys(user.vocabularyByLanguage).forEach((lang) => {
     countsByLanguage[lang] = user.vocabularyByLanguage[lang].length;
   });
+
+  if (req.query.format === 'pdf') {
+    const buffer = generateVocabularyPdfBuffer(user.vocabularyByLanguage[requestedTargetLang], requestedTargetLang);
+    sendPdf(res, buffer, `vocabulary-${requestedTargetLang}-${Date.now()}.pdf`);
+    return;
+  }
 
   res.json({
     success: true,
@@ -1632,7 +1747,7 @@ app.delete("/api/stories/custom-story/:storyId", (req, res) => {
 
 app.post("/api/gemini/generate-grammar-roadmap", async (req, res) => {
   try {
-    const { targetLanguage = "English", userLevel = "B1", topic = "Comprehensive Grammar Masterclass" } = req.body;
+    const { targetLanguage = "English", ruleTitle = "Verb Tenses", level = "B1", mediatorLanguage = "en" } = req.body;
     const prompt = `Create a step-by-step grammar learning roadmap for ${targetLanguage} at CEFR level ${userLevel}. Topic: ${topic}.
 Return JSON:
 {
@@ -1648,17 +1763,27 @@ Return JSON:
     }
   ]
 }`;
+    let roadmap = null;
     const raw = await callGeminiWithResilience(prompt);
     if (raw) {
-      const clean = raw.replace(/^```json\s*/i, "").replace(/```$/i, "").trim();
       try {
-        const parsed = JSON.parse(clean);
-        return res.json({ success: true, roadmap: parsed });
+        const clean = raw.replace(/^```json\s*/i, "").replace(/```$/i, "").trim();
+        roadmap = JSON.parse(clean);
       } catch (err) {
         console.warn("Roadmap JSON parse warning:", err.message);
       }
     }
-    res.json({ success: true, roadmap: getFallbackRoadmap(targetLanguage, userLevel) });
+    if (!roadmap) {
+      roadmap = getFallbackRoadmap(targetLanguage, userLevel);
+    }
+
+    if (req.query.format === 'pdf' || req.body.format === 'pdf') {
+      const buffer = generateRoadmapPdfBuffer(roadmap);
+      sendPdf(res, buffer, `roadmap-${Date.now()}.pdf`);
+      return;
+    }
+
+    res.json({ success: true, roadmap });
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });
   }
@@ -1667,28 +1792,48 @@ Return JSON:
 app.post("/api/gemini/generate-roadmap", async (req, res) => {
   try {
     const { targetLanguage = "English", userLevel = "B1" } = req.body;
+    // Use a simple fallback or a proper prompt if you want AI.
     const roadmap = getFallbackRoadmap(targetLanguage, userLevel);
+
+    if (req.query.format === 'pdf' || req.body.format === 'pdf') {
+      const buffer = generateRoadmapPdfBuffer(roadmap);
+      sendPdf(res, buffer, `roadmap-${Date.now()}.pdf`);
+      return;
+    }
+
     res.json({ success: true, roadmap });
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });
   }
 });
 
-app.post("/api/gemini/generate-grammar-guide", async (req, res) => {
+app.post('/api/gemini/generate-grammar-guide', async (req, res) => {
   try {
-    const { targetLanguage = "English", ruleTitle = "Verb Tenses", level = "B1" } = req.body;
+    const { targetLanguage = "English", ruleTitle = "Verb Tenses", level = "B1", mediatorLanguage = "en" } = req.body;
     const prompt = `Generate an in-depth grammar guide in ${targetLanguage} for level ${level} about "${ruleTitle} with informative explanatory description and samples". Include formulas, common pitfalls, and 3 rich examples with translations in ${mediatorLanguage}". Return JSON with { "title": "${ruleTitle}", "targetLanguage": "${targetLanguage}", "level": "${level}", "content": "Markdown formatted guide", "exercises": [{"question": "Fill in the blank...", "options": ["A", "B", "C","D"], "correct": 0, "explanation": "..."}] }`;
+
+    let guide = null;
     const raw = await callGeminiWithResilience(prompt);
     if (raw) {
-      const clean = raw.replace(/^```json\s*/i, "").replace(/```$/i, "").trim();
       try {
-        const parsed = JSON.parse(clean);
-        return res.json({ success: true, guide: parsed });
+        const clean = raw.replace(/^```json\s*/i, "").replace(/```$/i, "").trim();
+        guide = JSON.parse(clean);
       } catch (e) {
         console.warn("Grammar guide JSON parse warning:", e.message);
       }
     }
-    res.json({ success: true, guide: getFallbackGrammarGuide(targetLanguage, ruleTitle, level) });
+    if (!guide) {
+      guide = getFallbackGrammarGuide(targetLanguage, ruleTitle, level);
+    }
+
+    // If a PDF is requested, generate and send it
+    if (req.query.format === 'pdf' || req.body.format === 'pdf') {
+      const buffer = generateGrammarGuidePdfBuffer(guide);
+      sendPdf(res, buffer, `grammar-guide-${Date.now()}.pdf`);
+      return;
+    }
+
+    res.json({ success: true, guide });
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });
   }
@@ -1876,6 +2021,7 @@ app.post("/api/cubeword/verify", (req, res) => {
 
 app.get("/api/cubeword/generate-special-word", async (req, res) => {
   try {
+    const mediatorLanguage = req.query.mediatorLanguage || "en";
     const targetLang = req.query.targetLanguage || "English";
     const level = req.query.level || "B2";
     const prompt = `Provide a single elegant, expressive vocabulary word in ${targetLang} at CEFR level ${level}. Return JSON: { "word": "WORD", "clue": "Definition", "translation": "Provide translation in ${mediatorLanguage}", "cefr": "${level}" }`;
@@ -1892,6 +2038,41 @@ app.get("/api/cubeword/generate-special-word", async (req, res) => {
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }
+});
+// Check user premium status & usage
+app.get("/api/user/premium", (req, res) => {
+  const userId = String(req.query.userId || "default-user");
+  const user = syncedUsersDatabase[userId] || syncedUsersDatabase["default-user"];
+  res.json({
+    success: true,
+    isPremium: user.isPremium || false,
+    usageCount: user.usageCount || 0,
+    limit: user.isPremium ? Infinity : 150,
+    priceCents: process.env.PREMIUM_PRICE_CENTS || 350,
+    currency: process.env.PREMIUM_PRICE_CURRENCY || "usd"
+  });
+});
+
+// Increment usage
+app.post("/api/user/usage", (req, res) => {
+  const { userId } = req.body;
+  if (!syncedUsersDatabase[userId]) {
+    syncedUsersDatabase[userId] = { ...syncedUsersDatabase["default-user"], userId };
+  }
+  const user = syncedUsersDatabase[userId];
+  user.usageCount = (user.usageCount || 0) + 1;
+  res.json({ success: true, usageCount: user.usageCount });
+});
+
+// Mark premium
+app.post("/api/user/premium", (req, res) => {
+  const { userId, isPremium = true } = req.body;
+  if (!syncedUsersDatabase[userId]) {
+    syncedUsersDatabase[userId] = { ...syncedUsersDatabase["default-user"], userId };
+  }
+  syncedUsersDatabase[userId].isPremium = isPremium;
+  syncedUsersDatabase[userId].premiumExpiresAt = isPremium ? new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString() : null;
+  res.json({ success: true, isPremium });
 });
 
 app.post("/api/user/sync-game-xp", (req, res) => {
@@ -1937,38 +2118,39 @@ startServer();
 // Schedule auto-fetch 3-5 times daily (e.g., every 6 hours)
 cron.schedule("0 */6 * * *", async () => {
   const rawStory = await fetchRandomGutenbergBook();
-  if (rawStory) {
-    // Generate full story using AI
-    const aiPrompt = `You are SpeakBot's Chief NLP Literary Pedagogical Engine.
-The user uploaded a book/story titled "${resolvedTitle}" by "${resolvedAuthor}".
-Literary Era: ${resolvedEra}
+  if (!rawStory) return;
+
+  // Use default user's mediator language as fallback (or 'en')
+  const mediatorLanguage = syncedUsersDatabase["default-user"]?.mediatorLanguage || "en";
+  const targetLanguage = rawStory.targetLanguage || "en";
+  const userLevel = "B2"; // or pick a default level
+
+  const aiPrompt = `You are SpeakBot's Chief NLP Literary Pedagogical Engine.
+The user uploaded a book/story titled "${rawStory.title}" by "${rawStory.author || "Unknown"}".
+Literary Era: Unknown
 Target Language of Book: ${targetLanguage}
 User Target CEFR Level: ${userLevel}
 Mediator Language for translations & explanations: ${mediatorLanguage} (e.g. az: Azerbaijani, ru: Russian, tr: Turkish, es: Spanish, en: English, de: German)
 
-${isTextScannedOrEmpty
-        ? `The uploaded document is a scanned or image-based edition without a clean raw text layer.
-TASK: Draw upon your literary knowledge of "${resolvedTitle}" by "${resolvedAuthor}". Generate an authentic, iconic 180-260 word literary chapter excerpt from "${resolvedTitle}" by "${resolvedAuthor}" in ${targetLanguage} adapted for CEFR ${userLevel} readers. Faithfully convey ${resolvedAuthor}'s specific characters, setting, and prose cadence.`
-        : `Here is the authentic text excerpt extracted from the book "${resolvedTitle}" by "${resolvedAuthor}":
+Here is the authentic text excerpt extracted from the book:
 """
 ${rawStory.excerpt}
-"""`
-      }
+"""
 
 Synthesize a complete, interactive Classic Story reading and audio study module based on this excerpt.
 CRITICAL REQUIREMENTS:
-1. Every sentence, vocabulary word, stylistic device, conversation question, and exercise MUST be uniquely tailored to "${bookTitle}" by "${author}" and this specific passage.
+1. Every sentence, vocabulary word, stylistic device, conversation question, and exercise MUST be uniquely tailored to "${rawStory.title}" by "${rawStory.author || "Unknown"}" and this specific passage.
 2. Provide authentic, accurate translations in ${mediatorLanguage}.
 3. Generate at least 4 SEQUENTIAL Socratic dialogue questions that probe narrator motives, themes, and linguistic nuances directly from this excerpt.
 4. Generate at least 5 COMPREHENSIVE, VARIED tasks & exercises (Comprehension, Vocabulary in Context, Grammar/Syntax, Stylistic Devices, Synthesis) based directly on quotes from this passage. Distribute the correct answers across options (do not make them all index 0!).
 5. Never use generic placeholder sentences or repetitive boilerplate.
 6. IMPORTANT: The book may be technical, non-fiction, or practical (e.g., programming, plumbing, martial arts). In that case, **do NOT** generate literary analysis or philosophical questions. Instead, generate comprehension questions and exercises based on the **actual subject matter** of the excerpt, focusing on vocabulary, grammar, and practical understanding.
-
 7. **Book Type Awareness**: Determine if the book is fiction (literary) or non‑fiction (technical/practical). If non‑fiction, DO NOT generate literary analysis, Socratic questions about character psychology, existential themes, or stylistic devices. Instead, generate comprehension questions related to the actual content (e.g., "What is the main idea of this excerpt?", "What specific technique does the author describe?"). The Socratic questions should focus on understanding the subject matter, not on abstract philosophy.
+
 Return ONLY valid JSON matching this schema:
 {
-  "title": "${bookTitle}",
-  "author": "${author}",
+  "title": "${rawStory.title}",
+  "author": "${rawStory.author || "Unknown"}",
   "authorEra": "Literary Era (e.g. Victorian, Romantic, Modernist)",
   "level": "${userLevel}",
   "mode": "both",
@@ -1982,7 +2164,7 @@ Return ONLY valid JSON matching this schema:
   "sentences": [
     {
       "text": "Exact sentence in ${targetLanguage}",
-      "translation": "Provide translation in ${mediatorLanguage}", "cefr":
+      "translation": "Provide translation in ${mediatorLanguage}",
       "literaryNote": "Pedagogical or literary commentary on syntax, phrasing, or rhetoric in this sentence",
       "audioTime": "0:00 - 0:08"
     }
@@ -1992,7 +2174,7 @@ Return ONLY valid JSON matching this schema:
       "word": "notable vocabulary word from excerpt",
       "ipa": "/phonetic/",
       "pos": "noun/verb/adjective/adverb",
-      "translation": "Provide translation in ${mediatorLanguage}", "cefr":
+      "translation": "Provide translation in ${mediatorLanguage}",
       "cefr": "${userLevel}",
       "example": "Contextual usage sentence in ${targetLanguage}"
     }
@@ -2010,7 +2192,7 @@ Return ONLY valid JSON matching this schema:
       "stepNumber": 1,
       "persona": "SpeakBot Socratic Mentor",
       "topic": "Thematic or Character Motive",
-      "prompt": "Deep Socratic question testing literary comprehension and psychological perspective of this excerpt from ${bookTitle}",
+      "prompt": "Deep Socratic question testing literary comprehension and psychological perspective of this excerpt from ${rawStory.title}",
       "options": [
         "Thoughtful, text-grounded interpretation reflecting the excerpt",
         "Alternative interpretation missing key nuance",
@@ -2114,21 +2296,25 @@ Return ONLY valid JSON matching this schema:
       "question": "Question synthesizing the excerpt's central theme and character psychological trajectory",
       "options": ["Correct Option", "Distractor 1", "Distractor 2", "Distractor 3"],
       "correctIndex": 0,
-      "explanation": "In-depth literary synthesis reflecting ${author}'s vision in this passage.",
+      "explanation": "In-depth literary synthesis reflecting ${rawStory.author || "Unknown"}'s vision in this passage.",
       "points": 25
     }
   ]
 }`;
-    const parsedStory = await callGeminiWithResilience(aiPrompt);
-    if (parsedStory) {
-      rawStory.storyData = parsedStory;
-      autoFetchedStories.unshift(rawStory);
-      saveStoriesToDisk();
-      console.log(`[AutoFetch] Added story: ${rawStory.title}`);
+
+  const parsedStory = await callGeminiWithResilience(aiPrompt);
+  if (parsedStory) {
+    try {
+      const clean = parsedStory.replace(/```json\n?|\n?```/g, "").trim();
+      rawStory.storyData = JSON.parse(clean);
+    } catch (e) {
+      rawStory.storyData = { excerpt: rawStory.excerpt };
     }
+    autoFetchedStories.unshift(rawStory);
+    saveStoriesToDisk();
+    console.log(`[AutoFetch] Added story: ${rawStory.title}`);
   }
 });
-
 
 // KIMI VERSION (cannot find a word - the page says red lines 'cannot find words' below the form):
 // import express from "express";
@@ -2209,11 +2395,11 @@ Return ONLY valid JSON matching this schema:
 //       const msg = err?.message || String(err);
 //       const isCapacityIssue = msg.includes("503") || msg.includes("UNAVAILABLE") || msg.includes("high demand") || msg.includes("429") || msg.includes("RESOURCE_EXHAUSTED") || msg.includes("TIMEOUT_503_SPIKE");
 //       if (isCapacityIssue) {
-//         console.warn(`[SpeakBot AI Engine] ${model} experiencing temporary high demand/timeout (503/429). Attempting fallback...`);
+//         console.warn(`[SpeakBot AI Engine] ${ model } experiencing temporary high demand / timeout(503 / 429).Attempting fallback...`);
 //         await new Promise((r) => setTimeout(r, 200));
 //         continue;
 //       }
-//       console.warn(`[SpeakBot AI Engine] Request on ${model} not completed (${msg.slice(0, 80)}). Activating local engine.`);
+//       console.warn(`[SpeakBot AI Engine] Request on ${ model } not completed(${ msg.slice(0, 80) }).Activating local engine.`);
 //       break;
 //     }
 //   }
@@ -2511,7 +2697,7 @@ Return ONLY valid JSON matching this schema:
 
 //   if (!exists) {
 //     const newEntry = {
-//       id: `vocab-${lang.toLowerCase().slice(0, 2)}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+//       id: `vocab - ${ lang.toLowerCase().slice(0, 2) } -${ Date.now() } -${ Math.random().toString(36).slice(2, 6) } `,
 //       word: termWord,
 //       translation: translation || meaning || "Saved term",
 //       targetLanguage: lang,
@@ -2532,11 +2718,11 @@ Return ONLY valid JSON matching this schema:
 //     countsByLanguage[l] = user.vocabularyByLanguage[l].length;
 //   });
 
-//   console.log(`[VOCAB] Saved word "${termWord}" for targetLanguage: ${lang} (User: ${userId}). Total words in ${lang}: ${list.length}`);
+//   console.log(`[VOCAB] Saved word "${termWord}" for targetLanguage: ${ lang } (User: ${ userId }). Total words in ${ lang }: ${ list.length } `);
 
 //   res.json({
 //     success: true,
-//     message: `Word "${termWord}" added to ${lang} personal vocabulary`,
+//     message: `Word "${termWord}" added to ${ lang } personal vocabulary`,
 //     targetLanguage: lang,
 //     data: list,
 //     allVocabularies: user.vocabularyByLanguage,
@@ -2596,7 +2782,7 @@ Return ONLY valid JSON matching this schema:
 //   }
 //   syncedUsersDatabase[userId].mediatorLanguage = mediatorLanguage;
 //   syncedUsersDatabase[userId].lastSyncedAt = (/* @__PURE__ */ new Date()).toISOString();
-//   console.log(`[SYNC] Mediator language updated to ${mediatorLanguage} from ${source} for user ${userId}. Synced to Telegram Bot state.`);
+//   console.log(`[SYNC] Mediator language updated to ${ mediatorLanguage } from ${ source } for user ${ userId }.Synced to Telegram Bot state.`);
 //   res.json({
 //     success: true,
 //     message: "Mediator language updated and synchronized across WebApp, MiniApp, and Telegram Bot",
@@ -2618,7 +2804,7 @@ Return ONLY valid JSON matching this schema:
 //   }
 //   user.savedVocabulary = user.vocabularyByLanguage[user.targetLanguage];
 //   user.lastSyncedAt = (/* @__PURE__ */ new Date()).toISOString();
-//   console.log(`[SYNC] Target language updated to ${user.targetLanguage} from ${source} for user ${userId}. Loaded separate vocabulary with ${user.savedVocabulary.length} words.`);
+//   console.log(`[SYNC] Target language updated to ${ user.targetLanguage } from ${ source } for user ${ userId }.Loaded separate vocabulary with ${ user.savedVocabulary.length } words.`);
 
 //   const countsByLanguage = {};
 //   Object.keys(user.vocabularyByLanguage).forEach((l) => {
@@ -2627,7 +2813,7 @@ Return ONLY valid JSON matching this schema:
 
 //   res.json({
 //     success: true,
-//     message: `Target language switched to ${user.targetLanguage}. Switched to separate ${user.targetLanguage} vocabulary.`,
+//     message: `Target language switched to ${ user.targetLanguage }. Switched to separate ${ user.targetLanguage } vocabulary.`,
 //     data: user,
 //     targetLanguage: user.targetLanguage,
 //     vocabulary: user.savedVocabulary,
@@ -2653,7 +2839,7 @@ Return ONLY valid JSON matching this schema:
 //   });
 //   res.json({
 //     success: true,
-//     message: `Level updated to ${level} and synced with Telegram bot data`,
+//     message: `Level updated to ${ level } and synced with Telegram bot data`,
 //     data: user
 //   });
 // });
@@ -2695,14 +2881,14 @@ Return ONLY valid JSON matching this schema:
 //   user.lastSyncedAt = (/* @__PURE__ */ new Date()).toISOString();
 //   user.testHistory.unshift({
 //     date: (/* @__PURE__ */ new Date()).toISOString(),
-//     testType: `${String(skill).toUpperCase()} Skill Test`,
+//     testType: `${ String(skill).toUpperCase() } Skill Test`,
 //     level: user.skillLevels[skill]?.level || "B1",
 //     score: user.skillScores[skill] || 70,
 //     source
 //   });
 //   res.json({
 //     success: true,
-//     message: `${skill} test synced successfully. Overall level adjusted to ${user.currentLevel}`,
+//     message: `${ skill } test synced successfully.Overall level adjusted to ${ user.currentLevel } `,
 //     data: user
 //   });
 // });
@@ -2744,15 +2930,15 @@ Return ONLY valid JSON matching this schema:
 //   user.lastSyncedAt = (/* @__PURE__ */ new Date()).toISOString();
 //   user.testHistory.unshift({
 //     date: (/* @__PURE__ */ new Date()).toISOString(),
-//     testType: `Classic ${mode === "listening" ? "Audio Listening" : "Reading"}: ${author}`,
+//     testType: `Classic ${ mode === "listening" ? "Audio Listening" : "Reading" }: ${ author } `,
 //     level: user.currentLevel,
 //     score,
 //     source
 //   });
-//   console.log(`[SYNC] ${mode} story "${storyTitle}" by ${author} completed with score ${score}%. Updated ${skillKey} to ${newScore}%. Synced to Telegram Bot.`);
+//   console.log(`[SYNC] ${ mode } story "${storyTitle}" by ${ author } completed with score ${ score }%.Updated ${ skillKey } to ${ newScore }%.Synced to Telegram Bot.`);
 //   res.json({
 //     success: true,
-//     message: `Story progress saved. ${skillKey} score boosted to ${newScore}% and synced to @SpeakBot.`,
+//     message: `Story progress saved.${ skillKey } score boosted to ${ newScore }% and synced to @SpeakBot.`,
 //     data: user
 //   });
 // });
@@ -2800,7 +2986,7 @@ Return ONLY valid JSON matching this schema:
 //       );
 //       if (!exists) {
 //         user.vocabularyByLanguage[targetL].unshift({
-//           id: `vocab-${targetL.toLowerCase().slice(0, 2)}-${Date.now()}`,
+//           id: `vocab - ${ targetL.toLowerCase().slice(0, 2) } -${ Date.now() } `,
 //           ...botUpdate.newWord,
 //           targetLanguage: targetL,
 //           savedAt: new Date().toISOString()
@@ -2827,7 +3013,7 @@ Return ONLY valid JSON matching this schema:
 
 // async function extractTextFromPdfBuffer(buffer) {
 //   try {
-//     console.log(`[PDF Engine] Attempting extraction from buffer. Size: ${buffer.length} bytes`);
+//     console.log(`[PDF Engine] Attempting extraction from buffer.Size: ${ buffer.length } bytes`);
 
 //     // Попытка 1: Проверяем, загрузился ли нативный pdf-parse
 //     if (typeof PDFParse === 'function' || PDFParse) {
@@ -2835,7 +3021,7 @@ Return ONLY valid JSON matching this schema:
 //         const parseFunc = typeof PDFParse === 'function' ? PDFParse : (PDFParse.PDFParse || PDFParse.default);
 //         const res = await parseFunc(buffer);
 //         if (res && res.text && res.text.trim().length > 0) {
-//           console.log(`[PDF Engine] Success via pdf-parse. Extracted ${res.text.length} chars.`);
+//           console.log(`[PDF Engine] Success via pdf - parse.Extracted ${ res.text.length } chars.`);
 //           return res.text;
 //         }
 //       } catch (e1) {
@@ -2879,7 +3065,7 @@ Return ONLY valid JSON matching this schema:
 //         .join(' ');
 
 //       if (extracted.trim().length > 100) {
-//         console.log(`[PDF Engine] Success via regex binary stream! Extracted ${extracted.length} chars.`);
+//         console.log(`[PDF Engine] Success via regex binary stream! Extracted ${ extracted.length } chars.`);
 //         return extracted;
 //       }
 //     }
@@ -2892,7 +3078,7 @@ Return ONLY valid JSON matching this schema:
 //       .trim();
 
 //     if (cleanChars.length > 100) {
-//       console.log(`[PDF Engine] Brute-force success. Rescued ${cleanChars.length} characters.`);
+//       console.log(`[PDF Engine]Brute - force success.Rescued ${ cleanChars.length } characters.`);
 //       return cleanChars.slice(0, 40000);
 //     }
 
@@ -3199,7 +3385,7 @@ Return ONLY valid JSON matching this schema:
 //       if (approxSizeMb > MAX_ALLOWED_MB) {
 //         return res.status(400).json({
 //           success: false,
-//           error: `Размер файла слишком велик (${approxSizeMb.toFixed(1)} MB). Чтобы сервер не упал, лимит для бесплатных аккаунтов составляет ${MAX_ALLOWED_MB} MB. Пожалуйста, сожмите PDF или загрузите только нужную главу в виде .txt.`
+//           error: `Размер файла слишком велик(${ approxSizeMb.toFixed(1) } MB).Чтобы сервер не упал, лимит для бесплатных аккаунтов составляет ${ MAX_ALLOWED_MB } MB.Пожалуйста, сожмите PDF или загрузите только нужную главу в виде.txt.`
 //         });
 //       }
 //     }
@@ -3211,7 +3397,7 @@ Return ONLY valid JSON matching this schema:
 //       try {
 //         const buffer = Buffer.from(fileBase64, "base64");
 //         extractedText = await extractTextFromPdfBuffer(buffer);
-//         console.log(`[PDF Engine] Extracted ${extractedText ? extractedText.length : 0} chars from Base64 PDF buffer.`);
+//         console.log(`[PDF Engine] Extracted ${ extractedText ? extractedText.length : 0 } chars from Base64 PDF buffer.`);
 //       } catch (pdfErr) {
 //         console.warn("[PDF Engine] Base64 extraction failed:", pdfErr.message);
 //         extractedText = "";
@@ -3225,8 +3411,8 @@ Return ONLY valid JSON matching this schema:
 
 //     if (isTextScannedOrEmpty) {
 //       // Текст не найден (скан или битый файл). Генерируем метку-заглушку для БД.
-//       console.log(`[PDF Engine] Notice: PDF text layer missing for "${bookTitle}". Activating AI Literary Simulation...`);
-//       cleanedText = `SIMULATION_PROMPT_TRIGGER: Generate an iconic authentic excerpt from the famous book "${bookTitle}" by "${author}" in ${targetLanguage}.`;
+//       console.log(`[PDF Engine]Notice: PDF text layer missing for "${bookTitle}".Activating AI Literary Simulation...`);
+//       cleanedText = `SIMULATION_PROMPT_TRIGGER: Generate an iconic authentic excerpt from the famous book "${bookTitle}" by "${author}" in ${ targetLanguage }.`;
 //       zippedBookContent = zipText(cleanedText);
 //     } else {
 //       // Текст успешно извлечен! Работаем по стандартной схеме
@@ -3235,7 +3421,7 @@ Return ONLY valid JSON matching this schema:
 //     }
 
 //     // Эмулируем запись в структуру БД
-//     const databaseRecordId = `story-custom-pdf-${Date.now()}`;
+//     const databaseRecordId = `story - custom - pdf - ${ Date.now() } `;
 //     const dbMockRecord = {
 //       id: databaseRecordId,
 //       title: bookTitle,
@@ -3274,7 +3460,7 @@ Return ONLY valid JSON matching this schema:
 //       }
 //     }
 
-//     console.log(`[SpeakBot PDF Engine] Processed chunk of ${excerptSlice.split(/\s+/).length} words from total ${textFromDb.split(/\s+/).length} words inside "${fileName}". Sending to Gemini...`);
+//     console.log(`[SpeakBot PDF Engine] Processed chunk of ${ excerptSlice.split(/\s+/).length } words from total ${ textFromDb.split(/\s+/).length } words inside "${fileName}".Sending to Gemini...`);
 
 //     const aiPrompt = `You are SpeakBot's Chief NLP Literary Pedagogical Engine.
 // The user uploaded a custom book/story PDF titled "${bookTitle}" by "${author}".

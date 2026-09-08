@@ -1036,3 +1036,5 @@ export function exportClassicStoryExercisePdf(story) {
   const cleanTitle = (story.title || 'classic-story').toLowerCase().replace(/[^a-z0-9]+/g, '-');
   doc.save(`${cleanTitle}-classic-study-guide.pdf`);
 }
+
+
