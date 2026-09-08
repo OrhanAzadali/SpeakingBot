@@ -45,7 +45,8 @@ export const ClassicStoriesView = ({
   initialSelectedStoryId,
   initialMode = "all"
 }) => {
-  const { t, mediatorLanguage } = useTranslation();
+
+  const { mediatorLanguage } = useTranslation();
   const [filterMode, setFilterMode] = useState(initialMode);
   const [selectedSentence, setSelectedSentence] = useState(null);
   const [socraticInput, setSocraticInput] = useState('');
@@ -296,12 +297,13 @@ export const ClassicStoriesView = ({
     const userMsg = socraticInput.trim();
     setSocraticInput('');
     setSocraticMessages((prev) => [...prev, { role: 'user', text: userMsg }]);
+
     try {
-      const res = await fetch('/api/socratic/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+      const res = await fetch("/api/socratic/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          userId: 'default-user',
+          userId: "default-user",
           bookTitle: activeStory.title,
           author: activeStory.author,
           excerpt: selectedSentence ? selectedSentence.text : activeStory.paragraphs?.[0] || activeStory.storyText,
@@ -972,30 +974,7 @@ export const ClassicStoriesView = ({
                 Step into dialogue with the literary persona. Choose the response that best unravels the character psychology and linguistic mechanics of the text.
               </p>
             </div>
-            {/* Live Socratic Chat (based on selected sentence) */}
-            {selectedSentence && (
-              <div className="mt-8 p-4 rounded-2xl bg-slate-800/50 border border-slate-700">
-                <div className="text-xs font-bold text-sky-300 mb-2">Live Socratic Chat – based on selected sentence:</div>
-                <div className="max-h-64 overflow-y-auto space-y-2 mb-3">
-                  {socraticMessages.map((msg, idx) => (
-                    <div key={idx} className={`p-2 rounded-lg ${msg.role === 'user' ? 'bg-sky-600/30 text-right' : 'bg-slate-900 text-left'}`}>
-                      <span className="text-xs">{msg.text}</span>
-                    </div>
-                  ))}
-                </div>
-                <div className="flex gap-2">
-                  <input
-                    type="text"
-                    value={socraticInput}
-                    onChange={(e) => setSocraticInput(e.target.value)}
-                    onKeyPress={(e) => { if (e.key === 'Enter') sendSocraticMessage(); }}
-                    placeholder="Ask a question about this sentence..."
-                    className="flex-1 px-3 py-2 rounded-lg bg-slate-950 border border-slate-700 text-xs text-white"
-                  />
-                  <button onClick={sendSocraticMessage} className="px-4 py-2 rounded-lg bg-indigo-600 text-white text-xs font-bold">Send</button>
-                </div>
-              </div>
-            )}
+
             {/* Conversation Dialogues List */}
             <div className="space-y-6">
               {activeStory.conversations?.map((conv) => {
@@ -1104,6 +1083,30 @@ export const ClassicStoriesView = ({
                   </div>
                 );
               })}
+              {/* Live Socratic Chat (based on selected sentence) */}
+              {selectedSentence && (
+                <div className="mt-8 p-4 rounded-2xl bg-slate-800/50 border border-slate-700">
+                  <div className="text-xs font-bold text-sky-300 mb-2">Live Socratic Chat – based on selected sentence:</div>
+                  <div className="max-h-64 overflow-y-auto space-y-2 mb-3">
+                    {socraticMessages.map((msg, idx) => (
+                      <div key={idx} className={`p-2 rounded-lg ${msg.role === 'user' ? 'bg-sky-600/30 text-right' : 'bg-slate-900 text-left'}`}>
+                        <span className="text-xs">{msg.text}</span>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={socraticInput}
+                      onChange={(e) => setSocraticInput(e.target.value)}
+                      onKeyPress={(e) => { if (e.key === 'Enter') sendSocraticMessage(); }}
+                      placeholder="Ask a question about this sentence..."
+                      className="flex-1 px-3 py-2 rounded-lg bg-slate-950 border border-slate-700 text-xs text-white"
+                    />
+                    <button onClick={sendSocraticMessage} className="px-4 py-2 rounded-lg bg-indigo-600 text-white text-xs font-bold">Send</button>
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Bottom Actions */}
