@@ -434,7 +434,13 @@ export const ClassicStoriesView = ({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           userId: "default-user",
-          pdfData: fileBase64,
+          // NOTE: server.js's /api/stories/upload-pdf-book destructures this
+          // field as "fileBase64" — it was previously sent as "pdfData",
+          // which the server silently ignored (defaulting to ""), so an
+          // actual uploaded PDF's content never reached the server at all.
+          // Only pasted-text uploads worked. Fixed to match the server's
+          // expected field name.
+          fileBase64: fileBase64,
           fileText: customExcerptText,
           fileName,
           bookTitle: pdfBookTitle || fileName.replace(/\.[^/.]+$/, ""),
@@ -1377,9 +1383,11 @@ export const ClassicStoriesView = ({
               <span className="px-3 py-1 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 text-xs font-bold font-mono">
                 Classical Literature & Audio Theater
               </span>
-              <span className="text-xs text-slate-400">
-                Target: <strong className="text-white">{targetLanguage}</strong>
-              </span>
+              {/* Note: the current target language is stated once, naturally,
+                  in the paragraph just below — a separate "Target: X" badge
+                  here duplicated the same info right next to it and was
+                  removed to reduce redundant UI clutter. The global language
+                  selector in the app header remains the single control. */}
             </div>
 
             {/* Upload Custom PDF Book Button */}
