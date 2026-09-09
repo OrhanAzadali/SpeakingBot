@@ -207,6 +207,7 @@ export const HomePage = ({
           onStart={() => onLaunchGame('cubeGame')}
           onOpenVocabulary={() => onNavigateTab('games')}
           onSaveToVocabulary={onSaveToVocabulary}
+          themeColors={themeColors}
         />
 
         {/* Interactive Games Grid */}

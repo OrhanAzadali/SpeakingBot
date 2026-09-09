@@ -430,6 +430,7 @@ function MainApp() {
               onSaveToVocabulary={handleSaveToVocabulary}
               onSelectToken={(token) => setInspectedToken(token)}
               asSection={false}
+              themeColors={themeColors}
             />
           )}
 
