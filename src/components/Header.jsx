@@ -13,6 +13,7 @@ import {
   RefreshCw
 } from "lucide-react";
 
+import { PRESET_THEMES } from "../utils/colorHarmonizer.js";
 import { getSafeThemeRuleset, persistThemeRuleset } from "../utils/themeRulesetCache.js";
 
 const showToast = (message, type = "success") => {
@@ -101,7 +102,7 @@ export const Header = ({
         return "from-slate-600 to-slate-700 text-slate-100";
     }
   };
-  return <header className="sticky top-0 z-40 bg-slate-900/90 backdrop-blur-md border-b border-slate-800">
+  return <header className="sticky top-0 z-40 bg-slate-900/90 backdrop-blur-md border-b border-slate-800"> style={themeColors.match?.iconStyle}
     {
       /* Top Banner: Brand & Language Bar */
     }
@@ -295,7 +296,7 @@ export const Header = ({
               className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-black transition-all hover:scale-105 shadow-sm cursor-pointer active:scale-95"
               title="Cycle AI Harmonic Theme"
             >
-              <Palette className="w-3.5 h-3.5" />
+              <Palette className="w-3.5 h-3.5" style={themeColors.cubeCard} />
               <span className="hidden sm:inline">{activeTheme.themeMeta.name}</span>
             </button>
 
@@ -307,6 +308,7 @@ export const Header = ({
                 showToast("Palette hue rotated smoothly!", "info");
               }}
               className="p-1.5 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
+              style={themeColors.grammar?.hex}
               title="Shift Colors Now"
             >
               <RefreshCw className="w-3.5 h-3.5" />
@@ -316,7 +318,7 @@ export const Header = ({
           {
             /* UI Language Switcher (Fixes untranslated bug by providing 100% dictionary coverage) */
           }
-          <div className="relative">
+          <div className="relative" style={themeColors.brand?.badgeStyle}>
             <button
               type="button"
               onClick={() => {
@@ -364,6 +366,7 @@ export const Header = ({
           <button
             onClick={() => setIsMiniAppMode(!isMiniAppMode)}
             className={`p-2 rounded-xl border transition-all text-xs font-semibold flex items-center gap-1.5 ${isMiniAppMode ? "bg-sky-600/20 text-sky-400 border-sky-500/40 shadow-sm" : "bg-slate-800/80 hover:bg-slate-800 text-slate-300 border-slate-700"}`}
+            style={themeColors.grammar?.style}
             title={isMiniAppMode ? t("webAppMode") : t("telegramMiniAppMode")}
           >
             {isMiniAppMode ? <>
@@ -389,6 +392,7 @@ export const Header = ({
             type="button"
             onClick={() => setActiveTab(tab.id)}
             className={`whitespace-nowrap px-4 py-2 rounded-xl text-xs sm:text-sm font-semibold transition-all flex items-center gap-2 ${isActive ? "bg-sky-600 text-white shadow-md shadow-sky-600/30" : "text-slate-400 hover:text-slate-100 hover:bg-slate-800/60"}`}
+            style={themeColors.grammar?.hex}
           >
             <span>{tab.icon}</span>
             <span>{tab.label}</span>
