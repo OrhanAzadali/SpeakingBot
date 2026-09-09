@@ -1,5 +1,5 @@
 // In both MemoryMatch.jsx AND server.js
-export const FALLBACK_WORDS = {
+export default FALLBACK_WORDS = {
     English: ["apple", "banana", "cherry", "date", "elder", "fig", "grape", "honey"],
     Spanish: ["manzana", "plátano", "cereza", "dátil", "saúco", "higo", "uva", "miel"],
     German: ["Apfel", "Banane", "Kirsche", "Dattel", "Holunder", "Feige", "Traube", "Honig"],
