@@ -98,11 +98,60 @@ function MainApp() {
       }
     };
   };
-  const [roadmaps, setRoadmaps] = useState(INITIAL_ROADMAPS);
-  const [grammarPdfs, setGrammarPdfs] = useState(INITIAL_GRAMMAR_PDFS);
+  const [roadmaps, setRoadmaps] = useState(() => {
+    try {
+      const cached = localStorage.getItem("speakbot_roadmaps");
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      }
+    } catch { }
+    return INITIAL_ROADMAPS;
+  });
+
+  const [grammarPdfs, setGrammarPdfs] = useState(() => {
+    try {
+      const cached = localStorage.getItem("speakbot_grammar_pdfs");
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      }
+    } catch { }
+    return INITIAL_GRAMMAR_PDFS;
+  });
+
   const [isAiModalOpen, setIsAiModalOpen] = useState(false);
   const [aiModalType, setAiModalType] = useState("roadmap");
   const [inspectedToken, setInspectedToken] = useState(null);
+
+  useEffect(() => {
+    const fetchPersistedGuidesAndRoadmaps = async () => {
+      try {
+        const [roadmapsRes, grammarRes] = await Promise.all([
+          fetch("/api/user/roadmaps").then((r) => (r.ok ? r.json() : null)).catch(() => null),
+          fetch("/api/user/grammar-pdfs").then((r) => (r.ok ? r.json() : null)).catch(() => null),
+        ]);
+
+        if (roadmapsRes?.success && Array.isArray(roadmapsRes.data) && roadmapsRes.data.length > 0) {
+          setRoadmaps(roadmapsRes.data);
+          try {
+            localStorage.setItem("speakbot_roadmaps", JSON.stringify(roadmapsRes.data));
+          } catch { }
+        }
+
+        if (grammarRes?.success && Array.isArray(grammarRes.data) && grammarRes.data.length > 0) {
+          setGrammarPdfs(grammarRes.data);
+          try {
+            localStorage.setItem("speakbot_grammar_pdfs", JSON.stringify(grammarRes.data));
+          } catch { }
+        }
+      } catch (err) {
+        console.warn("Could not sync persisted guides from server, using local cache:", err);
+      }
+    };
+
+    fetchPersistedGuidesAndRoadmaps();
+  }, []);
 
   const syncWithTelegramBot = async () => {
     setIsSyncing(true);
@@ -316,10 +365,35 @@ function MainApp() {
     setIsAiModalOpen(true);
   };
   const handleNewRoadmapGenerated = (newRoadmap) => {
-    setRoadmaps((prev) => [newRoadmap, ...prev]);
+    setRoadmaps((prev) => {
+      const updated = [newRoadmap, ...prev];
+      try {
+        localStorage.setItem("speakbot_roadmaps", JSON.stringify(updated));
+      } catch { }
+      return updated;
+    });
+
+    fetch("/api/user/roadmaps", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ userId: userProfile.userId, roadmap: newRoadmap })
+    }).catch((e) => console.warn("Could not persist roadmap to server:", e));
   };
+
   const handleNewGrammarGenerated = (newGuide) => {
-    setGrammarPdfs((prev) => [newGuide, ...prev]);
+    setGrammarPdfs((prev) => {
+      const updated = [newGuide, ...prev];
+      try {
+        localStorage.setItem("speakbot_grammar_pdfs", JSON.stringify(updated));
+      } catch { }
+      return updated;
+    });
+
+    fetch("/api/user/grammar-pdfs", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ userId: userProfile.userId, guide: newGuide })
+    }).catch((e) => console.warn("Could not persist grammar guide to server:", e));
   };
 
   const handleGainGameXp = async (gameType, xp, score) => {

@@ -285,6 +285,9 @@ export const FlashcardsGame = ({
               style={{
                 backfaceVisibility: 'hidden',
                 WebkitBackfaceVisibility: 'hidden',
+                transform: 'rotateY(0deg)',
+                WebkitTransform: 'rotateY(0deg)',
+                pointerEvents: isFlipped ? 'none' : 'auto',
                 ...(themeColors?.flashcards?.style || {}),
               }}
             >
@@ -363,6 +366,9 @@ export const FlashcardsGame = ({
               style={{
                 backfaceVisibility: 'hidden',
                 WebkitBackfaceVisibility: 'hidden',
+                transform: 'rotateY(180deg)',
+                WebkitTransform: 'rotateY(180deg)',
+                pointerEvents: isFlipped ? 'auto' : 'none',
                 ...(themeColors?.flashcards?.style || {}),
               }}
             >

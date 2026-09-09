@@ -132,7 +132,7 @@ function getGeminiClient() {
 async function callGeminiWithResilience(
   prompt,
   preferredModel = "gemini-3.6-flash",
-  fallbackModels = ["gemini-2.5-flash", "gemini-2.0-flash"],
+  fallbackModels = [],
   isJson = true
 ) {
   const apiKey = process.env.GEMINI_API_KEY;
@@ -146,25 +146,29 @@ async function callGeminiWithResilience(
   const candidateModels = [preferredModel, ...fallbackModels];
 
   for (const model of candidateModels) {
-    try {
-      console.log(`[AI Engine] Trying model: ${model}`);
-      const generatePromise = ai.models.generateContent({
-        model,
-        contents: prompt,
-        config: isJson ? { responseMimeType: "application/json" } : {}
-      });
-      const timeoutPromise = new Promise((_, reject) => {
-        setTimeout(() => reject(new Error("TIMEOUT_SPIKE")), 5000);
-      });
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        console.log(`[AI Engine] Trying model: ${model} (attempt ${attempt + 1})`);
+        const generatePromise = ai.models.generateContent({
+          model,
+          contents: prompt,
+          config: isJson ? { responseMimeType: "application/json" } : {}
+        });
+        const timeoutPromise = new Promise((_, reject) => {
+          setTimeout(() => reject(new Error("TIMEOUT_SPIKE")), 35000);
+        });
 
-      const response = await Promise.race([generatePromise, timeoutPromise]);
-      if (response && response.text) {
-        return response.text;
+        const response = await Promise.race([generatePromise, timeoutPromise]);
+        if (response && response.text) {
+          return response.text;
+        }
+      } catch (err) {
+        const msg = err?.message || String(err);
+        console.warn(`[AI Engine] Model ${model} attempt ${attempt + 1} failed (${msg.slice(0, 100)}).`);
+        if (attempt === 0) {
+          await new Promise((r) => setTimeout(r, 1200));
+        }
       }
-    } catch (err) {
-      const msg = err?.message || String(err);
-      console.warn(`[AI Engine] Model ${model} failed (${msg.slice(0, 80)}). Trying next...`);
-      continue;
     }
   }
 
@@ -283,6 +287,41 @@ function saveUsersToDisk() {
     fs.writeFileSync(USERS_FILE, JSON.stringify(syncedUsersDatabase, null, 2));
   } catch (e) {
     console.error("Save users failed:", e);
+  }
+}
+
+const ROADMAPS_FILE = path.join(process.cwd(), "data", "roadmaps.json");
+const GRAMMAR_GUIDES_FILE = path.join(process.cwd(), "data", "grammar_guides.json");
+
+function loadRoadmapsFromDisk() {
+  try {
+    return fs.existsSync(ROADMAPS_FILE) ? JSON.parse(fs.readFileSync(ROADMAPS_FILE, "utf-8")) : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveRoadmapsToDisk(roadmaps) {
+  try {
+    fs.writeFileSync(ROADMAPS_FILE, JSON.stringify(roadmaps, null, 2));
+  } catch (e) {
+    console.error("Save roadmaps failed:", e);
+  }
+}
+
+function loadGrammarGuidesFromDisk() {
+  try {
+    return fs.existsSync(GRAMMAR_GUIDES_FILE) ? JSON.parse(fs.readFileSync(GRAMMAR_GUIDES_FILE, "utf-8")) : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveGrammarGuidesToDisk(guides) {
+  try {
+    fs.writeFileSync(GRAMMAR_GUIDES_FILE, JSON.stringify(guides, null, 2));
+  } catch (e) {
+    console.error("Save grammar guides failed:", e);
   }
 }
 

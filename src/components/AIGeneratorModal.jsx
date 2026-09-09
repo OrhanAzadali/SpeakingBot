@@ -38,9 +38,11 @@ export const AIGeneratorModal = ({
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             topic,
+            title: topic,
             level,
+            category,
             targetLanguage,
-            mediatorLanguage,
+            mediatorLanguage: mediatorLanguage || "az",
             customGoal
           })
         });
@@ -72,10 +74,12 @@ export const AIGeneratorModal = ({
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             title: topic,
+            ruleTitle: topic,
+            topic,
             level,
             category,
             targetLanguage,
-            mediatorLanguage
+            mediatorLanguage: mediatorLanguage || "az"
           })
         });
         const json = await res.json();
