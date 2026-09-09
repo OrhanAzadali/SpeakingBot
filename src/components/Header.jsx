@@ -40,6 +40,11 @@ useEffect(() => {
   return () => clearInterval(interval);
 }, [autoCycle]);
 
+// Persist theme selection and sync with ruleset cache
+useEffect(() => {
+  persistThemeRuleset(themeId, rotationIndex, activeTheme);
+}, [themeId, rotationIndex, activeTheme]);
+
 const activeTheme = getSafeThemeRuleset(themeId, rotationIndex);
 const themeColors = activeTheme.colors;
 export const Header = ({
