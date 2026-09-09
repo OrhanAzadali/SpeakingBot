@@ -28,11 +28,6 @@ export const Header = ({
   isSyncing = false
 }) => {
 
-
-
-
-
-
   // Dynamic Color Harmonizer State
   const [themeId, setThemeId] = useState(() => {
     try {
@@ -60,16 +55,6 @@ export const Header = ({
   useEffect(() => {
     persistThemeRuleset(themeId, rotationIndex, activeTheme);
   }, [themeId, rotationIndex, activeTheme]);
-
-  // Navigation state: 'games' | 'grammar' | 'roadmap'
-  const [activeTab, setActiveTab] = useState("games");
-  // Active game mode: null (hub) | 'flashcards' | 'quiz' | 'listening' | 'match' | 'speaking' | 'summary' | 'cubeGame'
-  const [activeGame, setActiveGame] = useState(null);
-
-
-
-
-
 
   const {
     uiLanguage,
