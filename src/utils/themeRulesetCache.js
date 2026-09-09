@@ -1,9 +1,14 @@
 // themeRulesetCache.js — Infallible UI Styling Ruleset Storage & Fallback Engine
-import { PRESET_THEMES, getHarmonizedTheme } from './colorHarmonizer.js';
+// Permanently stores generated theme rulesets in localStorage and safe code memory.
+// Guarantees that if the AI API or procedural generator fails, CSS styling falls back
+// directly to the exact curated themes (Golden AI, Cosmic Cyberpunk, Emerald Aurora, Sunset, Oceanic).
+
+import { PRESET_THEMES, getHarmonizedTheme } from './colorHarmonizer';
 
 const STORAGE_KEY = 'linguo_theme_rulesets_vault';
 const ACTIVE_THEME_KEY = 'linguo_active_theme_config';
 
+// ── Master Code Fallback Vault (Zero-dependency, mathematically vetted) ────────
 export const HARDCODED_FALLBACK_RULESETS = {
   golden_ai: {
     themeMeta: PRESET_THEMES[0],
@@ -36,6 +41,7 @@ export const HARDCODED_FALLBACK_RULESETS = {
   },
 };
 
+// Ensure complete style objects exist for any color entry
 function hydrateElementStyles(colors) {
   const safeColors = {};
   const defaultKeys = ['brand', 'cubeCard', 'flashcards', 'quiz', 'listening', 'match', 'speaking', 'grammar'];
@@ -74,6 +80,9 @@ function hydrateElementStyles(colors) {
   return safeColors;
 }
 
+/**
+ * Retrieves a stored styling ruleset from localStorage cache.
+ */
 export function getPersistedThemeRulesets() {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
@@ -87,6 +96,9 @@ export function getPersistedThemeRulesets() {
   return {};
 }
 
+/**
+ * Persists a newly generated or selected theme ruleset both to localStorage and memory.
+ */
 export function persistThemeRuleset(themeId, rotationIndex, themeData) {
   try {
     const current = getPersistedThemeRulesets();
@@ -104,10 +116,46 @@ export function persistThemeRuleset(themeId, rotationIndex, themeData) {
   }
 }
 
+/**
+ * Saves current theme preferences.
+ */
+export function saveActiveThemePreference(themeId, rotationIndex = 0) {
+  try {
+    localStorage.setItem(ACTIVE_THEME_KEY, JSON.stringify({ themeId, rotationIndex }));
+  } catch (e) {
+    // Ignore storage issues in sandboxed frames
+  }
+}
+
+/**
+ * Retrieves the last active theme preferences.
+ */
+export function getActiveThemePreference() {
+  try {
+    const raw = localStorage.getItem(ACTIVE_THEME_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (parsed?.themeId) return parsed;
+    }
+  } catch (e) {
+    // Fallback to defaults
+  }
+  return { themeId: 'golden_ai', rotationIndex: 0 };
+}
+
+/**
+ * Guaranteed Safe Theme Resolver:
+ * 1. Checks memory & procedural generator (getHarmonizedTheme)
+ * 2. Checks persisted vault in localStorage
+ * 3. Falls back directly to hardcoded ruleset vault (HARDCODED_FALLBACK_RULESETS)
+ * NEVER returns undefined or null.
+ */
 export function getSafeThemeRuleset(themeId = 'golden_ai', rotationIndex = 0) {
   try {
+    // Primary: Try harmonic calculation
     const generated = getHarmonizedTheme(themeId, rotationIndex);
     if (generated && generated.colors && Object.keys(generated.colors).length >= 8) {
+      // Automatically cache successful generation
       persistThemeRuleset(themeId, rotationIndex, generated);
       return {
         themeMeta: generated.themeMeta,
@@ -115,9 +163,10 @@ export function getSafeThemeRuleset(themeId = 'golden_ai', rotationIndex = 0) {
       };
     }
   } catch (err) {
-    console.warn('Harmonic generator warning:', err.message);
+    console.warn('Harmonic generator warning, trying persisted vault:', err.message);
   }
 
+  // Secondary: Try local persisted storage
   try {
     const vault = getPersistedThemeRulesets();
     const cacheKey = `${themeId}_rot_${rotationIndex || 0}`;
@@ -127,8 +176,11 @@ export function getSafeThemeRuleset(themeId = 'golden_ai', rotationIndex = 0) {
         colors: hydrateElementStyles(vault[cacheKey].themeData.colors),
       };
     }
-  } catch (e) {}
+  } catch (e) {
+    // Continue to static fallback
+  }
 
+  // Tertiary: Immutable code fallback
   const hardcoded = HARDCODED_FALLBACK_RULESETS[themeId] || HARDCODED_FALLBACK_RULESETS.golden_ai;
   return {
     themeMeta: hardcoded.themeMeta,

@@ -154,18 +154,9 @@ function MainApp() {
       if (res.ok) {
         const json = await res.json();
         if (json.success) {
-          // Merge with existing state to avoid overwriting
-          setSavedVocabulary((prev) => {
-            // Get existing words for this language
-            const existingForLang = prev.filter(v => (v.targetLanguage || "English").toLowerCase() === targetL.toLowerCase());
-            // Remove duplicate of new word
-            const newWord = payload;
-            const withoutDup = existingForLang.filter(v => v.word.toLowerCase() !== newWord.word.toLowerCase());
-            // Combine all other language words + updated language list
-            const otherLangs = prev.filter(v => (v.targetLanguage || "English").toLowerCase() !== targetL.toLowerCase());
-            return [...otherLangs, ...withoutDup, newWord];
-          });
-          // Also update allVocabularies if needed
+          if (Array.isArray(json.data)) {
+            setSavedVocabulary(json.data);
+          }
           if (json.allVocabularies) {
             setAllVocabularies(json.allVocabularies);
           }
@@ -351,6 +342,19 @@ function MainApp() {
           /* Main Workspace Body */
         }
         <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 pt-6">
+          {activeTab === "games" && (
+            <GamesHub
+              initialActiveGame={activeGameId}
+              onCloseGame={handleCloseGame}
+              targetLanguage={userProfile.targetLanguage}
+              mediatorLanguage={userProfile.mediatorLanguage}
+              userLevel={userProfile.currentLevel}
+              onGainXp={handleGainGameXp}
+              onSaveToVocabulary={handleSaveToVocabulary}
+              onSelectToken={(token) => setInspectedToken(token)}
+              asSection={false}
+            />
+          )}
           {activeTab === "home" && (
             <HomePage
               userProfile={userProfile}
