@@ -398,8 +398,6 @@ function MainApp() {
         activeTheme={activeTheme}
         onOpenTestModal={() => setShowTestModal(true)}
         onOpenLanguageModal={() => setShowLangModal(true)}
-        onToggleMiniApp={() => setShowMiniApp(!showMiniApp)}
-        isMiniAppOpen={showMiniApp}
         uiLanguage={uiLanguage}
         onUiLanguageChange={setUiLanguage}
       />
