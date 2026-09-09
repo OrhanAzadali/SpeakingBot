@@ -17,7 +17,7 @@ import { PRESET_THEMES } from "../utils/colorHarmonizer.js";
 import { getSafeThemeRuleset, persistThemeRuleset } from "../utils/themeRulesetCache.js";
 
 
-const [rotationIndex, setRotationIndex] = useState(0);
+const [rotationIndex, setRotationIndex] = useState();
 const [autoCycle, setAutoCycle] = useState(true);
 // Dynamic Color Harmonizer State
 const [themeId, setThemeId] = useState(() => {
