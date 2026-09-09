@@ -604,7 +604,7 @@ export const WordQuest3DGame = ({
           onClick={handleCanvasClick}
           onMouseMove={handleMouseMove}
           className="cursor-crosshair w-full block"
-          style={{ height: '400px' }}
+          style={{ color: themeColors.cubeCard, height: '400px' }}
         />
 
         {/* Start / Game Over Overlay */}
@@ -651,7 +651,7 @@ export const WordQuest3DGame = ({
               }}
               className="p-3 bg-slate-900 border border-slate-700 hover:border-sky-400 text-white font-bold rounded-2xl text-xs sm:text-sm transition flex items-center justify-center gap-2 active:scale-95"
             >
-              <span className="w-2 h-2 rounded-full" style={{ backgroundColor: orb.color.base }} />
+              <span className="w-2 h-2 rounded-full" style={{ color: themeColors.cubeCard, backgroundColor: orb.color.base }} />
               <span>{orb.text}</span>
             </button>
           ))}

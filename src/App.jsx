@@ -364,7 +364,7 @@ function MainApp() {
       telegramUsername={userProfile.telegramUsername}
       onTriggerSync={syncWithTelegramBot}
     >
-      <div className="min-h-screen bg-slate-950 text-slate-100 selection:bg-sky-500 selection:text-white flex flex-col font-sans" style={themeColors.grammar?.hex}>
+      <div className="min-h-screen bg-slate-950 text-slate-100 selection:bg-sky-500 selection:text-white flex flex-col font-sans" style={{ color: themeColors.grammar.hex }}>
 
         {
           /* Header with full language toggling & Telegram Bot sync status */
@@ -387,7 +387,7 @@ function MainApp() {
         }
 
         <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 pt-6"
-          style={themeColors.grammar?.hex}
+          style={{ themeColors.grammar?.hex }}
         >
 
           {activeTab === "home" && (
