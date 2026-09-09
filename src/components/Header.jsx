@@ -16,10 +16,6 @@ import {
 import { PRESET_THEMES } from "../utils/colorHarmonizer.js";
 import { getSafeThemeRuleset, persistThemeRuleset } from "../utils/themeRulesetCache.js";
 
-const showToast = (message, type = "success") => {
-  setToast({ message, type });
-  setTimeout(() => setToast(null), 4000);
-};
 
 const [rotationIndex, setRotationIndex] = useState(0);
 const [autoCycle, setAutoCycle] = useState(true);
@@ -290,7 +286,6 @@ export const Header = ({
                 try {
                   localStorage.setItem("spk_theme_id", nextTheme.id);
                 } catch { }
-                showToast(`Theme: ${nextTheme.name}`, "info");
               }}
               style={themeColors.brand?.badgeStyle}
               className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-black transition-all hover:scale-105 shadow-sm cursor-pointer active:scale-95"
@@ -305,7 +300,6 @@ export const Header = ({
               id="shift-hue-rotation-btn"
               onClick={() => {
                 setRotationIndex((prev) => prev + 1);
-                showToast("Palette hue rotated smoothly!", "info");
               }}
               className="p-1.5 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
               style={themeColors.grammar?.hex}

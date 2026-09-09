@@ -45,6 +45,7 @@ function MainApp() {
   const [savedVocabulary, setSavedVocabulary] = useState([]);
   const [allVocabularies, setAllVocabularies] = useState({});
   const [countsByLanguage, setCountsByLanguage] = useState({});
+  const [activeGameId, setActiveGameId] = useState(null);
 
   const normalizeUserProfile = (data, prev) => {
     const rawAny = data;
@@ -313,7 +314,6 @@ function MainApp() {
     }
   };
 
-  const [activeGameId, setActiveGameId] = useState(null);
 
   const handleLaunchGame = (gameId) => {
     setActiveGameId(gameId);
