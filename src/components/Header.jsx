@@ -14,14 +14,13 @@ import {
 } from "lucide-react";
 
 import { getSafeThemeRuleset, persistThemeRuleset } from "./utils/themeRulesetCache.js";
-const activeTheme = getSafeThemeRuleset(themeId, rotationIndex);
-const themeColors = activeTheme.colors;
 
 const showToast = (message, type = "success") => {
   setToast({ message, type });
   setTimeout(() => setToast(null), 4000);
 };
 
+const [rotationIndex, setRotationIndex] = useState(0);
 // Dynamic Color Harmonizer State
 const [themeId, setThemeId] = useState(() => {
   try {
@@ -30,6 +29,8 @@ const [themeId, setThemeId] = useState(() => {
     return "golden_ai";
   }
 });
+const activeTheme = getSafeThemeRuleset(themeId, rotationIndex);
+const themeColors = activeTheme.colors;
 export const Header = ({
   userProfile,
   onUpdateMediatorLanguage,
