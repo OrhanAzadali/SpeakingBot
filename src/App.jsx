@@ -398,7 +398,6 @@ function MainApp() {
         activeTheme={activeTheme}
         onOpenTestModal={() => setShowTestModal(true)}
         onOpenLanguageModal={() => setShowLangModal(true)}
-        onUiLanguageChange={setUiLanguage}
       />
       {
         /* Main Workspace Body */
