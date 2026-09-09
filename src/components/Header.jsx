@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useTranslation } from "../i18n/useTranslation";
 import { TARGET_LANGUAGES, getTargetLanguageOption } from "../utils/targetLanguages";
 import {
