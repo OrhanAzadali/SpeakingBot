@@ -113,7 +113,7 @@ export const FlashcardsGame = ({
   useEffect(() => {
     fetchDeck();
   }, [targetLanguage, selectedLevel, userLevel]);
-  
+
   const currentCard = deck[currentIndex] || null;
 
   const handleFlip = () => setIsFlipped((prev) => !prev);

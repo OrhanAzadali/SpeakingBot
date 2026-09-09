@@ -351,19 +351,6 @@ function MainApp() {
           /* Main Workspace Body */
         }
         <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 pt-6">
-          {activeTab === "games" && (
-            <GamesHub
-              initialActiveGame={activeGameId}
-              onCloseGame={handleCloseGame}
-              targetLanguage={userProfile.targetLanguage}
-              mediatorLanguage={userProfile.mediatorLanguage}
-              userLevel={userProfile.currentLevel}
-              onGainXp={handleGainGameXp}
-              onSaveToVocabulary={handleSaveToVocabulary}
-              onSelectToken={(token) => setInspectedToken(token)}
-              asSection={false}
-            />
-          )}
           {activeTab === "home" && (
             <HomePage
               userProfile={userProfile}
