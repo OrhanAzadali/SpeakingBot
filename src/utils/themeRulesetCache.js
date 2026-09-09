@@ -8,6 +8,19 @@ import { PRESET_THEMES, getHarmonizedTheme } from './colorHarmonizer';
 const STORAGE_KEY = 'linguo_theme_rulesets_vault';
 const ACTIVE_THEME_KEY = 'linguo_active_theme_config';
 
+const DEFAULT_BRAND_STYLE = {
+  hex: '#6366f1',
+  glow: 'rgba(99, 102, 241, 0.4)',
+  text: 'text-indigo-300',
+  bg: 'bg-indigo-500/15',
+  border: 'border-indigo-500/40',
+  style: { borderColor: 'rgba(99, 102, 241, 0.4)', boxShadow: '0 0 20px rgba(99, 102, 241, 0.4)' },
+  iconStyle: { color: '#6366f1', backgroundColor: '#6366f118', borderColor: '#6366f140' },
+  badgeStyle: { backgroundColor: '#6366f122', color: '#6366f1', borderColor: '#6366f150' },
+  brandStyle: { backgroundColor: '#6366f122', color: '#6366f1', borderColor: '#6366f150' },
+  buttonStyle: { background: 'linear-gradient(135deg, #6366f1, #6366f1cc)', color: '#ffffff', boxShadow: '0 4px 18px rgba(99, 102, 241, 0.4)' },
+};
+
 // ── Master Code Fallback Vault (Zero-dependency, mathematically vetted) ────────
 export const HARDCODED_FALLBACK_RULESETS = {
   golden_ai: {
@@ -25,19 +38,19 @@ export const HARDCODED_FALLBACK_RULESETS = {
   },
   cyberpunk: {
     themeMeta: PRESET_THEMES[1],
-    colors: PRESET_THEMES[1].colors,
+    colors: PRESET_THEMES[1]?.colors || {},
   },
   aurora: {
     themeMeta: PRESET_THEMES[2],
-    colors: PRESET_THEMES[2].colors,
+    colors: PRESET_THEMES[2]?.colors || {},
   },
   sunset: {
     themeMeta: PRESET_THEMES[3],
-    colors: PRESET_THEMES[3].colors,
+    colors: PRESET_THEMES[3]?.colors || {},
   },
   ocean: {
     themeMeta: PRESET_THEMES[4],
-    colors: PRESET_THEMES[4].colors,
+    colors: PRESET_THEMES[4]?.colors || {},
   },
 };
 
@@ -47,37 +60,64 @@ function hydrateElementStyles(colors) {
   const defaultKeys = ['brand', 'cubeCard', 'flashcards', 'quiz', 'listening', 'match', 'speaking', 'grammar'];
 
   defaultKeys.forEach((key) => {
-    const c = (colors && colors[key]) || HARDCODED_FALLBACK_RULESETS.golden_ai.colors[key];
+    const c = (colors && colors[key]) || HARDCODED_FALLBACK_RULESETS.golden_ai.colors[key] || {};
     const hex = c.hex || '#6366f1';
-    const glow = c.glow || `rgba(99, 102, 241, 0.4)`;
+    const glow = c.glow || 'rgba(99, 102, 241, 0.4)';
+    const text = c.text || 'text-indigo-300';
+    const bg = c.bg || 'bg-indigo-500/15';
+    const border = c.border || 'border-indigo-500/40';
+    const style = (c.style && typeof c.style === 'object') ? c.style : {
+      borderColor: glow,
+      boxShadow: `0 0 20px ${glow}`,
+    };
+    const iconStyle = (c.iconStyle && typeof c.iconStyle === 'object') ? c.iconStyle : {
+      color: hex,
+      backgroundColor: `${hex}18`,
+      borderColor: `${hex}40`,
+    };
+    const badgeStyle = (c.badgeStyle && typeof c.badgeStyle === 'object') ? c.badgeStyle : {
+      backgroundColor: `${hex}22`,
+      color: hex,
+      borderColor: `${hex}50`,
+    };
+    const brandStyle = (c.brandStyle && typeof c.brandStyle === 'object') ? c.brandStyle : badgeStyle;
+    const buttonStyle = (c.buttonStyle && typeof c.buttonStyle === 'object') ? c.buttonStyle : {
+      background: `linear-gradient(135deg, ${hex}, ${hex}cc)`,
+      color: '#ffffff',
+      boxShadow: `0 4px 18px ${glow}`,
+    };
 
     safeColors[key] = {
       ...c,
       hex,
       glow,
-      style: c.style || {
-        borderColor: glow,
-        boxShadow: `0 0 20px ${glow}`,
-      },
-      iconStyle: c.iconStyle || {
-        color: hex,
-        backgroundColor: `${hex}18`,
-        borderColor: `${hex}40`,
-      },
-      badgeStyle: c.badgeStyle || {
-        backgroundColor: `${hex}22`,
-        color: hex,
-        borderColor: `${hex}50`,
-      },
-      buttonStyle: c.buttonStyle || {
-        background: `linear-gradient(135deg, ${hex}, ${hex}cc)`,
-        color: '#ffffff',
-        boxShadow: `0 4px 18px ${glow}`,
-      },
+      text,
+      bg,
+      border,
+      style,
+      iconStyle,
+      badgeStyle,
+      brandStyle,
+      buttonStyle,
     };
   });
 
-  return safeColors;
+  // Explicit backward compatibility aliases
+  safeColors.badge = safeColors.brand;
+  safeColors.flashCards = safeColors.flashcards;
+
+  // Wrap in a Proxy to ensure safe fallback for any property access
+  return new Proxy(safeColors, {
+    get(target, prop) {
+      if (prop in target) return target[prop];
+      if (typeof prop === 'string') {
+        if (prop === 'badge') return target.brand;
+        if (prop === 'flashCards') return target.flashcards;
+        return target.brand || DEFAULT_BRAND_STYLE;
+      }
+      return undefined;
+    }
+  });
 }
 
 /**
@@ -155,10 +195,9 @@ export function getSafeThemeRuleset(themeId = 'golden_ai', rotationIndex = 0) {
     // Primary: Try harmonic calculation
     const generated = getHarmonizedTheme(themeId, rotationIndex);
     if (generated && generated.colors && Object.keys(generated.colors).length >= 8) {
-      // Automatically cache successful generation
       persistThemeRuleset(themeId, rotationIndex, generated);
       return {
-        themeMeta: generated.themeMeta,
+        themeMeta: generated.themeMeta || PRESET_THEMES[0],
         colors: hydrateElementStyles(generated.colors),
       };
     }
@@ -183,7 +222,7 @@ export function getSafeThemeRuleset(themeId = 'golden_ai', rotationIndex = 0) {
   // Tertiary: Immutable code fallback
   const hardcoded = HARDCODED_FALLBACK_RULESETS[themeId] || HARDCODED_FALLBACK_RULESETS.golden_ai;
   return {
-    themeMeta: hardcoded.themeMeta,
-    colors: hydrateElementStyles(hardcoded.colors),
+    themeMeta: hardcoded?.themeMeta || PRESET_THEMES[0],
+    colors: hydrateElementStyles(hardcoded?.colors),
   };
 }

@@ -46,7 +46,7 @@ function MainApp() {
   }, [autoCycle]);
 
   const activeTheme = getSafeThemeRuleset(themeId, rotationIndex);
-  const themeColors = activeTheme.colors;
+  const themeColors = activeTheme?.colors || {};
 
   // Persist theme selection and sync with ruleset cache
   useEffect(() => {
@@ -363,33 +363,30 @@ function MainApp() {
       telegramUsername={userProfile.telegramUsername}
       onTriggerSync={syncWithTelegramBot}
     >
-      <div className="min-h-screen bg-slate-950 text-slate-100 selection:bg-sky-500 selection:text-white flex flex-col font-sans" style={{ color: themeColors.grammar.hex }}>
+      <div className="min-h-screen bg-slate-950 text-slate-100 selection:bg-sky-500 selection:text-white flex flex-col font-sans">
 
         {
           /* Header with full language toggling & Telegram Bot sync status */
         }
         <Header
-          userProfile={userProfile}
-          onUpdateMediatorLanguage={handleUpdateMediatorLanguage}
-          onUpdateTargetLanguage={handleUpdateTargetLanguage}
-          onOpenPlacementTest={() => setActiveTab("placement-test")}
           activeTab={activeTab}
           setActiveTab={setActiveTab}
-          isMiniAppMode={isMiniAppMode}
-          setIsMiniAppMode={setIsMiniAppMode}
-          isSyncing={isSyncing}
-          setId={setThemeId}
+          userProfile={userProfile}
           themeColors={themeColors}
           activeTheme={activeTheme}
+          onCycleTheme={handleCycleTheme}
+          onOpenTestModal={() => setShowTestModal(true)}
+          onOpenLanguageModal={() => setShowLangModal(true)}
+          onToggleMiniApp={() => setShowMiniApp(!showMiniApp)}
+          isMiniAppOpen={showMiniApp}
+          uiLanguage={uiLanguage}
+          onUiLanguageChange={setUiLanguage}
         />
-
         {
           /* Main Workspace Body */
         }
 
-        <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 pt-6"
-          style={{ color: themeColors.grammar?.hex }}
-        >
+        <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 pt-6">
 
           {activeTab === "home" && (
             <HomePage

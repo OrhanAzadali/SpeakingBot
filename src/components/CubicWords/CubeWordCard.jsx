@@ -3,53 +3,64 @@ import { Play, Sparkles, Trophy, RotateCw, Volume2, ShieldCheck, Flame, Compass 
 
 export const CubeWordCard = ({
   onLaunchGame,
+  onStart,
+  onOpenVocabulary,
+  onSaveToVocabulary,
   highScore = 0,
   currentLanguage = 'english',
+  selectedLanguage: propSelectedLanguage,
   palette = null,
-  themeColors
+  themeColors = {},
 }) => {
-  const [selectedLanguage, setSelectedLanguage] = useState(currentLanguage);
+  const initialLanguage = propSelectedLanguage || currentLanguage || 'english';
+  const [selectedLanguage, setSelectedLanguage] = useState(initialLanguage);
 
   useEffect(() => {
-    if (currentLanguage) {
-      setSelectedLanguage(currentLanguage);
+    if (propSelectedLanguage || currentLanguage) {
+      setSelectedLanguage(propSelectedLanguage || currentLanguage);
     }
-  }, [currentLanguage]);
+  }, [propSelectedLanguage, currentLanguage]);
 
-  const cardBorder = palette?.style?.borderColor || 'rgba(99, 102, 241, 0.4)';
-  const cardShadow = palette?.style?.boxShadow || '0 0 25px rgba(99, 102, 241, 0.2)';
-  const badgeStyle = palette?.badgeStyle || {
+  const safeThemeColors = themeColors || {};
+  const safePalette = palette || safeThemeColors.cubeCard || {};
+
+  const cardBorder = safePalette?.style?.borderColor || safePalette?.glow || 'rgba(99, 102, 241, 0.4)';
+  const cardShadow = safePalette?.style?.boxShadow || (safePalette?.glow ? `0 0 25px ${safePalette.glow}` : '0 0 25px rgba(99, 102, 241, 0.2)');
+  const badgeStyle = safePalette?.badgeStyle || safeThemeColors.badge?.badgeStyle || safeThemeColors.brand?.badgeStyle || {
     backgroundColor: 'rgba(6, 182, 212, 0.18)',
     color: '#67e8f9',
     borderColor: 'rgba(6, 182, 212, 0.4)',
   };
-  const launchButtonStyle = palette?.buttonStyle || {
+  const launchButtonStyle = safePalette?.buttonStyle || safeThemeColors.cubeCard?.buttonStyle || {
     background: 'linear-gradient(135deg, #06b6d4, #4f46e5)',
     boxShadow: '0 4px 20px rgba(6, 182, 212, 0.45)',
+  };
+
+  const handleLaunch = () => {
+    if (typeof onLaunchGame === 'function') {
+      onLaunchGame(selectedLanguage);
+    } else if (typeof onStart === 'function') {
+      onStart(selectedLanguage);
+    }
   };
 
   return (
     <div
       id="cubeword-tetris-game-card"
-
       style={{
         borderColor: cardBorder,
         boxShadow: cardShadow,
-        color: themeColors.cubeCard?.hex
       }}
       className="relative rounded-3xl bg-gradient-to-br from-slate-900 via-slate-900/95 to-slate-950 border-2 p-6 sm:p-7 md:p-8 shadow-2xl overflow-hidden transition-all duration-500 group animate-glow-pulse w-full"
     >
-      <div
-        className="absolute -top-20 -right-20 w-64 h-64 bg-cyan-500/15 rounded-full blur-3xl pointer-events-none group-hover:bg-cyan-500/25 transition-all duration-700 animate-chromatic-aura"
-        style={themeColors.cubeCard?.style}
-      />
+      <div className="absolute -top-20 -right-20 w-64 h-64 bg-cyan-500/15 rounded-full blur-3xl pointer-events-none group-hover:bg-cyan-500/25 transition-all duration-700 animate-chromatic-aura" />
       <div className="absolute -bottom-20 -left-20 w-64 h-64 bg-purple-500/15 rounded-full blur-3xl pointer-events-none group-hover:bg-purple-500/25 transition-all duration-700" />
 
       <div className="relative z-10 flex flex-col xl:flex-row items-stretch xl:items-center justify-between gap-6 lg:gap-8">
-        <div className="space-y-4 flex-1 min-w-0" style={themeColors.brand?.iconStyle}>
-          <div className="flex flex-wrap items-center gap-2 sm:gap-2.5" style={themeColors.grammar?.badgeStyle}>
+        <div className="space-y-4 flex-1 min-w-0">
+          <div className="flex flex-wrap items-center gap-2 sm:gap-2.5">
             <span
-              style={themeColors.brand?.badgeStyle}
+              style={badgeStyle}
               className="px-3 py-1 rounded-full text-xs font-black uppercase tracking-wider flex items-center gap-1.5 border shadow-sm transition-all"
             >
               <Sparkles className="w-3.5 h-3.5 animate-spin" style={{ animationDuration: '8s' }} />
@@ -139,7 +150,7 @@ export const CubeWordCard = ({
             <button
               type="button"
               id="launch-cubeword-btn"
-              onClick={() => onLaunchGame(selectedLanguage)}
+              onClick={handleLaunch}
               style={launchButtonStyle}
               className="w-full sm:w-auto px-6 py-3 rounded-2xl text-white font-black text-sm sm:text-base flex items-center justify-center gap-2.5 transition-all duration-300 active:scale-95 hover:scale-105 shrink-0 shadow-xl cursor-pointer"
             >
