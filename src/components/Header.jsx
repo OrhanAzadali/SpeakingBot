@@ -44,6 +44,7 @@ useEffect(() => {
 
 const activeTheme = getSafeThemeRuleset(themeId, rotationIndex);
 const themeColors = activeTheme.colors;
+
 export const Header = ({
   userProfile,
   onUpdateMediatorLanguage,
