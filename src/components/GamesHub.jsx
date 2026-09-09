@@ -147,6 +147,8 @@ export const GamesHub = ({
               if (onGainXp) onGainXp('cubeword', pts, 25);
             }}
             apiBase=""
+
+            themeColors={themeColors}
           />
         </div>
       </div>
@@ -368,6 +370,7 @@ export const GamesHub = ({
         currentLanguage={targetLanguage.toLowerCase()}
         highScore={cubeHighScore}
         onLaunchGame={(lang) => handleLaunchGame('cubeword', lang)}
+        themeColors={themeColors}
       />
 
       {/* Grid of the other 3 Games: Flashcards, Word Pairs, Word Quest 3D */}
