@@ -21,6 +21,7 @@ const showToast = (message, type = "success") => {
 };
 
 const [rotationIndex, setRotationIndex] = useState(0);
+const [autoCycle, setAutoCycle] = useState(true);
 // Dynamic Color Harmonizer State
 const [themeId, setThemeId] = useState(() => {
   try {
@@ -29,6 +30,16 @@ const [themeId, setThemeId] = useState(() => {
     return "golden_ai";
   }
 });
+
+// Auto-cycle theme colors smoothly from time to time (every 28 seconds)
+useEffect(() => {
+  if (!autoCycle) return;
+  const interval = setInterval(() => {
+    setRotationIndex((prev) => (prev + 1) % 8);
+  }, 28000);
+  return () => clearInterval(interval);
+}, [autoCycle]);
+
 const activeTheme = getSafeThemeRuleset(themeId, rotationIndex);
 const themeColors = activeTheme.colors;
 export const Header = ({
