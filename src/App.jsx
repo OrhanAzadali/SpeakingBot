@@ -356,201 +356,222 @@ function MainApp() {
     setActiveGameId(null);
   };
 
-  return (
-    <TelegramMiniAppFrame
-      isMiniAppMode={isMiniAppMode}
-      onExitMiniApp={() => setIsMiniAppMode(false)}
-      telegramUsername={userProfile.telegramUsername}
-      onTriggerSync={syncWithTelegramBot}
-    >
-      <div className="min-h-screen bg-slate-950 text-slate-100 selection:bg-sky-500 selection:text-white flex flex-col font-sans">
+  const handleCycleTheme = () => {
+    const currentIndex = PRESET_THEMES.findIndex((t) => t.id === themeId);
+    const nextTheme = PRESET_THEMES[(currentIndex + 1) % PRESET_THEMES.length];
+    setThemeId(nextTheme.id);
+    try {
+      localStorage.setItem("spk_theme_id", nextTheme.id);
+    } catch { }
+  };
 
-        {
-          /* Header with full language toggling & Telegram Bot sync status */
-        }
-        <Header
-          activeTab={activeTab}
-          setActiveTab={setActiveTab}
-          userProfile={userProfile}
-          themeColors={themeColors}
-          activeTheme={activeTheme}
-          onCycleTheme={handleCycleTheme}
-          onOpenTestModal={() => setShowTestModal(true)}
-          onOpenLanguageModal={() => setShowLangModal(true)}
-          onToggleMiniApp={() => setShowMiniApp(!showMiniApp)}
-          isMiniAppOpen={showMiniApp}
-          uiLanguage={uiLanguage}
-          onUiLanguageChange={setUiLanguage}
-        />
-        {
-          /* Main Workspace Body */
-        }
 
-        <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 pt-6">
+  return (<TelegramMiniAppFrame
+    isMiniAppMode={isMiniAppMode}
+    onExitMiniApp={() => setIsMiniAppMode(false)}
+    telegramUsername={userProfile.telegramUsername}
+    onTriggerSync={syncWithTelegramBot}
+  >
 
-          {activeTab === "home" && (
-            <HomePage
-              userProfile={userProfile}
-              roadmaps={roadmaps}
-              grammarPdfs={grammarPdfs}
-              savedVocabulary={savedVocabulary}
-              allVocabularies={allVocabularies}
-              countsByLanguage={countsByLanguage}
-              onNavigateTab={setActiveTab}
-              onLaunchGame={handleLaunchGame}
-              onStartPlacementTest={() => setActiveTab("placement-test")}
-              onLaunchStory={(mode, storyId) => {
-                setStoryLaunchConfig({ mode, storyId });
-                setActiveTab("stories");
-              }}
-              onSaveToVocabulary={handleSaveToVocabulary}
-              onDeleteFromVocabulary={handleDeleteFromVocabulary}
-              onUpdateTargetLanguage={handleUpdateTargetLanguage}
-              onSelectToken={(token) => setInspectedToken(token)}
-              themeColors={themeColors}
-            />
-          )}
 
-          {activeTab === "roadmaps" && (
-            <RoadmapsPage
-              roadmaps={roadmaps}
-              onOpenAiGenerator={() => handleOpenAiGenerator("roadmap")}
-              onSelectToken={(token) => setInspectedToken(token)}
-            />
-          )}
+    <div className="min-h-screen bg-slate-950 text-slate-100 selection:bg-sky-500 selection:text-white flex flex-col font-sans">
 
-          {activeTab === "games" && (
-            <GamesHub
-              targetLanguage={userProfile.targetLanguage}
-              mediatorLanguage={userProfile.mediatorLanguage}
-              onGainXp={handleGainGameXp}
-              onSaveToVocabulary={handleSaveToVocabulary}
-              onSelectToken={(token) => setInspectedToken(token)}
-              asSection={false}
-              themeColors={themeColors}
-            />
-          )}
+      {
+        /* Header with full language toggling & Telegram Bot sync status */
+      }
+      <Header
+        userProfile={userProfile}
+        onCycleTheme={handleCycleTheme}
+        onUpdateMediatorLanguage={handleUpdateMediatorLanguage}
+        onUpdateTargetLanguage={handleUpdateTargetLanguage}
+        onOpenPlacementTest={() => setShowTestModal(true)}
+        activeTab={activeTab}
+        setActiveTab={setActiveTab}
+        isMiniAppMode={isMiniAppMode}
+        setIsMiniAppMode={setIsMiniAppMode}
+        isSyncing={isSyncing}
+        setId={setThemeId}
+        themeId={themeId}
+        rotationIndex={rotationIndex}
+        setRotationIndex={setRotationIndex}
+        themeColors={themeColors}
+        activeTheme={activeTheme}
+        onOpenTestModal={() => setShowTestModal(true)}
+        onOpenLanguageModal={() => setShowLangModal(true)}
+        onToggleMiniApp={() => setShowMiniApp(!showMiniApp)}
+        isMiniAppOpen={showMiniApp}
+        uiLanguage={uiLanguage}
+        onUiLanguageChange={setUiLanguage}
+      />
+      {
+        /* Main Workspace Body */
+      }
 
-          {activeTab === "grammar-pdfs" && (
-            <GrammarPDFPage
-              grammarPdfs={grammarPdfs}
-              onOpenAiGenerator={() => handleOpenAiGenerator("grammar")}
-              onSelectToken={(token) => setInspectedToken(token)}
-              onSaveToVocabulary={handleSaveToVocabulary}
-              savedVocabulary={savedVocabulary}
-            />
-          )}
+      <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 pt-6">
 
-          {activeTab === "saved-vocabulary" && (
-            <SavedVocabularyPage
-              userProfile={userProfile}
-              savedVocabulary={savedVocabulary}
-              allVocabularies={allVocabularies}
-              countsByLanguage={countsByLanguage}
-              onSaveToVocabulary={handleSaveToVocabulary}
-              onDeleteFromVocabulary={handleDeleteFromVocabulary}
-              onUpdateTargetLanguage={handleUpdateTargetLanguage}
-              onSelectToken={(token) => setInspectedToken(token)}
-              onTriggerSync={syncWithTelegramBot}
-              isSyncing={isSyncing}
-            />
-          )}
+        {activeTab === "home" && (
+          <HomePage
+            userProfile={userProfile}
+            roadmaps={roadmaps}
+            grammarPdfs={grammarPdfs}
+            savedVocabulary={savedVocabulary}
+            allVocabularies={allVocabularies}
+            countsByLanguage={countsByLanguage}
+            onNavigateTab={setActiveTab}
+            onLaunchGame={handleLaunchGame}
+            onStartPlacementTest={() => setActiveTab("placement-test")}
+            onLaunchStory={(mode, storyId) => {
+              setStoryLaunchConfig({ mode, storyId });
+              setActiveTab("stories");
+            }}
+            onSaveToVocabulary={handleSaveToVocabulary}
+            onDeleteFromVocabulary={handleDeleteFromVocabulary}
+            onUpdateTargetLanguage={handleUpdateTargetLanguage}
+            onSelectToken={(token) => setInspectedToken(token)}
+            themeColors={themeColors}
+          />
+        )}
 
-          {activeTab === "stories" && (
-            <ClassicStoriesView
-              userLevel={userProfile.currentLevel}
-              targetLanguage={userProfile.targetLanguage}
-              savedVocabulary={savedVocabulary}
-              allVocabularies={allVocabularies}
-              onSelectToken={(token) => setInspectedToken(token)}
-              onSaveToVocabulary={handleSaveToVocabulary}
-              initialMode={storyLaunchConfig.mode}
-              initialSelectedStoryId={storyLaunchConfig.storyId}
-              onStoryCompleted={async (result) => {
-                const currentScore = userProfile.skillScores?.[result.skill] ?? 70;
-                const newScore = Math.min(100, Math.max(20, currentScore + result.scoreDelta));
-                const updatedSkillScores = {
-                  ...userProfile.skillScores,
-                  [result.skill]: newScore
-                };
-                setUserProfile((prev) => ({
-                  ...prev,
-                  skillScores: updatedSkillScores
-                }));
-                try {
-                  await fetch("/api/stories/progress", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({
-                      storyId: result.storyId,
-                      mode: result.mode,
-                      score: result.score,
-                      completedSentencesCount: 6,
-                      answersCount: 3
-                    })
-                  });
-                } catch (err) {
-                  console.error("Failed to sync story progress:", err);
-                }
-              }}
-            />
-          )}
+        {activeTab === "roadmaps" && (
+          <RoadmapsPage
+            roadmaps={roadmaps}
+            onOpenAiGenerator={() => handleOpenAiGenerator("roadmap")}
+            onSelectToken={(token) => setInspectedToken(token)}
+          />
+        )}
 
-          {activeTab === "placement-test" && (
-            <PlacementTestView
-              questions={getDiagnosticQuestionsByLanguage(userProfile.targetLanguage)}
-              userProfile={userProfile}
-              onTestCompleted={handlePlacementTestCompleted}
-              onGoToRoadmaps={() => setActiveTab("roadmaps")}
-              onExitTest={() => setActiveTab("home")}
-            />
-          )}
+        {activeTab === "games" && (
+          <GamesHub
+            targetLanguage={userProfile.targetLanguage}
+            mediatorLanguage={userProfile.mediatorLanguage}
+            onGainXp={handleGainGameXp}
+            onSaveToVocabulary={handleSaveToVocabulary}
+            onSelectToken={(token) => setInspectedToken(token)}
+            asSection={false}
+            themeColors={themeColors}
+          />
+        )}
 
-          {activeTab === "skill-tests" && (
-            <SkillTestsView
-              userProfile={userProfile}
-              onSkillUpdated={handleSkillUpdated}
-              onPersonalizedRoadmapGenerated={handleNewRoadmapGenerated}
-              onOpenStories={(mode, storyId) => {
-                setStoryLaunchConfig({ mode, storyId });
-                setActiveTab("stories");
-              }}
-              onNavigateToRoadmaps={() => setActiveTab("roadmaps")}
-            />
-          )}
+        {activeTab === "grammar-pdfs" && (
+          <GrammarPDFPage
+            grammarPdfs={grammarPdfs}
+            onOpenAiGenerator={() => handleOpenAiGenerator("grammar")}
+            onSelectToken={(token) => setInspectedToken(token)}
+            onSaveToVocabulary={handleSaveToVocabulary}
+            savedVocabulary={savedVocabulary}
+          />
+        )}
 
-          {activeTab === "nlp-analyzer" && (
-            <NLPAnalyzerTab
-              targetLanguage={userProfile.targetLanguage}
-              mediatorLanguage={userProfile.mediatorLanguage}
-              onSelectToken={(token) => setInspectedToken(token)}
-            />
-          )}
+        {activeTab === "saved-vocabulary" && (
+          <SavedVocabularyPage
+            userProfile={userProfile}
+            savedVocabulary={savedVocabulary}
+            allVocabularies={allVocabularies}
+            countsByLanguage={countsByLanguage}
+            onSaveToVocabulary={handleSaveToVocabulary}
+            onDeleteFromVocabulary={handleDeleteFromVocabulary}
+            onUpdateTargetLanguage={handleUpdateTargetLanguage}
+            onSelectToken={(token) => setInspectedToken(token)}
+            onTriggerSync={syncWithTelegramBot}
+            isSyncing={isSyncing}
+          />
+        )}
 
-        </main>
+        {activeTab === "stories" && (
+          <ClassicStoriesView
+            userLevel={userProfile.currentLevel}
+            targetLanguage={userProfile.targetLanguage}
+            savedVocabulary={savedVocabulary}
+            allVocabularies={allVocabularies}
+            onSelectToken={(token) => setInspectedToken(token)}
+            onSaveToVocabulary={handleSaveToVocabulary}
+            initialMode={storyLaunchConfig.mode}
+            initialSelectedStoryId={storyLaunchConfig.storyId}
+            onStoryCompleted={async (result) => {
+              const currentScore = userProfile.skillScores?.[result.skill] ?? 70;
+              const newScore = Math.min(100, Math.max(20, currentScore + result.scoreDelta));
+              const updatedSkillScores = {
+                ...userProfile.skillScores,
+                [result.skill]: newScore
+              };
+              setUserProfile((prev) => ({
+                ...prev,
+                skillScores: updatedSkillScores
+              }));
+              try {
+                await fetch("/api/stories/progress", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({
+                    storyId: result.storyId,
+                    mode: result.mode,
+                    score: result.score,
+                    completedSentencesCount: 6,
+                    answersCount: 3
+                  })
+                });
+              } catch (err) {
+                console.error("Failed to sync story progress:", err);
+              }
+            }}
+          />
+        )}
 
-        {/* AI Generation Modal */}
-        <AIGeneratorModal
-          isOpen={isAiModalOpen}
-          onClose={() => setIsAiModalOpen(false)}
-          type={aiModalType}
-          userLevel={userProfile.currentLevel}
-          targetLanguage={userProfile.targetLanguage}
-          mediatorLanguage={userProfile.mediatorLanguage}
-          onGeneratedRoadmap={handleNewRoadmapGenerated}
-          onGeneratedGrammar={handleNewGrammarGenerated}
-        />
+        {activeTab === "placement-test" && (
+          <PlacementTestView
+            questions={getDiagnosticQuestionsByLanguage(userProfile.targetLanguage)}
+            userProfile={userProfile}
+            onTestCompleted={handlePlacementTestCompleted}
+            onGoToRoadmaps={() => setActiveTab("roadmaps")}
+            onExitTest={() => setActiveTab("home")}
+          />
+        )}
 
-        {/* NLP Token Linguistic Inspector */}
-        <NLPInspectorModal
-          token={inspectedToken}
-          onClose={() => setInspectedToken(null)}
-          targetLanguage={userProfile.targetLanguage}
-          onSaveToVocabulary={handleSaveToVocabulary}
-        />
+        {activeTab === "skill-tests" && (
+          <SkillTestsView
+            userProfile={userProfile}
+            onSkillUpdated={handleSkillUpdated}
+            onPersonalizedRoadmapGenerated={handleNewRoadmapGenerated}
+            onOpenStories={(mode, storyId) => {
+              setStoryLaunchConfig({ mode, storyId });
+              setActiveTab("stories");
+            }}
+            onNavigateToRoadmaps={() => setActiveTab("roadmaps")}
+          />
+        )}
 
-      </div>
-    </TelegramMiniAppFrame>
+        {activeTab === "nlp-analyzer" && (
+          <NLPAnalyzerTab
+            targetLanguage={userProfile.targetLanguage}
+            mediatorLanguage={userProfile.mediatorLanguage}
+            onSelectToken={(token) => setInspectedToken(token)}
+          />
+        )}
+
+      </main>
+
+      {/* AI Generation Modal */}
+      <AIGeneratorModal
+        isOpen={isAiModalOpen}
+        onClose={() => setIsAiModalOpen(false)}
+        type={aiModalType}
+        userLevel={userProfile.currentLevel}
+        targetLanguage={userProfile.targetLanguage}
+        mediatorLanguage={userProfile.mediatorLanguage}
+        onGeneratedRoadmap={handleNewRoadmapGenerated}
+        onGeneratedGrammar={handleNewGrammarGenerated}
+      />
+
+      {/* NLP Token Linguistic Inspector */}
+      <NLPInspectorModal
+        token={inspectedToken}
+        onClose={() => setInspectedToken(null)}
+        targetLanguage={userProfile.targetLanguage}
+        onSaveToVocabulary={handleSaveToVocabulary}
+      />
+
+    </div>
+  </TelegramMiniAppFrame>
   );
 }
 export default function App() {
