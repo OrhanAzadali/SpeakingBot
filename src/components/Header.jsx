@@ -27,7 +27,8 @@ export const Header = ({
   setIsMiniAppMode,
   isSyncing = false,
   setId,
-  themeColors
+  themeColors,
+  activeTheme
 }) => {
 
   const {

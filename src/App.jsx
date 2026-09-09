@@ -46,7 +46,7 @@ function MainApp() {
   }, [autoCycle]);
 
   const activeTheme = getSafeThemeRuleset(themeId, rotationIndex);
-  let themeColors = activeTheme.colors || PRESET_THEMES[themeId].colors;
+  const themeColors = activeTheme.colors;
 
   // Persist theme selection and sync with ruleset cache
   useEffect(() => {
