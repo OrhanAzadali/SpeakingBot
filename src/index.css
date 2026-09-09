@@ -1,17 +1,148 @@
 @import "tailwindcss";
 
-/* Smooth scrolling for anchor dot jumps */
-html {
-  scroll-behavior: smooth;
+/* ── Telegram WebApp Theme Bindings & Base Styles ────────────────────────── */
+
+body {
+  background: var(--tg-theme-bg-color, #0f172a);
+  color: var(--tg-theme-text-color, #f1f5f9);
+  font-family:
+    -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial,
+    sans-serif;
+  min-height: 100vh;
+  margin: 0;
+  padding: 0;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  overflow-x: hidden;
 }
 
-/* Hide default browser scrollbar so the custom dot-based scroll indicator acts as the navigation */
+/* ── Custom Scrollbar for Card Back & Overflow Panels ───────────────────── */
+
 ::-webkit-scrollbar {
-  width: 0px;
-  background: transparent;
+  width: 5px;
 }
 
-* {
-  scrollbar-width: none;
-  -ms-overflow-style: none;
+::-webkit-scrollbar-track {
+  background: rgba(15, 23, 42, 0.6);
+  border-radius: 8px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(100, 116, 139, 0.5);
+  border-radius: 8px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(148, 163, 184, 0.8);
+}
+
+/* ── Flashcard Swipe Keyframe Animations ────────────────────────────────── */
+
+@keyframes slideRight {
+  0% {
+    transform: translateX(0) rotate(0deg);
+    opacity: 1;
+  }
+  100% {
+    transform: translateX(125%) rotate(10deg);
+    opacity: 0;
+  }
+}
+
+@keyframes slideLeft {
+  0% {
+    transform: translateX(0) rotate(0deg);
+    opacity: 1;
+  }
+  100% {
+    transform: translateX(-125%) rotate(-10deg);
+    opacity: 0;
+  }
+}
+
+.animate-slide-right {
+  animation: slideRight 280ms ease-in forwards;
+}
+
+.animate-slide-left {
+  animation: slideLeft 280ms ease-in forwards;
+}
+
+/* ── Smooth Glowing Dynamic Animations ───────────────────────────────────── */
+
+@keyframes glowPulse {
+  0%,
+  100% {
+    box-shadow: 0 0 16px rgba(99, 102, 241, 0.25);
+    border-color: rgba(99, 102, 241, 0.4);
+  }
+  50% {
+    box-shadow: 0 0 32px rgba(168, 85, 247, 0.45);
+    border-color: rgba(168, 85, 247, 0.7);
+  }
+}
+
+@keyframes floatSlow {
+  0%,
+  100% {
+    transform: translateY(0px) rotate(0deg);
+  }
+  50% {
+    transform: translateY(-8px) rotate(2deg);
+  }
+}
+
+@keyframes lightSweep {
+  0% {
+    transform: translateX(-100%);
+  }
+  50%,
+  100% {
+    transform: translateX(200%);
+  }
+}
+
+@keyframes chromaticAura {
+  0%,
+  100% {
+    filter: hue-rotate(0deg) brightness(1);
+  }
+  50% {
+    filter: hue-rotate(45deg) brightness(1.15);
+  }
+}
+
+.animate-glow-pulse {
+  animation: glowPulse 4s ease-in-out infinite;
+}
+
+.animate-float-slow {
+  animation: floatSlow 6s ease-in-out infinite;
+}
+
+.animate-chromatic-aura {
+  animation: chromaticAura 12s ease-in-out infinite;
+}
+
+.shimmer-button {
+  position: relative;
+  overflow: hidden;
+}
+
+.shimmer-button::after {
+  content: "";
+  position: absolute;
+  top: -50%;
+  left: -50%;
+  width: 200%;
+  height: 200%;
+  background: linear-gradient(
+    60deg,
+    transparent 35%,
+    rgba(255, 255, 255, 0.22) 50%,
+    transparent 65%
+  );
+  transform: translateX(-100%);
+  animation: lightSweep 5s infinite;
+  pointer-events: none;
 }
