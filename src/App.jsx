@@ -1,5 +1,4 @@
 import { useState, useEffect } from "react";
-
 import { TranslationProvider, useTranslation } from "./i18n/useTranslation";
 import { Header } from "./components/Header";
 import { HomePage } from "./components/HomePage";
@@ -47,7 +46,7 @@ function MainApp() {
   }, [autoCycle]);
 
   const activeTheme = getSafeThemeRuleset(themeId, rotationIndex);
-  const themeColors = activeTheme.colors;
+  const themeColors = activeTheme.colors || PRESET_THEMES[themeId].colors;
 
   // Persist theme selection and sync with ruleset cache
   useEffect(() => {
