@@ -17,6 +17,6 @@ export const AnimatedCard = ({
     }}
     className={className}
   >
-      {children}
-    </motion.div>;
+    {children}
+  </motion.div>;
 };
