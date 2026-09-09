@@ -29,7 +29,6 @@ export const Header = ({
   setId,
   setThemeId,
   themeId,
-  rotationIndex,
   setRotationIndex,
   themeColors = {},
   activeTheme = {},
