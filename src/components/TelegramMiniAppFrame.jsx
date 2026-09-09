@@ -57,7 +57,7 @@ export const TelegramMiniAppFrame = ({
     return (
       <div className="min-h-screen bg-slate-950 py-3 sm:py-6 px-2 sm:px-4 flex justify-center items-start">
         <div className="w-full max-w-xl bg-slate-900 border border-slate-700/80 rounded-3xl shadow-2xl overflow-hidden flex flex-col transition-all">
-          
+
           {/* Telegram Native MiniApp Top Bar */}
           <div className="bg-[#17212b] border-b border-[#232e3c] px-4 py-2.5 flex items-center justify-between select-none">
             <div className="flex items-center gap-2.5">

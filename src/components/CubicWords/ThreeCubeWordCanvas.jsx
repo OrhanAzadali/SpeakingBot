@@ -339,7 +339,7 @@ export const ThreeCubeWordCanvas = ({
           setAquaticMood(newMood);
         }
       })
-      .catch(() => {});
+      .catch(() => { });
   }, [language, comboWordMinLength, comboWordMaxLength, apiBase]);
 
   useEffect(() => {
@@ -463,7 +463,48 @@ export const ThreeCubeWordCanvas = ({
     }, duration);
   };
 
-  const createCubeMesh = (faces) => {
+  const normalizeFaces = (facesInput, targetWord = '') => {
+    const vowels = ['A', 'E', 'I', 'O', 'U'];
+    const consonants = ['T', 'N', 'S', 'R', 'L', 'D', 'C', 'M', 'P', 'B', 'K', 'G', 'F', 'V'];
+    const pick = (arr) => arr[Math.floor(Math.random() * arr.length)];
+
+    const fallbackFront = targetWord ? targetWord[Math.floor(Math.random() * targetWord.length)] : pick(vowels);
+    const safeFaces = {
+      front: fallbackFront,
+      back: pick(consonants),
+      top: pick(consonants),
+      bottom: pick(vowels),
+      left: pick(consonants),
+      right: pick(consonants),
+    };
+
+    if (Array.isArray(facesInput) && facesInput.length >= 6) {
+      return {
+        right: facesInput[0] || safeFaces.right,
+        left: facesInput[1] || safeFaces.left,
+        top: facesInput[2] || safeFaces.top,
+        bottom: facesInput[3] || safeFaces.bottom,
+        front: facesInput[4] || safeFaces.front,
+        back: facesInput[5] || safeFaces.back,
+      };
+    }
+
+    if (facesInput && typeof facesInput === 'object') {
+      return {
+        front: facesInput.front || safeFaces.front,
+        back: facesInput.back || safeFaces.back,
+        top: facesInput.top || safeFaces.top,
+        bottom: facesInput.bottom || safeFaces.bottom,
+        left: facesInput.left || safeFaces.left,
+        right: facesInput.right || safeFaces.right,
+      };
+    }
+
+    return safeFaces;
+  };
+
+  const createCubeMesh = (rawFaces) => {
+    const faces = normalizeFaces(rawFaces, targetQuestRef.current?.word || '');
     const materials = [
       new THREE.MeshStandardMaterial({
         map: createLetterTexture(faces.right, 'right'),
@@ -521,22 +562,19 @@ export const ThreeCubeWordCanvas = ({
       const res = await fetch(`${apiBase}/api/cubeword/block-faces?language=${encodeURIComponent(language)}${targetParam}`);
       if (res.ok) {
         const data = await res.json();
-        faces = data.faces;
+        if (data?.faces && typeof data.faces === 'object') {
+          faces = normalizeFaces(data.faces, targetWord);
+        } else if (Array.isArray(data?.cubes) && data.cubes.length > 0) {
+          const randCube = data.cubes[Math.floor(Math.random() * data.cubes.length)];
+          faces = normalizeFaces(randCube.faces, targetWord);
+        } else {
+          faces = normalizeFaces(null, targetWord);
+        }
       } else {
-        throw new Error('Fallback faces');
+        faces = normalizeFaces(null, targetWord);
       }
     } catch {
-      const vowels = ['A', 'E', 'I', 'O', 'U'];
-      const consonants = ['T', 'N', 'S', 'R', 'L', 'D', 'C', 'M', 'P', 'B', 'K', 'G', 'F', 'V'];
-      const pick = (arr) => arr[Math.floor(Math.random() * arr.length)];
-      faces = {
-        front: targetWord ? targetWord[Math.floor(Math.random() * targetWord.length)] : pick(vowels),
-        back: pick(consonants),
-        top: pick(consonants),
-        bottom: pick(vowels),
-        left: pick(consonants),
-        right: pick(consonants),
-      };
+      faces = normalizeFaces(null, targetWord);
     }
 
     const startCol = Math.floor(gridCols / 2) - 1;
@@ -564,7 +602,7 @@ export const ThreeCubeWordCanvas = ({
 
     activeBlockRef.current = block;
     setActiveFaceName('front');
-    setActiveLetter(faces.front);
+    setActiveLetter(faces?.front || 'A');
   }, [gridCols, language, apiBase]);
 
   const rotateActiveFace = useCallback(() => {
@@ -975,7 +1013,7 @@ export const ThreeCubeWordCanvas = ({
     if (e.target && e.target.setPointerCapture) {
       try {
         e.target.setPointerCapture(e.pointerId);
-      } catch {}
+      } catch { }
     }
 
     const col = getColFromPointer(e.clientX, e.clientY);
@@ -1016,7 +1054,7 @@ export const ThreeCubeWordCanvas = ({
     if (e.target && e.target.releasePointerCapture) {
       try {
         e.target.releasePointerCapture(e.pointerId);
-      } catch {}
+      } catch { }
     }
 
     const elapsed = Date.now() - dragPointerStartRef.current.time;

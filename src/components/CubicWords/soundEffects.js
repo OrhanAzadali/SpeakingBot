@@ -11,7 +11,7 @@ function getAudioContext() {
     }
   }
   if (audioCtx && audioCtx.state === 'suspended') {
-    audioCtx.resume().catch(() => {});
+    audioCtx.resume().catch(() => { });
   }
   return audioCtx;
 }
@@ -31,7 +31,7 @@ export function playRotateSound() {
     gain.connect(ctx.destination);
     osc.start();
     osc.stop(ctx.currentTime + 0.12);
-  } catch {}
+  } catch { }
 }
 
 export function playMoveSound() {
@@ -49,7 +49,7 @@ export function playMoveSound() {
     gain.connect(ctx.destination);
     osc.start();
     osc.stop(ctx.currentTime + 0.05);
-  } catch {}
+  } catch { }
 }
 
 export function playLandSound() {
@@ -67,7 +67,7 @@ export function playLandSound() {
     gain.connect(ctx.destination);
     osc.start();
     osc.stop(ctx.currentTime + 0.1);
-  } catch {}
+  } catch { }
 }
 
 export function playMagicWordDisappearSound(isCombo = false) {
@@ -88,7 +88,7 @@ export function playMagicWordDisappearSound(isCombo = false) {
       osc.start(ctx.currentTime + idx * 0.07);
       osc.stop(ctx.currentTime + idx * 0.07 + 0.39);
     });
-  } catch {}
+  } catch { }
 }
 
 export function playGameOverSound() {
@@ -106,7 +106,7 @@ export function playGameOverSound() {
     gain.connect(ctx.destination);
     osc.start();
     osc.stop(ctx.currentTime + 0.5);
-  } catch {}
+  } catch { }
 }
 
 const SPEECH_LANG_MAP = {
@@ -255,7 +255,7 @@ export function setAquaticComboWord(word) {
         osc.start(t + idx * 0.16);
         osc.stop(t + idx * 0.16 + 0.75);
       });
-    } catch {}
+    } catch { }
   }
 
   return mood;
@@ -268,7 +268,7 @@ export function isAquaticMusicActive() {
 export function resumeAudioAndMusic() {
   const ctx = getAudioContext();
   if (ctx && ctx.state === 'suspended') {
-    ctx.resume().catch(() => {});
+    ctx.resume().catch(() => { });
   }
 }
 
@@ -277,7 +277,7 @@ export function startAquaticMusic() {
   if (!ctx) return;
 
   if (ctx.state === 'suspended') {
-    ctx.resume().catch(() => {});
+    ctx.resume().catch(() => { });
   }
 
   if (isMusicPlaying) return;
@@ -402,7 +402,7 @@ export function startAquaticMusic() {
 
         whiteNoise.start();
         whiteNoise.stop(audioCtx.currentTime + 2.9);
-      } catch {}
+      } catch { }
 
       const nextWaveDelay = 5500 + Math.random() * 3000;
       aquaticWaveTimer = setTimeout(playOceanWave, nextWaveDelay);
@@ -432,7 +432,7 @@ export function stopAquaticMusic() {
         aquaticMasterGain = null;
         aquaticFilter = null;
       }, 500);
-    } catch {}
+    } catch { }
   }
 }
 

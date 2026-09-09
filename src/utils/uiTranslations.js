@@ -552,7 +552,7 @@ export function getUiString(key, lang = "en", customDict = null) {
       const cachedObj = JSON.parse(cachedStr);
       if (cachedObj && cachedObj[key]) return cachedObj[key];
     }
-  } catch {}
+  } catch { }
 
   // 3. Static native dictionary
   const dict = STATIC_UI_DICTIONARY[normLang];
@@ -585,7 +585,7 @@ export function getEffectiveUiDictionary(lang) {
         cachedOverrides = parsed;
       }
     }
-  } catch {}
+  } catch { }
 
   const staticForLang = STATIC_UI_DICTIONARY[normLang] || {};
   return {
@@ -614,7 +614,7 @@ export async function fetchAiUiTranslation(targetLang, backendUrl) {
     if (cached) {
       return JSON.parse(cached);
     }
-  } catch {}
+  } catch { }
 
   try {
     const res = await fetch(`${backendUrl}/api/ui/translate?lang=${encodeURIComponent(normLang)}`);
@@ -623,7 +623,7 @@ export async function fetchAiUiTranslation(targetLang, backendUrl) {
       if (data.translations && typeof data.translations === "object") {
         try {
           localStorage.setItem(`spk_ui_dict_${normLang}`, JSON.stringify(data.translations));
-        } catch {}
+        } catch { }
         return data.translations;
       }
     }
@@ -910,7 +910,7 @@ export async function fetchAiUiTranslation(targetLang, backendUrl) {
 //     setTimeout(() => setToast(null), 4000);
 //   };
 
-//   // 1. Initial boot: query the user's active database language  
+//   // 1. Initial boot: query the user's active database language
 //   useEffect(() => {
 //     if (window.Telegram?.WebApp?.ready) {
 //       window.Telegram.WebApp.ready();

@@ -52,11 +52,10 @@ export const SaveToVocabButton = ({
         onClick={handleClick}
         disabled={isCurrentlySaved}
         title={isCurrentlySaved ? `"${word}" is in your Saved Vocabulary` : `Save "${word}" to Vocabulary`}
-        className={`inline-flex items-center justify-center gap-1 p-1.5 rounded-lg text-xs font-semibold transition border ${
-          isCurrentlySaved
-            ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40 cursor-default'
-            : 'bg-slate-800/80 hover:bg-sky-950/60 text-slate-300 hover:text-sky-300 border-slate-700/80 hover:border-sky-500/40 cursor-pointer'
-        } ${className}`}
+        className={`inline-flex items-center justify-center gap-1 p-1.5 rounded-lg text-xs font-semibold transition border ${isCurrentlySaved
+          ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40 cursor-default'
+          : 'bg-slate-800/80 hover:bg-sky-950/60 text-slate-300 hover:text-sky-300 border-slate-700/80 hover:border-sky-500/40 cursor-pointer'
+          } ${className}`}
       >
         {isCurrentlySaved ? (
           <Check className="w-3.5 h-3.5 text-emerald-400" />
@@ -72,11 +71,10 @@ export const SaveToVocabButton = ({
       type="button"
       onClick={handleClick}
       disabled={isCurrentlySaved}
-      className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition border cursor-pointer ${
-        isCurrentlySaved
-          ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40 cursor-default'
-          : 'bg-slate-800/90 hover:bg-sky-900/40 text-slate-200 hover:text-white border-slate-700 hover:border-sky-500/40 shadow-sm'
-      } ${className}`}
+      className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition border cursor-pointer ${isCurrentlySaved
+        ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40 cursor-default'
+        : 'bg-slate-800/90 hover:bg-sky-900/40 text-slate-200 hover:text-white border-slate-700 hover:border-sky-500/40 shadow-sm'
+        } ${className}`}
     >
       {isCurrentlySaved ? (
         <>

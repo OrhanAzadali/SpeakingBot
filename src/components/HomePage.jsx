@@ -122,7 +122,7 @@ export const HomePage = ({
 
       {/* ================= SECTION 1: HERO & DASHBOARD OVERVIEW ================= */}
       <section id="hero-section" className="pt-2" style={themeColors.grammar?.iconStyle}>
-        <div className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-slate-900 via-slate-900 to-indigo-950/70 border border-slate-800 p-6 sm:p-8 shadow-2xl" style={{color: themeColors.grammar?.hex}}>
+        <div className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-slate-900 via-slate-900 to-indigo-950/70 border border-slate-800 p-6 sm:p-8 shadow-2xl" style={{ color: themeColors.grammar?.hex }}>
           {/* Subtle glow background */}
           <div className="absolute top-0 right-0 -mt-8 -mr-8 w-72 h-72 bg-sky-500/10 rounded-full blur-3xl pointer-events-none" />
           <div className="absolute bottom-0 left-0 -mb-8 -ml-8 w-72 h-72 bg-indigo-500/10 rounded-full blur-3xl pointer-events-none" style={themeColors.brand?.badgeStyle} />

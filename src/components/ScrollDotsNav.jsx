@@ -68,11 +68,10 @@ export const ScrollDotsNav = ({ sections = [] }) => {
 
             {/* Glowing Dot */}
             <div
-              className={`rounded-full transition-all duration-300 ${
-                isActive
-                  ? 'w-3.5 h-3.5 bg-sky-400 ring-4 ring-sky-500/30 scale-125 shadow-[0_0_12px_rgba(56,189,248,0.8)]'
-                  : 'w-2 h-2 bg-slate-600 hover:bg-slate-400 group-hover:scale-125'
-              }`}
+              className={`rounded-full transition-all duration-300 ${isActive
+                ? 'w-3.5 h-3.5 bg-sky-400 ring-4 ring-sky-500/30 scale-125 shadow-[0_0_12px_rgba(56,189,248,0.8)]'
+                : 'w-2 h-2 bg-slate-600 hover:bg-slate-400 group-hover:scale-125'
+                }`}
             />
           </button>
         );

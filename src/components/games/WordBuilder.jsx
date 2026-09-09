@@ -12,7 +12,7 @@ import {
     Shuffle,
     CornerDownLeft,
     X,
-    Type
+    Type,
 } from "lucide-react";
 
 const FALLBACK_TARGETS = {
@@ -163,7 +163,8 @@ export const WordBuilder = ({
         try {
             const { data } = await axios.post("/api/games/wordbuilder/verify", {
                 userId: "default-user",
-                word: wordToSubmit
+                word: wordToSubmit,
+                targetLanguage
             });
 
             if (data.valid) {
@@ -174,31 +175,10 @@ export const WordBuilder = ({
                 if (onGainXp) onGainXp(pts);
                 handleClearCurrent();
             } else {
-                setFeedback({ type: "error", text: data.message || "Invalid anagram word." });
+                setFeedback({ type: "error", text: data.message || `"${wordToSubmit}" is not a valid dictionary word!` });
             }
         } catch (err) {
-            // Fallback verification
-            const targetChars = [...targetWord];
-            let valid = true;
-            for (const ch of wordToSubmit) {
-                const idx = targetChars.indexOf(ch);
-                if (idx === -1) {
-                    valid = false;
-                    break;
-                }
-                targetChars.splice(idx, 1);
-            }
-
-            if (valid) {
-                const pts = wordToSubmit.length * 10;
-                setFoundWords((prev) => [wordToSubmit, ...prev]);
-                setScore((s) => s + pts);
-                setFeedback({ type: "success", text: `+${pts} pts for "${wordToSubmit}"!` });
-                if (onGainXp) onGainXp(pts);
-                handleClearCurrent();
-            } else {
-                setFeedback({ type: "error", text: "Letters not found in target word!" });
-            }
+            setFeedback({ type: "error", text: err.response?.data?.message || `"${wordToSubmit}" verification failed.` });
         }
 
         setTimeout(() => setFeedback(null), 2500);

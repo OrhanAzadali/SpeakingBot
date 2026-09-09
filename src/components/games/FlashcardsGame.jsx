@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import axios from 'axios';
 import {
@@ -20,6 +20,8 @@ import { SaveToVocabButton } from '../SaveToVocabButton';
 export const FlashcardsGame = ({
   targetLanguage = 'English',
   mediatorLanguage = 'az',
+  userLevel = 'B1',
+  themeColors = {},
   onSelectToken,
   onGainXp,
   onSaveToVocabulary,
@@ -58,13 +60,13 @@ export const FlashcardsGame = ({
   const fetchDeck = async () => {
     if (isGeneratingRef.current) return;
     isGeneratingRef.current = true;
-    const level = selectedLevel === 'ALL' ? 'B1' : selectedLevel;
+    const level = selectedLevel === 'ALL' ? (userLevel || 'B1') : selectedLevel;
     try {
       const { data } = await axios.post('/api/games/generate-vocabulary', {
         targetLanguage,
         userLevel: level,
         count: 12,
-      });
+      }, { timeout: 4000 });
       if (data.success && data.vocabulary && data.vocabulary.length > 0) {
         setDeck(buildCards(data.vocabulary));
         setCurrentIndex(0);
@@ -259,7 +261,7 @@ export const FlashcardsGame = ({
             width: deck.length > 0
               ? `${((currentIndex + 1) / deck.length) * 100}%`
               : '0%',
-            ...(themeColors.flashcards?.style || {}),
+            ...(themeColors?.flashcards?.style || {}),
           }}
         />
       </div>
@@ -268,12 +270,6 @@ export const FlashcardsGame = ({
       {currentCard ? (
         <div
           className="relative w-full h-80 sm:h-96 cursor-pointer select-none"
-          style={{
-            width: deck.length > 0
-              ? `${((currentIndex + 1) / deck.length) * 100}%`
-              : '0%',
-            ...(themeColors.flashcards?.style || {}),
-          }}
           onClick={handleFlip}
         >
           <motion.div
@@ -289,7 +285,7 @@ export const FlashcardsGame = ({
               style={{
                 backfaceVisibility: 'hidden',
                 WebkitBackfaceVisibility: 'hidden',
-                ...(themeColors.flashcards?.style || {}),
+                ...(themeColors?.flashcards?.style || {}),
               }}
             >
               <div className="flex items-center justify-between">
@@ -367,7 +363,7 @@ export const FlashcardsGame = ({
               style={{
                 backfaceVisibility: 'hidden',
                 WebkitBackfaceVisibility: 'hidden',
-                ...(themeColors.flashcards?.style || {}),
+                ...(themeColors?.flashcards?.style || {}),
               }}
             >
               <div className="flex items-center justify-between">

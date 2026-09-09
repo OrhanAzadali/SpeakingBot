@@ -269,7 +269,7 @@ export const SavedVocabularyPage = ({
       {/* Page Header & Telegram Sync Banner */}
       <div className="bg-gradient-to-r from-sky-950/70 via-slate-900 to-indigo-950/70 border border-sky-800/40 rounded-3xl p-6 sm:p-8 shadow-2xl relative overflow-hidden">
         <div className="absolute top-0 right-0 w-96 h-96 bg-sky-500/10 rounded-full blur-3xl pointer-events-none" />
-        
+
         <div className="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-6 relative z-10">
           <div className="space-y-2 max-w-2xl">
             <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-sky-400">
@@ -340,18 +340,16 @@ export const SavedVocabularyPage = ({
             <button
               key={lang.id}
               onClick={() => handleSwitchLanguage(lang.name)}
-              className={`px-4 py-2.5 rounded-2xl font-bold text-xs flex items-center gap-2.5 transition whitespace-nowrap border shrink-0 ${
-                isActive
-                  ? "bg-gradient-to-r from-sky-600 to-indigo-600 text-white border-sky-400 shadow-md shadow-sky-500/20 scale-105"
-                  : "bg-slate-900/80 hover:bg-slate-800 text-slate-300 border-slate-800 hover:border-slate-700"
-              }`}
+              className={`px-4 py-2.5 rounded-2xl font-bold text-xs flex items-center gap-2.5 transition whitespace-nowrap border shrink-0 ${isActive
+                ? "bg-gradient-to-r from-sky-600 to-indigo-600 text-white border-sky-400 shadow-md shadow-sky-500/20 scale-105"
+                : "bg-slate-900/80 hover:bg-slate-800 text-slate-300 border-slate-800 hover:border-slate-700"
+                }`}
             >
               <span className="text-base">{lang.flag}</span>
               <span>{lang.name}</span>
               <span
-                className={`text-[10px] font-mono px-2 py-0.5 rounded-full ${
-                  isActive ? "bg-black/30 text-sky-200" : "bg-slate-800 text-slate-400 border border-slate-700"
-                }`}
+                className={`text-[10px] font-mono px-2 py-0.5 rounded-full ${isActive ? "bg-black/30 text-sky-200" : "bg-slate-800 text-slate-400 border border-slate-700"
+                  }`}
               >
                 {wordCount}
               </span>
@@ -365,9 +363,8 @@ export const SavedVocabularyPage = ({
         <div className="flex items-center gap-2">
           <button
             onClick={() => setStudyMode(false)}
-            className={`px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-2 transition ${
-              !studyMode ? "bg-slate-800 text-white border border-slate-700 shadow-sm" : "text-slate-400 hover:text-white"
-            }`}
+            className={`px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-2 transition ${!studyMode ? "bg-slate-800 text-white border border-slate-700 shadow-sm" : "text-slate-400 hover:text-white"
+              }`}
           >
             <FileText className="w-3.5 h-3.5" />
             <span>Lexicon Table ({filteredWords.length})</span>
@@ -379,9 +376,8 @@ export const SavedVocabularyPage = ({
               setIsFlipped(false);
             }}
             disabled={filteredWords.length === 0}
-            className={`px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-2 transition disabled:opacity-40 ${
-              studyMode ? "bg-indigo-600 text-white shadow-md shadow-indigo-500/20" : "text-slate-400 hover:text-white"
-            }`}
+            className={`px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-2 transition disabled:opacity-40 ${studyMode ? "bg-indigo-600 text-white shadow-md shadow-indigo-500/20" : "text-slate-400 hover:text-white"
+              }`}
           >
             <GraduationCap className="w-3.5 h-3.5" />
             <span>Interactive Flashcards</span>
@@ -591,11 +587,10 @@ export const SavedVocabularyPage = ({
                             <button
                               type="button"
                               onClick={() => playSpeech(item.word)}
-                              className={`p-1 rounded-lg transition ${
-                                isSpeaking
-                                  ? "bg-sky-500 text-white"
-                                  : "bg-slate-800 hover:bg-sky-600 text-slate-400 hover:text-white"
-                              }`}
+                              className={`p-1 rounded-lg transition ${isSpeaking
+                                ? "bg-sky-500 text-white"
+                                : "bg-slate-800 hover:bg-sky-600 text-slate-400 hover:text-white"
+                                }`}
                               title="Listen to pronunciation"
                             >
                               <Volume2 className="w-3.5 h-3.5" />

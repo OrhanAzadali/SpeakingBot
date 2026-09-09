@@ -1061,7 +1061,7 @@ export const GAMES_VOCABULARY = [
 export function getVocabularyForGame(targetLanguage = 'English', level = 'ALL', count = 12) {
   const normLang = (targetLanguage || 'English').toLowerCase();
   let matches = GAMES_VOCABULARY.filter(v => (v.language || 'English').toLowerCase() === normLang);
-  
+
   // If no match found for unknown language, fallback to English gracefully
   if (matches.length === 0) {
     matches = GAMES_VOCABULARY.filter(v => (v.language || 'English').toLowerCase() === 'english');

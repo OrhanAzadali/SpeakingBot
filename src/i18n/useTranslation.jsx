@@ -26,7 +26,7 @@ export const TranslationProvider = ({ children }) => {
     try {
       const saved = localStorage.getItem('speakbot_ui_lang');
       if (saved && translations[saved]) return saved;
-    } catch {}
+    } catch { }
     return 'az'; // Default to Azerbaijani as in SpeakBot, easily switchable to English, etc.
   });
 
@@ -34,7 +34,7 @@ export const TranslationProvider = ({ children }) => {
     setUiLanguageState(lang);
     try {
       localStorage.setItem('speakbot_ui_lang', lang);
-    } catch {}
+    } catch { }
   };
 
   const t = (key) => {

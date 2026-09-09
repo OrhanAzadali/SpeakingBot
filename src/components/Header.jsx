@@ -160,7 +160,6 @@ export const Header = ({
   };
 
   return (
-
     <header
       ref={headerRef}
       id="main-app-header"

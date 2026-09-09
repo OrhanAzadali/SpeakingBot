@@ -20,6 +20,7 @@ import { createRequire } from "module";
 import zlib from "zlib";
 import fs from "fs";
 import { generateGrammarGuidePdfBuffer, generateRoadmapPdfBuffer, generateVocabularyPdfBuffer, generateClassicStoryPdfBuffer } from './src/utils/pdfServerGenerator.js';
+import { GAMES_VOCABULARY } from './src/data/gamesVocabularyData.js';
 function sendPdf(res, buffer, filename) {
   res.setHeader('Content-Type', 'application/pdf');
   res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
@@ -27,6 +28,61 @@ function sendPdf(res, buffer, filename) {
 }
 
 const customRequire = typeof require !== "undefined" ? require : createRequire(import.meta.url);
+
+let englishWordSet = new Set();
+let spanishWordSet = new Set();
+let frenchWordSet = new Set();
+let germanWordSet = new Set();
+let multilingualVocabSet = new Set();
+
+try {
+  const enWords = customRequire("an-array-of-english-words");
+  englishWordSet = new Set(enWords.map(w => w.toUpperCase()));
+  console.log(`[WordBuilder] Loaded ${englishWordSet.size} English dictionary words`);
+} catch (e) {
+  console.warn("[WordBuilder] Notice loading English dictionary:", e.message);
+}
+
+try {
+  const esWords = customRequire("an-array-of-spanish-words");
+  spanishWordSet = new Set(esWords.map(w => w.toUpperCase()));
+  console.log(`[WordBuilder] Loaded ${spanishWordSet.size} Spanish dictionary words`);
+} catch (e) {
+  console.warn("[WordBuilder] Notice loading Spanish dictionary:", e.message);
+}
+
+try {
+  const frWords = customRequire("an-array-of-french-words");
+  frenchWordSet = new Set(frWords.map(w => w.toUpperCase()));
+  console.log(`[WordBuilder] Loaded ${frenchWordSet.size} French dictionary words`);
+} catch (e) {
+  console.warn("[WordBuilder] Notice loading French dictionary:", e.message);
+}
+
+try {
+  const deWords = customRequire("an-array-of-german-words");
+  germanWordSet = new Set(deWords.map(w => w.toUpperCase()));
+  console.log(`[WordBuilder] Loaded ${germanWordSet.size} German dictionary words`);
+} catch (e) {
+  console.warn("[WordBuilder] Notice loading German dictionary:", e.message);
+}
+
+// Populate multilingual vocabulary from datasets for instant validation
+if (Array.isArray(GAMES_VOCABULARY)) {
+  GAMES_VOCABULARY.forEach(item => {
+    if (item.word) multilingualVocabSet.add(item.word.trim().toUpperCase());
+    if (item.translations) {
+      Object.values(item.translations).forEach(tr => {
+        if (typeof tr === 'string') {
+          tr.split(/[\/,;]/).forEach(token => {
+            const clean = token.trim().toUpperCase();
+            if (clean && clean.length >= 3) multilingualVocabSet.add(clean);
+          });
+        }
+      });
+    }
+  });
+}
 
 let PDFParse = null;
 try {
@@ -41,7 +97,7 @@ const currentFilename = typeof __filename !== "undefined" ? __filename : fileURL
 const currentDirname = typeof __dirname !== "undefined" ? __dirname : path.dirname(currentFilename);
 
 const app = express();
-const PORT = Number(process.env.PORT) || 3000;
+const PORT = 3000;
 
 // ========== CRITICAL FIX: Prevent caching of API responses ==========
 app.use((req, res, next) => {
@@ -76,7 +132,7 @@ function getGeminiClient() {
 async function callGeminiWithResilience(
   prompt,
   preferredModel = "gemini-3.6-flash",
-  fallbackModels = ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash"],
+  fallbackModels = ["gemini-2.5-flash", "gemini-2.0-flash"],
   isJson = true
 ) {
   const apiKey = process.env.GEMINI_API_KEY;
@@ -98,7 +154,7 @@ async function callGeminiWithResilience(
         config: isJson ? { responseMimeType: "application/json" } : {}
       });
       const timeoutPromise = new Promise((_, reject) => {
-        setTimeout(() => reject(new Error("TIMEOUT_SPIKE")), 45000);
+        setTimeout(() => reject(new Error("TIMEOUT_SPIKE")), 5000);
       });
 
       const response = await Promise.race([generatePromise, timeoutPromise]);
@@ -107,29 +163,9 @@ async function callGeminiWithResilience(
       }
     } catch (err) {
       const msg = err?.message || String(err);
-      console.error(`[AI Engine] Model ${model} failed:`, msg);
       console.warn(`[AI Engine] Model ${model} failed (${msg.slice(0, 80)}). Trying next...`);
       continue;
     }
-  }
-
-  // Dynamic discovery as a last resort
-  try {
-    const models = await ai.models.list();
-    const availableModels = models.map(m => m.name).filter(name => name.includes("gemini") && name.includes("flash"));
-    console.log("[AI Engine] Discovered available models:", availableModels);
-    // Try the first available flash model not already tried
-    const firstNewModel = availableModels.find(m => !candidateModels.includes(m));
-    if (firstNewModel) {
-      const response = await ai.models.generateContent({
-        model: firstNewModel,
-        contents: prompt,
-        config: { responseMimeType: "application/json" }
-      });
-      if (response && response.text) return response.text;
-    }
-  } catch (e) {
-    console.warn("[AI Engine] Model discovery failed:", e.message);
   }
 
   return null;
@@ -2399,36 +2435,130 @@ app.post("/api/games/memory/match", (req, res) => {
 // ========== WORD BUILDER GAME ==========
 let wordBuilderGames = {};
 
+async function verifyWordInDictionary(word, language = "English") {
+  const cleanWord = String(word || "").trim().toUpperCase();
+  if (cleanWord.length < 3) return false;
+
+  const lang = String(language || "English").toLowerCase();
+
+  // 1. English validation (274,000+ words)
+  if (lang.includes("en") || lang.includes("ingl")) {
+    return englishWordSet.has(cleanWord);
+  }
+
+  // 2. Spanish validation (636,000+ words)
+  if (lang.includes("es") || lang.includes("span")) {
+    if (spanishWordSet.has(cleanWord)) return true;
+    const noAccents = cleanWord.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+    return spanishWordSet.has(noAccents);
+  }
+
+  // 3. French validation (336,000+ words)
+  if (lang.includes("fr")) {
+    if (frenchWordSet.has(cleanWord)) return true;
+    const noAccents = cleanWord.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+    return frenchWordSet.has(noAccents);
+  }
+
+  // 4. German validation (117,000+ words)
+  if (lang.includes("de") || lang.includes("germ") || lang.includes("alm")) {
+    return germanWordSet.has(cleanWord);
+  }
+
+  // 5. Multilingual vocabulary dataset check (Italian, Russian, Turkish, etc.)
+  if (multilingualVocabSet.has(cleanWord)) {
+    return true;
+  }
+
+  // 6. Fast AI verification fallback for other languages (Russian, Turkish, Italian)
+  try {
+    const prompt = `Is the token "${cleanWord}" a legitimate real dictionary word or inflected word in ${language}? Answer strictly in JSON: {"valid": true} or {"valid": false}`;
+    const raw = await callGeminiWithResilience(prompt, "gemini-2.5-flash", ["gemini-2.0-flash"], true);
+    if (raw) {
+      const clean = raw.replace(/```json\n?|\n?```/g, "").trim();
+      const parsed = JSON.parse(clean);
+      if (typeof parsed.valid === "boolean") return parsed.valid;
+    }
+  } catch (err) {
+    console.warn("Dictionary check fallback exception:", err?.message);
+  }
+
+  return false;
+}
+
+function getStaticVocabulary(targetLanguage = "English", userLevel = "B1", count = 12) {
+  const normLang = String(targetLanguage || "English").toLowerCase();
+  let matches = (GAMES_VOCABULARY || []).filter(
+    (v) => (v.language || "English").toLowerCase() === normLang
+  );
+  if (matches.length === 0) {
+    matches = (GAMES_VOCABULARY || []).filter(
+      (v) => (v.language || "English").toLowerCase() === "english"
+    );
+  }
+  if (userLevel && userLevel !== "ALL") {
+    const byLvl = matches.filter((v) => v.level === userLevel);
+    if (byLvl.length > 0) matches = byLvl;
+  }
+  return matches.slice(0, count).map((v, idx) => ({
+    id: v.id || `static-${idx}`,
+    word: v.word,
+    translation: v.translations?.en || v.translations?.az || v.definition || "",
+    translations: v.translations || {},
+    ipa: v.ipa || "",
+    pos: v.pos || "noun",
+    level: v.level || userLevel || "B1",
+    sentence: v.sentence || "",
+    morphology: v.morphology || "",
+    definition: v.definition || ""
+  }));
+}
+
 app.post("/api/games/wordbuilder/start", (req, res) => {
   const { userId = "default-user", targetWord, targetLanguage = "English" } = req.body;
   const word = (targetWord || "VOCABULARY").toUpperCase();
-  wordBuilderGames[userId] = { targetWord: word, foundWords: [] };
+  wordBuilderGames[userId] = { targetWord: word, targetLanguage, foundWords: [] };
   res.json({ success: true, targetWord: word });
 });
 
-app.post("/api/games/wordbuilder/verify", (req, res) => {
-  const { userId = "default-user", word } = req.body;
+app.post("/api/games/wordbuilder/verify", async (req, res) => {
+  const { userId = "default-user", word, targetLanguage } = req.body;
   let game = wordBuilderGames[userId];
   if (!game) {
-    game = { targetWord: "VOCABULARY", foundWords: [] };
+    game = { targetWord: "VOCABULARY", targetLanguage: targetLanguage || "English", foundWords: [] };
     wordBuilderGames[userId] = game;
   }
+  const effectiveLang = String(targetLanguage || game.targetLanguage || "English");
   const upperWord = String(word || "").trim().toUpperCase();
+
   if (upperWord.length < 3) {
     return res.json({ success: false, valid: false, message: "Word must be at least 3 letters long." });
   }
+
   // Check that all letters are available in targetWord
   const targetChars = [...game.targetWord];
   for (const ch of upperWord) {
     const idx = targetChars.indexOf(ch);
     if (idx === -1) {
-      return res.json({ success: false, valid: false, message: `Letter "${ch}" is not available in the target word!` });
+      return res.json({ success: false, valid: false, message: `Letter "${ch}" is not available in the root word!` });
     }
     targetChars.splice(idx, 1);
   }
+
   if (game.foundWords.includes(upperWord)) {
     return res.json({ success: false, valid: false, message: `"${upperWord}" was already discovered!` });
   }
+
+  // Validate that it's a real dictionary word
+  const isRealWord = await verifyWordInDictionary(upperWord, effectiveLang);
+  if (!isRealWord) {
+    return res.json({
+      success: false,
+      valid: false,
+      message: `"${upperWord}" is not a recognized word in the ${effectiveLang} dictionary!`
+    });
+  }
+
   game.foundWords.push(upperWord);
   res.json({
     success: true,
@@ -2451,14 +2581,14 @@ const FALLBACK_WORDS = {
 };
 
 app.post("/api/games/generate-words", async (req, res) => {
-  try {
-    const {
-      targetLanguage = "English",
-      userLevel = "B1",
-      count = 6,
-      wordType = "noun"
-    } = req.body;
+  const {
+    targetLanguage = "English",
+    userLevel = "B1",
+    count = 6,
+    wordType = "noun"
+  } = req.body || {};
 
+  try {
     const prompt = `Generate exactly ${count} common ${wordType} words in ${targetLanguage} for a CEFR ${userLevel} learner. Return ONLY a JSON array of strings, no other text. Example: ["word1", "word2", ...]`;
 
     const raw = await callGeminiWithResilience(prompt);
@@ -2482,14 +2612,14 @@ app.post("/api/games/generate-words", async (req, res) => {
 });
 
 app.post("/api/games/generate-vocabulary", async (req, res) => {
-  try {
-    const {
-      targetLanguage = "English",
-      userLevel = "B1",
-      count = 8,
-      includeDetails = true
-    } = req.body;
+  const {
+    targetLanguage = "English",
+    userLevel = "B1",
+    count = 8,
+    includeDetails = true
+  } = req.body || {};
 
+  try {
     const prompt = `Generate exactly ${count} vocabulary items for a CEFR ${userLevel} learner in ${targetLanguage}. For each item, provide:
 - word: the target language word
 - translation: meaning in English or mediator language (you can use "en" if no mediator)
