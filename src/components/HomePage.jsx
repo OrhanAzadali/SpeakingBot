@@ -204,7 +204,7 @@ export const HomePage = ({
         {/* 3D Cube Word Tetris Highlight Card */}
         <CubeWordCard
           selectedLanguage={userProfile.targetLanguage}
-          onStart={() => onLaunchGame('cubeword')}
+          onStart={() => onLaunchGame('cubeGame')}
           onOpenVocabulary={() => onNavigateTab('games')}
           onSaveToVocabulary={onSaveToVocabulary}
         />

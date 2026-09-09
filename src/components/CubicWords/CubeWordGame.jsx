@@ -7,6 +7,7 @@ import {
   normalizeUiLang,
   normalizeTargetLang,
 } from './cubeGameI18n.js';
+
 import {
   Trophy,
   HelpCircle,
@@ -27,6 +28,7 @@ const TARGET_LANG_META = {
   french: { label: 'Français', flag: '🇫🇷' },
   italian: { label: 'Italiano', flag: '🇮🇹' },
 };
+
 
 export const CubeWordGame = ({
   onClose,
@@ -71,7 +73,7 @@ export const CubeWordGame = ({
       setHighScore(totalScore);
       try {
         localStorage.setItem('cubeword_highscore', String(totalScore));
-      } catch {}
+      } catch { }
     }
   }, [totalScore, highScore]);
 
@@ -206,7 +208,7 @@ export const CubeWordGame = ({
           mediatorLanguage={mediatorLanguage}
           round={round}
           onRoundWin={handleRoundWin}
-          onGameOver={() => {}}
+          onGameOver={() => { }}
           onWordDiscovered={handleWordDiscovered}
           soundEnabled={soundEnabled}
           onToggleSound={() => setSoundEnabled((prev) => !prev)}
@@ -359,11 +361,10 @@ export const CubeWordGame = ({
                         type="button"
                         onClick={() => handleSaveWord(item)}
                         disabled={savedWordsMap[item.word]}
-                        className={`p-2 rounded-xl transition flex items-center gap-1 text-xs font-semibold ${
-                          savedWordsMap[item.word]
+                        className={`p-2 rounded-xl transition flex items-center gap-1 text-xs font-semibold ${savedWordsMap[item.word]
                             ? 'bg-emerald-900/50 text-emerald-300 border border-emerald-700'
                             : 'bg-indigo-600 hover:bg-indigo-500 text-white'
-                        }`}
+                          }`}
                         title={t.saveWordTitle}
                       >
                         {savedWordsMap[item.word] ? (
