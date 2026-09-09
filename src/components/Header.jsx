@@ -13,7 +13,7 @@ import {
   RefreshCw
 } from "lucide-react";
 
-import { getSafeThemeRuleset, persistThemeRuleset } from "./utils/themeRulesetCache.js";
+import { getSafeThemeRuleset, persistThemeRuleset } from "../utils/themeRulesetCache.js";
 
 const showToast = (message, type = "success") => {
   setToast({ message, type });
