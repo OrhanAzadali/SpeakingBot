@@ -36,22 +36,39 @@ export const FlashcardsGame = ({
 
   // Function to build card objects from API/static data
   const buildCards = (items) => {
-    return items.map((item, idx) => ({
-      id: `flash-${Date.now()}-${idx}`,
-      level: item.level || selectedLevel || 'B1',
-      language: item.language || targetLanguage,
-      word: item.word,
-      ipa: item.ipa || '',
-      pos: item.pos || 'noun',
-      sentence: item.example || item.sentence || '',
-      morphology: item.morphology || '',
-      translations: {
-        en: item.translation || item.meaning || '',
-        az: item.translation || item.meaning || '',
-        // In fallback, translations may be nested
-      },
-      definition: item.translation || item.definition || '',
-    }));
+    return items.map((item, idx) => {
+      // Ensure we extract the word correctly from different data structures
+      const word = item.word || item.initial_form || item.text || '';
+      const translation = item.translation || item.meaning || item.definition || '';
+      const pos = item.pos || item.part_of_speech || 'noun';
+      const ipa = item.ipa || item.transcription || '';
+      const sentence = item.example || item.sentence || item.context || '';
+
+      return {
+        id: `flash-${Date.now()}-${idx}`,
+        level: item.level || selectedLevel || 'B1',
+        language: item.language || targetLanguage,
+        word: word,
+        ipa: ipa,
+        pos: pos,
+        sentence: sentence,
+        morphology: item.morphology || '',
+        translations: {
+          en: translation,
+          az: translation,
+          // In fallback, translations may be nested
+          ...(item.translations || {})
+        },
+        definition: translation,
+        // Preserve original data for fallback
+        initial_form: item.initial_form || word,
+        transcription: item.transcription || ipa,
+        part_of_speech: item.part_of_speech || pos,
+        pronunciation_rule: item.pronunciation_rule || '',
+        grammar_rule: item.grammar_rule || '',
+        correct_streak: item.correct_streak || 0,
+      };
+    });
   };
 
   // Fetch AI vocabulary or fallback to static
@@ -294,10 +311,10 @@ export const FlashcardsGame = ({
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <span className="px-3 py-1 rounded-full bg-sky-500/20 text-sky-400 border border-sky-500/30 text-xs font-bold font-mono">
-                    {currentCard.level}
+                    {currentCard.level || currentCard.cefr || 'B1'}
                   </span>
                   <span className="px-2.5 py-0.5 rounded-full bg-slate-800 text-slate-300 text-xs font-semibold">
-                    {currentCard.pos}
+                    {currentCard.pos || currentCard.part_of_speech || 'word'}
                   </span>
                   {masteredIds.has(currentCard.id) && (
                     <span className="px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 text-[10px] font-bold flex items-center gap-1">
@@ -308,11 +325,12 @@ export const FlashcardsGame = ({
                 <div className="flex items-center gap-2">
                   {onSaveToVocabulary && (
                     <SaveToVocabButton
-                      word={currentCard.word}
+                      word={currentCard.word || currentCard.initial_form || ''}
                       translation={
                         currentCard.translations?.[mediatorLanguage] ||
                         currentCard.translations?.en ||
                         currentCard.translation ||
+                        currentCard.definition ||
                         ''
                       }
                       pos={currentCard.pos}
@@ -324,7 +342,7 @@ export const FlashcardsGame = ({
                   )}
                   <button
                     type="button"
-                    onClick={(e) => speakWord(e, currentCard.word)}
+                    onClick={(e) => speakWord(e, currentCard.word || currentCard.initial_form || '')}
                     className={`p-2.5 rounded-xl border transition ${isPlayingAudio
                       ? 'bg-sky-500 text-white border-sky-400 scale-110'
                       : 'bg-slate-800/80 text-slate-300 border-slate-700 hover:text-white hover:bg-slate-700'
@@ -337,8 +355,9 @@ export const FlashcardsGame = ({
               </div>
 
               <div className="text-center space-y-2 py-4">
+                {/* WORD DISPLAY - THIS IS THE FRONT SIDE - FIXED */}
                 <div className="text-3xl sm:text-4xl font-extrabold text-white tracking-tight">
-                  {currentCard.word}
+                  {currentCard.word || currentCard.initial_form || currentCard.text || 'Word'}
                 </div>
                 {currentCard.ipa && (
                   <div className="text-sm font-mono text-sky-400/90 tracking-widest">

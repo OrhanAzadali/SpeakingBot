@@ -1048,27 +1048,68 @@ export const ThreeCubeWordCanvas = ({
 
   const handlePointerUp = (e) => {
     if (!isDraggingRef.current) return;
+
+    // Calculate throw velocity based on drag speed
+    const elapsed = Date.now() - dragPointerStartRef.current.time;
+    const dx = e.clientX - dragPointerStartRef.current.x;
+    const dy = e.clientY - dragPointerStartRef.current.y;
+    const dist = Math.hypot(dx, dy);
+
+    // If there was significant drag movement, apply throw force
+    if (dist > 15 && elapsed > 50) {
+      const block = activeBlockRef.current;
+      if (block && block.mesh) {
+        // Calculate velocity based on drag speed and direction
+        const speed = dist / elapsed; // pixels per millisecond
+        const maxSpeed = 1.2;
+        const velocity = Math.min(speed * 0.8, maxSpeed);
+
+        // Determine throw direction based on drag direction
+        const angle = Math.atan2(dy, dx);
+        const throwX = Math.cos(angle) * velocity;
+        const throwY = Math.sin(angle) * velocity * 0.6; // Less vertical movement
+
+        // Apply physics properties to the block for smooth flight
+        block.userData = block.userData || {};
+        block.userData.velocity = new THREE.Vector3(throwX * 0.5, throwY * 0.3, 0);
+        block.userData.isThrown = true;
+        block.userData.drag = 0.98;
+        block.userData.gravity = -0.015;
+        block.userData.bounce = 0.5;
+        block.userData.friction = 0.95;
+
+        // Calculate landing column based on throw direction
+        const startX = -((gridCols - 1) * TOTAL_BLOCK_SIZE) / 2;
+        const targetCol = Math.round((block.mesh.position.x + throwX * 2 - startX) / TOTAL_BLOCK_SIZE);
+        const clampedCol = Math.max(0, Math.min(gridCols - 1, targetCol));
+
+        // Try to move to target column if space is available
+        let canMove = true;
+        for (let r = block.row; r < gridRows; r++) {
+          if (gridDataRef.current[r][clampedCol] !== null) {
+            canMove = false;
+            break;
+          }
+        }
+        if (canMove && clampedCol !== block.col) {
+          block.col = clampedCol;
+        }
+      }
+    } else if (dist < 8 && elapsed < 350 && !hasMovedColRef.current) {
+      // Quick click without drag -> rotate face
+      rotateActiveFace();
+    }
+
     isDraggingRef.current = false;
     setIsDragging(false);
+    hasMovedColRef.current = false;
 
     if (e.target && e.target.releasePointerCapture) {
       try {
         e.target.releasePointerCapture(e.pointerId);
-      } catch { }
+      } catch { /* ignore */ }
     }
-
-    const elapsed = Date.now() - dragPointerStartRef.current.time;
-    const dist = Math.hypot(
-      e.clientX - dragPointerStartRef.current.x,
-      e.clientY - dragPointerStartRef.current.y
-    );
-
-    if (dist < 8 && elapsed < 350 && !hasMovedColRef.current) {
-      rotateActiveFace();
-    }
-    hasMovedColRef.current = false;
   };
-
   const handlePointerCancel = () => {
     isDraggingRef.current = false;
     setIsDragging(false);
