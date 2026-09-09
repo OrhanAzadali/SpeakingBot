@@ -31,21 +31,25 @@ export const CubeWordCard = ({
   return (
     <div
       id="cubeword-tetris-game-card"
+
       style={{
         borderColor: cardBorder,
         boxShadow: cardShadow,
-        color: themeColors.cubeCard
+        color: themeColors.cubeCard?.hex
       }}
       className="relative rounded-3xl bg-gradient-to-br from-slate-900 via-slate-900/95 to-slate-950 border-2 p-6 sm:p-7 md:p-8 shadow-2xl overflow-hidden transition-all duration-500 group animate-glow-pulse w-full"
     >
-      <div className="absolute -top-20 -right-20 w-64 h-64 bg-cyan-500/15 rounded-full blur-3xl pointer-events-none group-hover:bg-cyan-500/25 transition-all duration-700 animate-chromatic-aura" style={{ color: themeColors.cubeCard }} />
+      <div
+        className="absolute -top-20 -right-20 w-64 h-64 bg-cyan-500/15 rounded-full blur-3xl pointer-events-none group-hover:bg-cyan-500/25 transition-all duration-700 animate-chromatic-aura"
+        style={themeColors.cubeCard?.style}
+      />
       <div className="absolute -bottom-20 -left-20 w-64 h-64 bg-purple-500/15 rounded-full blur-3xl pointer-events-none group-hover:bg-purple-500/25 transition-all duration-700" />
 
       <div className="relative z-10 flex flex-col xl:flex-row items-stretch xl:items-center justify-between gap-6 lg:gap-8">
-        <div className="space-y-4 flex-1 min-w-0" style={{ color: themeColors.brand?.iconStyle }}>
-          <div className="flex flex-wrap items-center gap-2 sm:gap-2.5" style={{ color: themeColors.grammar?.badgeStyle }}>
+        <div className="space-y-4 flex-1 min-w-0" style={themeColors.brand?.iconStyle}>
+          <div className="flex flex-wrap items-center gap-2 sm:gap-2.5" style={themeColors.grammar?.badgeStyle}>
             <span
-              style={{ color: themeColors.badge.style }}
+              style={themeColors.brand?.badgeStyle}
               className="px-3 py-1 rounded-full text-xs font-black uppercase tracking-wider flex items-center gap-1.5 border shadow-sm transition-all"
             >
               <Sparkles className="w-3.5 h-3.5 animate-spin" style={{ animationDuration: '8s' }} />

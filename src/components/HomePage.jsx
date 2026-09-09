@@ -116,16 +116,16 @@ export const HomePage = ({
   ).slice(0, 3);
 
   return (
-    <div className="relative pb-24 space-y-20" style={{ color: themeColors.grammar?.style }}>
+    <div className="relative pb-24 space-y-20" style={themeColors.grammar?.style}>
       {/* Floating Dot Scrollbar Navigation Rail */}
       <ScrollDotsNav sections={sections} />
 
       {/* ================= SECTION 1: HERO & DASHBOARD OVERVIEW ================= */}
-      <section id="hero-section" className="pt-2" style={{ color: themeColors.grammar?.iconStyle }}>
-        <div className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-slate-900 via-slate-900 to-indigo-950/70 border border-slate-800 p-6 sm:p-8 shadow-2xl" style={{ color: themeColors.grammar?.hex }}>
+      <section id="hero-section" className="pt-2" style={themeColors.grammar?.iconStyle}>
+        <div className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-slate-900 via-slate-900 to-indigo-950/70 border border-slate-800 p-6 sm:p-8 shadow-2xl" style={{color: themeColors.grammar?.hex}}>
           {/* Subtle glow background */}
           <div className="absolute top-0 right-0 -mt-8 -mr-8 w-72 h-72 bg-sky-500/10 rounded-full blur-3xl pointer-events-none" />
-          <div className="absolute bottom-0 left-0 -mb-8 -ml-8 w-72 h-72 bg-indigo-500/10 rounded-full blur-3xl pointer-events-none" style={{ color: themeColors.brand?.badgeStyle }} />
+          <div className="absolute bottom-0 left-0 -mb-8 -ml-8 w-72 h-72 bg-indigo-500/10 rounded-full blur-3xl pointer-events-none" style={themeColors.brand?.badgeStyle} />
 
           <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-6">
             <div className="space-y-3">
@@ -217,9 +217,9 @@ export const HomePage = ({
               key={game.id}
               className="bg-slate-900/80 border border-slate-800 rounded-3xl p-5 flex flex-col justify-between hover:border-sky-500/30 transition shadow-lg group"
             >
-              <div className="space-y-3" style={{ color: themeColors.grammar?.style }}>
+              <div className="space-y-3" style={themeColors.grammar?.style}>
                 <div className="flex items-center justify-between">
-                  <div className="w-10 h-10 rounded-xl bg-slate-800 flex items-center justify-center text-xl group-hover:scale-110 transition" style={{ color: themeColors.brand?.iconStyle }}>
+                  <div className="w-10 h-10 rounded-xl bg-slate-800 flex items-center justify-center text-xl group-hover:scale-110 transition" style={themeColors.brand?.iconStyle}>
                     {game.icon}
                   </div>
                   <span className="text-[10px] font-mono font-bold text-slate-400 bg-slate-800 px-2 py-0.5 rounded-full">

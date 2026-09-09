@@ -264,7 +264,7 @@ export const Header = ({
                 } catch { }
                 // showToast(`Theme: ${nextTheme.name}`, "info");
               }}
-              style={{ color: themeColors.brand?.badgeStyle }}
+              style={themeColors.brand?.badgeStyle}
               className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-black transition-all hover:scale-105 shadow-sm cursor-pointer active:scale-95"
               title="Cycle AI Harmonic Theme"
             >

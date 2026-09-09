@@ -256,9 +256,10 @@ export const FlashcardsGame = ({
         <div
           className="bg-gradient-to-r from-sky-500 to-indigo-500 h-full transition-all duration-300"
           style={{
-            color: themeColors.flashcards?.iconStyle
-          } || {
-            width: deck.length > 0 ? `${((currentIndex + 1) / deck.length) * 100}%` : '0%',
+            width: deck.length > 0
+              ? `${((currentIndex + 1) / deck.length) * 100}%`
+              : '0%',
+            ...(themeColors.flashcards?.style || {}),
           }}
         />
       </div>
@@ -268,8 +269,11 @@ export const FlashcardsGame = ({
         <div
           className="relative w-full h-80 sm:h-96 cursor-pointer select-none"
           style={{
-            color: themeColors.flashcards?.style
-          } || { perspective: '1200px' }}
+            width: deck.length > 0
+              ? `${((currentIndex + 1) / deck.length) * 100}%`
+              : '0%',
+            ...(themeColors.flashcards?.style || {}),
+          }}
           onClick={handleFlip}
         >
           <motion.div
@@ -283,8 +287,10 @@ export const FlashcardsGame = ({
             <div
               className="absolute inset-0 bg-gradient-to-br from-slate-900 via-slate-900 to-indigo-950/80 rounded-3xl p-6 sm:p-8 flex flex-col justify-between"
               style={{
-                color: themeColors.flashcards?.style
-              } || { backfaceVisibility: 'hidden', WebkitBackfaceVisibility: 'hidden' }}
+                backfaceVisibility: 'hidden',
+                WebkitBackfaceVisibility: 'hidden',
+                ...(themeColors.flashcards?.style || {}),
+              }}
             >
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
@@ -359,8 +365,10 @@ export const FlashcardsGame = ({
             <div
               className="absolute inset-0 bg-gradient-to-br from-slate-900 via-indigo-950 to-slate-900 rounded-3xl p-6 sm:p-8 flex flex-col justify-between border-2 border-indigo-500/40"
               style={{
-                color: themeColors.flashcards?.style
-              } || { backfaceVisibility: 'hidden', WebkitBackfaceVisibility: 'hidden', transform: 'rotateY(180deg)' }}
+                backfaceVisibility: 'hidden',
+                WebkitBackfaceVisibility: 'hidden',
+                ...(themeColors.flashcards?.style || {}),
+              }}
             >
               <div className="flex items-center justify-between">
                 <span className="text-xs font-mono uppercase tracking-wider text-indigo-400 font-bold">

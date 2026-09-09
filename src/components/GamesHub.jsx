@@ -120,20 +120,20 @@ export const GamesHub = ({
   if (activeGame === 'cubeword') {
     return (
       <div className="fixed inset-0 z-50 bg-slate-950 overflow-y-auto p-3 sm:p-6 flex flex-col justify-start animate-in fade-in duration-200"
-        style={{ color: themeColors.badge?.brandStyle }}>
+        style={themeColors.brand?.badgeStyle}>
         <div className="max-w-6xl w-full mx-auto mb-4 flex items-center justify-between bg-slate-900/90 border border-slate-800 rounded-2xl p-3 px-4 shadow-xl"
-          style={{ color: themeColors.badge?.iconStyle }}>
+          style={themeColors.brand?.iconStyle}>
           <button
             type="button"
             onClick={handleCloseGame}
             className="flex items-center gap-2 px-4 py-2 rounded-xl bg-slate-800 hover:bg-rose-950/40 text-slate-200 hover:text-rose-300 text-xs font-bold transition border border-slate-700 hover:border-rose-500/40 cursor-pointer shadow-md"
-            style={{ color: themeColors.badge?.brandStyle }}
+            style={themeColors.brand?.badgeStyle}
           >
             <X className="w-4 h-4 text-rose-400" />
             <span>Close & Exit Game</span>
           </button>
           <span className="text-xs font-bold text-cyan-400 font-mono"
-            style={{ color: themeColors.grammar?.brandStyle }}>
+            style={themeColors.grammar?.badgeStyle}>
             3D Cube Word Tetris &bull; {gameLanguage || targetLanguage}
           </span>
         </div>
@@ -157,10 +157,11 @@ export const GamesHub = ({
   if (activeGame === 'flashcards') {
     return (
       <div className="fixed inset-0 z-50 bg-slate-950 overflow-y-auto p-3 sm:p-6 flex flex-col justify-start animate-in fade-in duration-200"
-        style={{ color: themeColors.flashCards?.hex }} >
+        style={{ color: themeColors.flashcards?.hex }
+        } >
         <div className="max-w-5xl w-full mx-auto mb-4 flex items-center justify-between bg-slate-900/90 border border-slate-800 rounded-2xl p-3 px-4 shadow-xl"
 
-          style={{ color: themeColors.flashCards?.iconStyle }}>
+          style={themeColors.flashcards?.iconStyle}>
           <button
             type="button"
             onClick={handleCloseGame}
@@ -174,7 +175,7 @@ export const GamesHub = ({
           </span>
         </div>
         <div className="max-w-5xl w-full mx-auto pb-12"
-          style={{ color: themeColors.flashCards?.style }}>
+          style={themeColors.flashcards?.style}>
           <FlashcardsGame
             targetLanguage={targetLanguage}
             mediatorLanguage={mediatorLanguage}
