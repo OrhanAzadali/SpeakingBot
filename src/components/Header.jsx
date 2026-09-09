@@ -15,7 +15,6 @@ import {
 } from "lucide-react";
 
 import { PRESET_THEMES } from "../utils/colorHarmonizer.js";
-import { getSafeThemeRuleset, persistThemeRuleset } from "../utils/themeRulesetCache.js";
 
 export const Header = ({
   userProfile,
@@ -26,36 +25,9 @@ export const Header = ({
   setActiveTab,
   isMiniAppMode,
   setIsMiniAppMode,
-  isSyncing = false
+  isSyncing = false,
+  setId
 }) => {
-
-  // Dynamic Color Harmonizer State
-  const [themeId, setThemeId] = useState(() => {
-    try {
-      return localStorage.getItem("spk_theme_id") || "golden_ai";
-    } catch {
-      return "golden_ai";
-    }
-  });
-  const [rotationIndex, setRotationIndex] = useState(0);
-  const [autoCycle, setAutoCycle] = useState(true);
-
-  // Auto-cycle theme colors smoothly from time to time (every 28 seconds)
-  useEffect(() => {
-    if (!autoCycle) return;
-    const interval = setInterval(() => {
-      setRotationIndex((prev) => (prev + 1) % 8);
-    }, 28000);
-    return () => clearInterval(interval);
-  }, [autoCycle]);
-
-  const activeTheme = getSafeThemeRuleset(themeId, rotationIndex);
-  const themeColors = activeTheme.colors;
-
-  // Persist theme selection and sync with ruleset cache
-  useEffect(() => {
-    persistThemeRuleset(themeId, rotationIndex, activeTheme);
-  }, [themeId, rotationIndex, activeTheme]);
 
   const {
     uiLanguage,
@@ -284,7 +256,7 @@ export const Header = ({
               onClick={() => {
                 const currentIndex = PRESET_THEMES.findIndex((t) => t.id === themeId);
                 const nextTheme = PRESET_THEMES[(currentIndex + 1) % PRESET_THEMES.length];
-                setThemeId(nextTheme.id);
+                setId(nextTheme.id);
                 try {
                   localStorage.setItem("spk_theme_id", nextTheme.id);
                 } catch { }

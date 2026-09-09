@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+
 import { TranslationProvider, useTranslation } from "./i18n/useTranslation";
 import { Header } from "./components/Header";
 import { HomePage } from "./components/HomePage";
@@ -14,6 +15,9 @@ import { NLPInspectorModal } from "./components/NLPInspectorModal";
 import { GamesHub } from "./components/GamesHub";
 import { TelegramMiniAppFrame } from "./components/TelegramMiniAppFrame";
 import { SUPPORTED_UI_LANGUAGES, fetchAiUiTranslation, getEffectiveUiDictionary } from "./utils/uiTranslations.js";
+import { PRESET_THEMES } from "./utils/colorHarmonizer.js";
+import { getSafeThemeRuleset, persistThemeRuleset } from "./utils/themeRulesetCache.js";
+
 import {
   INITIAL_ROADMAPS,
   INITIAL_GRAMMAR_PDFS,
@@ -21,6 +25,35 @@ import {
   getDiagnosticQuestionsByLanguage
 } from "./data/initialData";
 function MainApp() {
+
+  // Dynamic Color Harmonizer State
+  const [themeId, setThemeId] = useState(() => {
+    try {
+      return localStorage.getItem("spk_theme_id") || "golden_ai";
+    } catch {
+      return "golden_ai";
+    }
+  });
+  const [rotationIndex, setRotationIndex] = useState(0);
+  const [autoCycle, setAutoCycle] = useState(true);
+
+  // Auto-cycle theme colors smoothly from time to time (every 28 seconds)
+  useEffect(() => {
+    if (!autoCycle) return;
+    const interval = setInterval(() => {
+      setRotationIndex((prev) => (prev + 1) % 8);
+    }, 28000);
+    return () => clearInterval(interval);
+  }, [autoCycle]);
+
+  const activeTheme = getSafeThemeRuleset(themeId, rotationIndex);
+  const themeColors = activeTheme.colors;
+
+  // Persist theme selection and sync with ruleset cache
+  useEffect(() => {
+    persistThemeRuleset(themeId, rotationIndex, activeTheme);
+  }, [themeId, rotationIndex, activeTheme]);
+
   const { t } = useTranslation();
   const [userProfile, setUserProfile] = useState({
     userId: "usr_84920482",
@@ -331,7 +364,7 @@ function MainApp() {
       telegramUsername={userProfile.telegramUsername}
       onTriggerSync={syncWithTelegramBot}
     >
-      <div className="min-h-screen bg-slate-950 text-slate-100 selection:bg-sky-500 selection:text-white flex flex-col font-sans">
+      <div className="min-h-screen bg-slate-950 text-slate-100 selection:bg-sky-500 selection:text-white flex flex-col font-sans" style={themeColors.grammar?.hex}>
 
         {
           /* Header with full language toggling & Telegram Bot sync status */
@@ -346,12 +379,17 @@ function MainApp() {
           isMiniAppMode={isMiniAppMode}
           setIsMiniAppMode={setIsMiniAppMode}
           isSyncing={isSyncing}
+          setId={setThemeId}
         />
 
         {
           /* Main Workspace Body */
         }
-        <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 pt-6">
+
+        <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 pt-6"
+          style={themeColors.grammar?.hex}
+        >
+
           {activeTab === "home" && (
             <HomePage
               userProfile={userProfile}
@@ -371,6 +409,7 @@ function MainApp() {
               onDeleteFromVocabulary={handleDeleteFromVocabulary}
               onUpdateTargetLanguage={handleUpdateTargetLanguage}
               onSelectToken={(token) => setInspectedToken(token)}
+              themeColors={themeColors}
             />
           )}
 
@@ -379,6 +418,7 @@ function MainApp() {
               roadmaps={roadmaps}
               onOpenAiGenerator={() => handleOpenAiGenerator("roadmap")}
               onSelectToken={(token) => setInspectedToken(token)}
+              themeColors={themeColors}
             />
           )}
 
