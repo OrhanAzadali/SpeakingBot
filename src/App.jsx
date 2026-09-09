@@ -13,6 +13,7 @@ import { AIGeneratorModal } from "./components/AIGeneratorModal";
 import { NLPInspectorModal } from "./components/NLPInspectorModal";
 import { GamesHub } from "./components/GamesHub";
 import { TelegramMiniAppFrame } from "./components/TelegramMiniAppFrame";
+import { SUPPORTED_UI_LANGUAGES, fetchAiUiTranslation, getEffectiveUiDictionary } from "./utils/uiTranslations.js";
 import {
   INITIAL_ROADMAPS,
   INITIAL_GRAMMAR_PDFS,
