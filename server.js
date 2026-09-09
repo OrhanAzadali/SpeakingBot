@@ -19,34 +19,11 @@ import { createServer as createViteServer } from "vite";
 import { createRequire } from "module";
 import zlib from "zlib";
 import fs from "fs";
-import cron from "node-cron";
-import Tesseract from "tesseract.js";
-import * as pdfjsLib from "pdfjs-dist/build/pdf.mjs";
-import { createCanvas } from "@napi-rs/canvas"; // or "canvas", choose the one that is in package.json
 import { generateGrammarGuidePdfBuffer, generateRoadmapPdfBuffer, generateVocabularyPdfBuffer, generateClassicStoryPdfBuffer } from './src/utils/pdfServerGenerator.js';
 function sendPdf(res, buffer, filename) {
   res.setHeader('Content-Type', 'application/pdf');
   res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
   res.send(Buffer.from(buffer));
-}
-async function extractTextFromScannedPdf(buffer) {
-  // Convert PDF to images
-  const pdf = await pdfjsLib.getDocument({ data: new Uint8Array(buffer) }).promise;
-  let fullText = "";
-  const canvas = require("canvas");
-
-  for (let i = 1; i <= pdf.numPages; i++) {
-    const page = await pdf.getPage(i);
-    const viewport = page.getViewport({ scale: 2 });
-    const canvasObj = canvas.createCanvas(viewport.width, viewport.height);
-    const ctx = canvasObj.getContext("2d");
-    await page.render({ canvasContext: ctx, viewport }).promise;
-
-    const dataUrl = canvasObj.toDataURL();
-    const { data: { text } } = await Tesseract.recognize(dataUrl, "eng");
-    fullText += text + "\n";
-  }
-  return fullText;
 }
 
 const customRequire = typeof require !== "undefined" ? require : createRequire(import.meta.url);
@@ -98,8 +75,9 @@ function getGeminiClient() {
 
 async function callGeminiWithResilience(
   prompt,
-  preferredModel = "gemini-3.5-flash",
-  fallbackModels = ["gemini-2.5-flash", "gemini-3.1-flash-lite", "gemini-2.5-flash-lite"]
+  preferredModel = "gemini-3.6-flash",
+  fallbackModels = ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash"],
+  isJson = true
 ) {
   const apiKey = process.env.GEMINI_API_KEY;
 
@@ -117,10 +95,10 @@ async function callGeminiWithResilience(
       const generatePromise = ai.models.generateContent({
         model,
         contents: prompt,
-        config: { responseMimeType: "application/json" }
+        config: isJson ? { responseMimeType: "application/json" } : {}
       });
       const timeoutPromise = new Promise((_, reject) => {
-        setTimeout(() => reject(new Error("TIMEOUT_SPIKE")), 60000); // Change 15000 to 30000
+        setTimeout(() => reject(new Error("TIMEOUT_SPIKE")), 45000);
       });
 
       const response = await Promise.race([generatePromise, timeoutPromise]);
@@ -131,11 +109,6 @@ async function callGeminiWithResilience(
       const msg = err?.message || String(err);
       console.error(`[AI Engine] Model ${model} failed:`, msg);
       console.warn(`[AI Engine] Model ${model} failed (${msg.slice(0, 80)}). Trying next...`);
-      // If it's a 404 (model not found), continue to next model
-      if (msg.includes("404") || msg.includes("not found")) {
-        continue;
-      }
-      // For other errors, still try the next model
       continue;
     }
   }
@@ -336,6 +309,20 @@ function saveStoriesToDisk() {
 const diskData = loadStoriesFromDisk();
 let userCustomStories = diskData.userCustomStories || {};
 let autoFetchedStories = diskData.autoFetchedStories || [];
+
+// Canonical language mapper ensuring strict isolation between language tabs
+function normalizeLanguageCanonical(lang) {
+  if (!lang) return "English";
+  const s = String(lang).trim().toLowerCase();
+  if (s === "en" || s === "english") return "English";
+  if (s === "de" || s === "german" || s === "deutsch") return "German";
+  if (s === "es" || s === "spanish" || s === "español") return "Spanish";
+  if (s === "fr" || s === "french" || s === "français") return "French";
+  if (s === "it" || s === "italian" || s === "italiano") return "Italian";
+  if (s === "ru" || s === "russian" || s === "русский") return "Russian";
+  if (s === "tr" || s === "turkish" || s === "türkçe") return "Turkish";
+  return lang.charAt(0).toUpperCase() + lang.slice(1);
+}
 // ==========================================
 // CLEAN & ROBUST PDF EXTRACTION ENGINE
 // ==========================================
@@ -372,34 +359,8 @@ function cleanExtractedPdfText(text) {
 }
 
 async function extractTextFromPdfWithOCR(buffer) {
-  try {
-    // Convert PDF buffer to a Uint8Array for pdfjs
-    const pdfData = new Uint8Array(buffer);
-    const pdf = await pdfjsLib.getDocument({ data: pdfData }).promise;
-
-    const worker = await createWorker('eng'); // English; you can add more languages if needed
-
-    let fullText = '';
-
-    for (let i = 1; i <= pdf.numPages; i++) {
-      const page = await pdf.getPage(i);
-      const viewport = page.getViewport({ scale: 2 }); // 2x for better OCR
-      const canvas = createCanvas(viewport.width, viewport.height);
-      const context = canvas.getContext('2d');
-      await page.render({ canvasContext: context, viewport }).promise;
-
-      const imageBuffer = canvas.toBuffer('image/png');
-      const { data: { text } } = await worker.recognize(imageBuffer);
-      fullText += text + '\n';
-    }
-
-    await worker.terminate();
-
-    return fullText;
-  } catch (err) {
-    console.warn('[OCR] Failed:', err.message);
-    return '';
-  }
+  // Scanned image-only PDFs require external OCR binaries which are not available in this runtime
+  return '';
 }
 
 // Extract text directly from decompressed PDF FlateDecode streams
@@ -637,38 +598,11 @@ async function extractTextFromPdfBuffer(buffer) {
           if (typeof parser.destroy === "function") {
             try { await parser.destroy(); } catch (_) { }
           }
-          let cleaned = cleanExtractedPdfText(raw);
-          if (!cleaned) {
-            cleaned = await extractTextFromScannedPdf(buffer);
-          }
-          if (cleaned.length === 0) {
-            // Convert PDF to images using pdfjs-dist + canvas
-            try {
-              const pdfData = new Uint8Array(buffer);
-              const pdf = await pdfjsLib.getDocument({ data: pdfData }).promise;
-              const canvas = require("canvas");
-              let ocrText = "";
-              for (let i = 1; i <= pdf.numPages; i++) {
-                const page = await pdf.getPage(i);
-                const viewport = page.getViewport({ scale: 2 });
-                const canvasObj = canvas.createCanvas(viewport.width, viewport.height);
-                const ctx = canvasObj.getContext("2d");
-                await page.render({ canvasContext: ctx, viewport }).promise;
-                const imageBuffer = canvasObj.toBuffer("image/png");
-                const text = await ocrImageFromBuffer(imageBuffer);
-                ocrText += text + "\n";
-              }
-              cleanedText = ocrText;
-            } catch (ocrErr) {
-              console.warn("[OCR] Failed:", ocrErr.message);
-            }
-          }
+          const cleaned = cleanExtractedPdfText(raw);
           if (isReadableLiteraryText(cleaned) && cleaned.length > 50) {
             console.log(`[PDF Engine] Success via PDFParse class. Extracted ${cleaned.length} clean characters.`);
             return cleaned;
           }
-
-
         } catch (e1) {
           console.warn("[PDF Engine] PDFParse class extraction notice:", e1.message);
         }
@@ -678,32 +612,7 @@ async function extractTextFromPdfBuffer(buffer) {
           if (typeof parseFunc === "function") {
             const res = await parseFunc(buffer, { max: 30 });
             const raw = typeof res === "string" ? res : (res && res.text ? res.text : "");
-            let cleaned = cleanExtractedPdfText(raw);
-            if (!cleaned) {
-              cleaned = await extractTextFromScannedPdf(buffer);
-            }
-            if (cleaned.length === 0) {
-              // Convert PDF to images using pdfjs-dist + canvas
-              try {
-                const pdfData = new Uint8Array(buffer);
-                const pdf = await pdfjsLib.getDocument({ data: pdfData }).promise;
-                const canvas = require("canvas");
-                let ocrText = "";
-                for (let i = 1; i <= pdf.numPages; i++) {
-                  const page = await pdf.getPage(i);
-                  const viewport = page.getViewport({ scale: 2 });
-                  const canvasObj = canvas.createCanvas(viewport.width, viewport.height);
-                  const ctx = canvasObj.getContext("2d");
-                  await page.render({ canvasContext: ctx, viewport }).promise;
-                  const imageBuffer = canvasObj.toBuffer("image/png");
-                  const text = await ocrImageFromBuffer(imageBuffer);
-                  ocrText += text + "\n";
-                }
-                cleanedText = ocrText;
-              } catch (ocrErr) {
-                console.warn("[OCR] Failed:", ocrErr.message);
-              }
-            }
+            const cleaned = cleanExtractedPdfText(raw);
             if (isReadableLiteraryText(cleaned) && cleaned.length > 50) {
               console.log(`[PDF Engine] Success via pdf-parse function call. Extracted ${cleaned.length} clean characters.`);
               return cleaned;
@@ -714,7 +623,6 @@ async function extractTextFromPdfBuffer(buffer) {
         }
       }
     }
-
   } catch (err) {
     console.warn("[SpeakBot PDF Engine] Core parse notice:", err.message);
   }
@@ -724,7 +632,7 @@ async function extractTextFromPdfBuffer(buffer) {
     console.log("[PDF Engine] Inspecting internal compressed FlateDecode streams...");
     const rawStreamText = extractTextFromPdfStreams(buffer);
     if (rawStreamText && rawStreamText.length > 60) {
-      let cleaned = cleanExtractedPdfText(rawStreamText);
+      const cleaned = cleanExtractedPdfText(rawStreamText);
       if (isReadableLiteraryText(cleaned) && cleaned.length > 50) {
         console.log(`[PDF Engine] Success via FlateDecode stream extraction! Extracted ${cleaned.length} clean characters.`);
         return cleaned;
@@ -734,14 +642,31 @@ async function extractTextFromPdfBuffer(buffer) {
     console.warn("[PDF Engine] Binary stream extraction notice:", eStream.message);
   }
 
-  console.log("[PDF Engine] No readable text layer found. Attempting OCR with Tesseract.js...");
-  const ocrText = await extractTextFromPdfWithOCR(buffer);
-  if (ocrText && ocrText.trim().length > 50) {
-    console.log(`[OCR] Successfully extracted ${ocrText.length} characters.`);
-    return ocrText;
+  // Raw regex text stream fallback
+  try {
+    const rawStr = buffer.toString("utf-8");
+    const textMatches = rawStr.match(/\(([^()]*)\)\s*T[jJ]/g);
+    if (textMatches && textMatches.length > 0) {
+      const extracted = textMatches
+        .map((m) => {
+          const match = m.match(/\(([^()]*)\)/);
+          return match ? match[1] : "";
+        })
+        .filter((m) => m.trim().length > 1)
+        .join(" ");
+
+      const cleaned = cleanExtractedPdfText(extracted);
+      if (isReadableLiteraryText(cleaned) && cleaned.length > 50) {
+        console.log(`[PDF Engine] Success via stream regex extraction! Extracted ${cleaned.length} characters.`);
+        return cleaned;
+      }
+    }
+  } catch (eRegex) {
+    console.warn("[PDF Engine] Regex text extraction notice:", eRegex.message);
   }
-  console.log("[OCR] Extraction failed or text too short.");
-  return ""; // will lead to simulation fallback
+
+  console.log("[PDF Engine] No readable text layer found in PDF buffer.");
+  return ""; // triggers safe fallback/canon passage
 }
 
 // Generate dynamic, book-specific fallback story when AI engine is offline
@@ -1198,7 +1123,7 @@ Return ONLY valid JSON matching this schema:
   "sentences": [
     {
       "text": "Exact sentence in ${targetLanguage}",
-      "translation": "Provide translation in ${mediatorLanguage}", "cefr":
+      "translation": "Provide translation in ${mediatorLanguage}",
       "literaryNote": "Pedagogical or literary commentary on syntax, phrasing, or rhetoric in this sentence",
       "audioTime": "0:00 - 0:08"
     }
@@ -1208,7 +1133,7 @@ Return ONLY valid JSON matching this schema:
       "word": "notable vocabulary word from excerpt",
       "ipa": "/phonetic/",
       "pos": "noun/verb/adjective/adverb",
-      "translation": "Provide translation in ${mediatorLanguage}", "cefr":
+      "translation": "Provide translation in ${mediatorLanguage}",
       "cefr": "${userLevel}",
       "example": "Contextual usage sentence in ${targetLanguage}"
     }
@@ -1411,8 +1336,8 @@ Return ONLY valid JSON matching this schema:
       isSimulated: isTextScannedOrEmpty,
       uploadedAt: new Date().toISOString(),
       coverImage: "https://images.unsplash.com/photo-1456513080510-7bf3a84b82f8?auto=format&fit=crop&w=800&q=80",
-      targetLanguage: targetLanguage,
-      isFallback: usedFallback   // <-- ADD THIS LINE
+      targetLanguage: normalizeLanguageCanonical(targetLanguage),
+      isFallback: usedFallback
     };
 
     if (!userCustomStories[userId]) userCustomStories[userId] = [];
@@ -1554,14 +1479,14 @@ app.get("/api/health", (req, res) => {
   });
 });
 
-// ========== FIX: Filter custom stories by language ==========
+// ========== FIX: Filter custom stories strictly by canonical target language ==========
 app.get("/api/stories/custom-list", (req, res) => {
   const userId = String(req.query.userId || "default-user");
-  const targetLanguage = String(req.query.targetLanguage || "English");
-  const userStories = (userCustomStories[userId] || []).filter(s => s.targetLanguage === targetLanguage);
-  const autoStories = autoFetchedStories.filter(s => s.targetLanguage === targetLanguage);
-  const combined = [...autoStories, ...userStories]; // order: auto first? or combine
-  res.json({ success: true, customStories: combined, dailyFeeds: getDailyBotStoryFeeds(targetLanguage) });
+  const canonicalTarget = normalizeLanguageCanonical(req.query.targetLanguage || "English");
+  const userStories = (userCustomStories[userId] || []).filter(s => normalizeLanguageCanonical(s.targetLanguage) === canonicalTarget);
+  const autoStories = (autoFetchedStories || []).filter(s => normalizeLanguageCanonical(s.targetLanguage) === canonicalTarget);
+  const combined = [...userStories, ...autoStories];
+  res.json({ success: true, customStories: combined, dailyFeeds: getDailyBotStoryFeeds(canonicalTarget) });
 });
 
 app.get("/api/stories/custom-story/:storyId/pdf", (req, res) => {
@@ -1800,6 +1725,7 @@ app.get("/api/bot/sync", (req, res) => {
   res.json({
     success: true,
     synced: true,
+    userState: user,
     userProfile: user,
     serverTimestamp: Date.now()
   });
@@ -1820,6 +1746,7 @@ app.post("/api/bot/sync", (req, res) => {
   res.json({
     success: true,
     message: "Telegram Bot synchronization updated.",
+    userState: user,
     userProfile: user
   });
 });
@@ -2395,32 +2322,74 @@ app.post("/api/user/sync-game-xp", (req, res) => {
 let memoryGames = {};
 
 app.post("/api/games/memory/start", (req, res) => {
-  const { userId, targetLanguage = "en" } = req.body;
-  const words = ["apple", "banana", "cherry", "date", "elder", "fig"]; // Could be dynamic
-  const pairs = words.map((word, i) => ({ id: i, word, matched: false }));
-  memoryGames[userId] = { pairs };
-  res.json({ success: true, pairs: pairs.map(p => ({ id: p.id })) });
+  const { userId = "default-user", targetLanguage = "English", userLevel = "B1", customWords } = req.body;
+  const langKey = normalizeLanguageCanonical(targetLanguage);
+  const pool = (Array.isArray(customWords) && customWords.length >= 4)
+    ? customWords
+    : (FALLBACK_WORDS[langKey] || FALLBACK_WORDS["English"]);
+
+  // Select 6 unique words
+  const selectedWords = [...pool].sort(() => 0.5 - Math.random()).slice(0, 6);
+  // Create 12 cards (2 cards per word)
+  const deck = [];
+  selectedWords.forEach((word, pairIdx) => {
+    deck.push({ id: pairIdx * 2, word, pairId: pairIdx, matched: false });
+    deck.push({ id: pairIdx * 2 + 1, word, pairId: pairIdx, matched: false });
+  });
+  // Shuffle cards
+  deck.sort(() => 0.5 - Math.random());
+  const cards = deck.map((c, idx) => ({ id: idx, word: c.word, pairId: c.pairId, matched: false }));
+
+  memoryGames[userId] = { cards, matchedCount: 0, targetLanguage };
+  res.json({
+    success: true,
+    cards: cards.map(c => ({ id: c.id, matched: false })),
+    totalPairs: selectedWords.length
+  });
 });
 
 app.post("/api/games/memory/flip", (req, res) => {
-  const { userId, cardId } = req.body;
-  const game = memoryGames[userId];
-  if (!game) return res.status(404).json({ error: "Game not started" });
-  const card = game.pairs.find(p => p.id === cardId);
-  if (!card || card.matched) return res.status(400).json({ error: "Invalid card" });
-  res.json({ success: true, word: card.word });
+  const { userId = "default-user", cardId } = req.body;
+  let game = memoryGames[userId];
+  if (!game) {
+    const pool = FALLBACK_WORDS["English"];
+    const deck = [];
+    pool.slice(0, 6).forEach((word, pairIdx) => {
+      deck.push({ id: pairIdx * 2, word, pairId: pairIdx, matched: false });
+      deck.push({ id: pairIdx * 2 + 1, word, pairId: pairIdx, matched: false });
+    });
+    deck.sort(() => 0.5 - Math.random());
+    const cards = deck.map((c, idx) => ({ id: idx, word: c.word, pairId: c.pairId, matched: false }));
+    game = { cards, matchedCount: 0, targetLanguage: "English" };
+    memoryGames[userId] = game;
+  }
+  const card = game.cards.find(p => p.id === cardId);
+  if (!card) return res.status(400).json({ error: "Card not found" });
+  res.json({ success: true, cardId: card.id, word: card.word, matched: card.matched });
 });
 
 app.post("/api/games/memory/match", (req, res) => {
-  const { userId, card1, card2 } = req.body;
-  const game = memoryGames[userId];
-  if (!game) return res.status(404).json({ error: "Game not started" });
-  const c1 = game.pairs.find(p => p.id === card1);
-  const c2 = game.pairs.find(p => p.id === card2);
-  if (c1.word === c2.word) {
-    c1.matched = true; c2.matched = true;
+  const { userId = "default-user", card1, card2 } = req.body;
+  let game = memoryGames[userId];
+  if (!game) return res.json({ success: false, matched: false });
+  const c1 = game.cards.find(p => p.id === card1);
+  const c2 = game.cards.find(p => p.id === card2);
+  if (!c1 || !c2 || c1.id === c2.id) return res.json({ success: false, matched: false });
+
+  if (c1.word.toLowerCase() === c2.word.toLowerCase()) {
+    c1.matched = true;
+    c2.matched = true;
     game.matchedCount = (game.matchedCount || 0) + 1;
-    res.json({ success: true, matched: true, matchedCount: game.matchedCount, gameOver: game.matchedCount === game.pairs.length / 2 });
+    const totalPairs = game.cards.length / 2;
+    const isGameOver = game.matchedCount >= totalPairs;
+    res.json({
+      success: true,
+      matched: true,
+      matchedCount: game.matchedCount,
+      totalPairs,
+      gameOver: isGameOver,
+      xpEarned: 25
+    });
   } else {
     res.json({ success: true, matched: false });
   }
@@ -2431,21 +2400,43 @@ app.post("/api/games/memory/match", (req, res) => {
 let wordBuilderGames = {};
 
 app.post("/api/games/wordbuilder/start", (req, res) => {
-  const { userId, targetWord = "LANGUAGE" } = req.body;
-  wordBuilderGames[userId] = { targetWord, foundWords: [] };
-  res.json({ success: true, targetWord });
+  const { userId = "default-user", targetWord, targetLanguage = "English" } = req.body;
+  const word = (targetWord || "VOCABULARY").toUpperCase();
+  wordBuilderGames[userId] = { targetWord: word, foundWords: [] };
+  res.json({ success: true, targetWord: word });
 });
 
 app.post("/api/games/wordbuilder/verify", (req, res) => {
-  const { userId, word } = req.body;
-  const game = wordBuilderGames[userId];
-  if (!game) return res.status(404).json({ error: "Game not started" });
-  const upperWord = word.toUpperCase();
-  const valid = upperWord.length >= 3 && [...upperWord].every(ch => game.targetWord.includes(ch));
-  if (!valid) return res.json({ success: false, valid: false, message: "Invalid word" });
-  if (game.foundWords.includes(upperWord)) return res.json({ success: false, valid: false, message: "Already found" });
+  const { userId = "default-user", word } = req.body;
+  let game = wordBuilderGames[userId];
+  if (!game) {
+    game = { targetWord: "VOCABULARY", foundWords: [] };
+    wordBuilderGames[userId] = game;
+  }
+  const upperWord = String(word || "").trim().toUpperCase();
+  if (upperWord.length < 3) {
+    return res.json({ success: false, valid: false, message: "Word must be at least 3 letters long." });
+  }
+  // Check that all letters are available in targetWord
+  const targetChars = [...game.targetWord];
+  for (const ch of upperWord) {
+    const idx = targetChars.indexOf(ch);
+    if (idx === -1) {
+      return res.json({ success: false, valid: false, message: `Letter "${ch}" is not available in the target word!` });
+    }
+    targetChars.splice(idx, 1);
+  }
+  if (game.foundWords.includes(upperWord)) {
+    return res.json({ success: false, valid: false, message: `"${upperWord}" was already discovered!` });
+  }
   game.foundWords.push(upperWord);
-  res.json({ success: true, valid: true, foundWords: game.foundWords });
+  res.json({
+    success: true,
+    valid: true,
+    foundWord: upperWord,
+    foundWords: game.foundWords,
+    score: game.foundWords.length * 10
+  });
 });
 
 // ========== AI DYNAMIC WORD GENERATION FOR GAMES ==========
@@ -2558,8 +2549,8 @@ async function startServer() {
 
 startServer();
 
-// Schedule auto-fetch 3-5 times daily (e.g., every 6 hours)
-cron.schedule("0 */6 * * *", async () => {
+// Schedule auto-fetch periodically (every 6 hours)
+setInterval(async () => {
   const rawStory = await fetchRandomGutenbergBook();
   if (!rawStory) return;
 
@@ -2761,8 +2752,7 @@ Return ONLY valid JSON matching this schema:
     saveStoriesToDisk();
     console.log(`[AutoFetch] Added story: ${rawStory.title}`);
   }
-});
-
+}, 6 * 60 * 60 * 1000);
 
 // index - YN3NmuGb.js: 4532 Uncaught ReferenceError: useRef is not defined
 //     at p9(index - YN3NmuGb.js: 4532: 39843)
