@@ -380,6 +380,7 @@ function MainApp() {
           isSyncing={isSyncing}
           setId={setThemeId}
           themeColors={themeColors}
+          activeTheme={activeTheme}
         />
 
         {
@@ -418,7 +419,6 @@ function MainApp() {
               roadmaps={roadmaps}
               onOpenAiGenerator={() => handleOpenAiGenerator("roadmap")}
               onSelectToken={(token) => setInspectedToken(token)}
-              themeColors={themeColors}
             />
           )}
 
