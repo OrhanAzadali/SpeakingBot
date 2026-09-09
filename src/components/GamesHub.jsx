@@ -147,7 +147,6 @@ export const GamesHub = ({
               if (onGainXp) onGainXp('cubeword', pts, 25);
             }}
             apiBase=""
-
             themeColors={themeColors}
           />
         </div>

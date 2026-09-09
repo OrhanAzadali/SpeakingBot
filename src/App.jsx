@@ -46,7 +46,7 @@ function MainApp() {
   }, [autoCycle]);
 
   const activeTheme = getSafeThemeRuleset(themeId, rotationIndex);
-  const themeColors = activeTheme.colors || PRESET_THEMES[themeId].colors;
+  let themeColors = activeTheme.colors || PRESET_THEMES[themeId].colors;
 
   // Persist theme selection and sync with ruleset cache
   useEffect(() => {
@@ -379,6 +379,7 @@ function MainApp() {
           setIsMiniAppMode={setIsMiniAppMode}
           isSyncing={isSyncing}
           setId={setThemeId}
+          themeColors={themeColors}
         />
 
         {
