@@ -12,9 +12,8 @@ import {
   Check,
   RefreshCw,
   Palette,
-  RefreshCw,
-  Languages,
 } from "lucide-react";
+
 import { PRESET_THEMES } from "../utils/colorHarmonizer.js";
 import { getSafeThemeRuleset, persistThemeRuleset } from "../utils/themeRulesetCache.js";
 
