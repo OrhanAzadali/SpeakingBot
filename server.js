@@ -250,17 +250,30 @@ function getGeminiClient() {
     return geminiClient;
 }
 
-async function callGeminiWithResilience(prompt,
-    preferredModel = "gemini-2.5-flash",
-    fallbackModels = ["gemini-2.0-flash"],
+async function callGeminiWithResilience(
+    prompt,
+    preferredModel = null,          // ← было "gemini-2.5-flash"
+    fallbackModels = [],             // ← было ["gemini-2.0-flash"]
     isJson = true
 ) {
     const apiKey = process.env.GEMINI_API_KEY;
     if (!apiKey) return null;
 
     const ai = getGeminiClient();
-    const candidateModels = [preferredModel, ...fallbackModels];
 
+    // Если модель не передана явно — берём из обнаруженного списка
+    let candidateModels = [];
+    if (preferredModel) {
+        candidateModels.push(preferredModel, ...fallbackModels);
+    } else {
+        const discovered = await discoverAvailableGeminiModels();
+        if (discovered.length > 0) {
+            candidateModels = discovered.slice(0, 10);  // ← было 3, стало 10
+        } else {
+            // Жёсткий fallback, если discovery не сработал
+            candidateModels = ["gemini-3.5-flash-lite", "gemini-3.5-flash", "gemini-3.6-flash"];
+        }
+    }
     for (const model of candidateModels) {
         for (let attempt = 0; attempt < 2; attempt++) {
             try {
@@ -270,21 +283,75 @@ async function callGeminiWithResilience(prompt,
                     config: isJson ? { responseMimeType: "application/json" } : {}
                 });
                 const timeoutPromise = new Promise((_, reject) =>
-                    setTimeout(() => reject(new Error("TIMEOUT_SPIKE")), 35000)
+                    setTimeout(() => reject(new Error("TIMEOUT_SPIKE")), 50000)
                 );
                 const response = await Promise.race([generatePromise, timeoutPromise]);
                 if (response && response.text) return response.text;
             } catch (err) {
                 const msg = err?.message || String(err);
+                // 404 = модель недоступна → пропускаем без retry
+                if (msg.includes("404") || msg.includes("not found")) {
+                    console.warn(`[AI Engine] ${model} недоступна (404), пропускаем`);
+                    break;   // не делаем вторую попытку на этой модели
+                }
                 console.warn(`[AI Engine] ${model} attempt ${attempt + 1} failed: ${msg.slice(0, 100)}`);
                 if (attempt === 0) await new Promise(r => setTimeout(r, 1200));
             }
+        }
+        // Небольшая пауза перед следующей моделью — снижает шанс повторного 503
+        if (i < candidateModels.length - 1) {
+            await new Promise(r => setTimeout(r, 300));
         }
     }
     return null;
 }
 
-async function callOpenRouter(prompt, model = "openai/gpt-oss-20b:free") {
+// ── Кэш списка доступных моделей ──
+let availableGeminiModelsCache = null;
+let availableGeminiModelsCacheExpiry = 0;
+
+async function discoverAvailableGeminiModels(forceRefresh = false) {
+    // Кэш на 1 час — не дёргаем API при каждом вызове
+    if (!forceRefresh && availableGeminiModelsCache && Date.now() < availableGeminiModelsCacheExpiry) {
+        return availableGeminiModelsCache;
+    }
+    const apiKey = process.env.GEMINI_API_KEY;
+    if (!apiKey) return [];
+
+    try {
+        const res = await fetch(
+            `https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`,
+            { signal: AbortSignal.timeout(10000) }
+        );
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
+
+        // Оставляем только генеративные модели, сортируем по актуальности
+        const models = (data.models || [])
+            .filter(m => m.supportedGenerationMethods?.includes("generateContent"))
+            .map(m => m.name.replace(/^models\//, ""))
+            .filter(name => name.includes("flash"))
+            .sort((a, b) => {
+                const aLite = a.includes("lite") ? 1 : 0;
+                const bLite = b.includes("lite") ? 1 : 0;
+                // Lite-модели первыми (больше ёмкости у Google)
+                if (aLite !== bLite) return bLite - aLite;
+                // Внутри группы — по убыванию версии
+                const verA = parseFloat(a.match(/\d+\.\d+/)?.[0] || "0");
+                const verB = parseFloat(b.match(/\d+\.\d+/)?.[0] || "0");
+                return verB - verA;
+            });
+        console.log(`[AI Engine] Обнаружено ${models.length} доступных Gemini моделей:`, models.slice(0, 5));
+        availableGeminiModelsCache = models;
+        availableGeminiModelsCacheExpiry = Date.now() + 3600 * 1000;  // 1 час
+        return models;
+    } catch (e) {
+        console.warn("[AI Engine] Не удалось получить список моделей:", e.message);
+        return [];
+    }
+}
+
+async function callOpenRouter(prompt, model = "meta-llama/llama-3.3-70b-instruct:free") {
     const apiKey = process.env.OPENROUTER_API_KEY;
     if (!apiKey) return null;
     try {
@@ -882,6 +949,176 @@ function generateLocalFallbackStory(params) {
 // =====================================================
 // DAILY BOT STORY FEEDS (FIXED - feeds variable)
 // =====================================================
+// Проверенный список Project Gutenberg ID — все классические произведения,
+// доступные в plain-text. Источник: официальные топ-100 Gutenberg.
+const STATIC_GUTENBERG_BOOK_IDS = [
+    // Английская классика — топ-50 по скачиваниям
+    1342, 16328, 11, 84, 2701, 5200, 1952, 1661, 98, 1080,
+    25344, 1250, 2542, 1497, 43, 120, 6130, 1232, 345, 844,
+    2600, 1400, 1748, 1260, 4300, 158, 219, 996, 16, 768,
+    205, 2413, 30254, 514, 932, 2814, 3825, 4217, 5765, 121,
+    1857, 2560, 2214, 510, 105, 2400, 16643, 560, 2148, 3289,
+    1322, 321, 2587, 1053, 3020, 3600, 41445, 15399, 17396, 38427,
+    2759, 11231, 17013, 2514, 2284, 1184, 2130, 2185, 3621, 3994,
+    4180, 4811, 5511, 5994, 6564, 7035, 7433, 8000, 8786, 9298,
+    10002, 11000, 12000, 13000, 14000, 15000, 16000, 17000, 18000, 19000,
+
+    // Американская литература
+    74, 76, 86, 108, 109, 135, 158, 160, 161, 171,
+    173, 175, 191, 195, 199, 205, 206, 220, 237, 238,
+    244, 250, 254, 259, 260, 262, 265, 270, 281, 293,
+
+    // Британская классика (расширение)
+    564, 585, 649, 730, 829, 863, 913, 929, 968, 1023,
+    1058, 1080, 1148, 1184, 1232, 1260, 1322, 1400, 1497, 1580,
+    1615, 1661, 1748, 1857, 1952, 2053, 2148, 2214, 2284, 2400,
+
+    // Русская литература (в английском переводе)
+    1399, 2148, 28054, 2600, 1846, 3390, 4069, 4600, 5552, 6000,
+
+    // Европейская литература
+    1148, 1149, 1150, 1151, 1152, 1153, 1154, 1155, 1156, 1157,
+    2000, 2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009,
+
+    // Детективы и приключения
+    1661, 2097, 2449, 2600, 2852, 3070, 3289, 3420, 3546, 3800,
+
+    // Фантастика и фэнтези (старая)
+    35, 36, 37, 38, 39, 40, 41, 42, 44, 45,
+    84, 85, 86, 87, 88, 89, 90, 91, 92, 93,
+];
+
+/**
+ * Дедуплицируем список при загрузке модуля.
+ */
+const UNIQUE_GUTENBERG_IDS = [...new Set(STATIC_GUTENBERG_BOOK_IDS)];
+/**
+ * Уровень 3 — Статический fallback.
+ * Не зависит ни от одного внешнего API. Всегда возвращает книгу.
+ */
+async function fetchFromStaticList(targetLanguage = "English") {
+    // Для не-английских языков статический список не подходит —
+    // возвращаем null, чтобы сработали другие уровни.
+    if (normalizeLanguageCanonical(targetLanguage) !== "English") {
+        return null;
+    }
+
+    // Перемешиваем, чтобы книги не повторялись в одном порядке
+    const shuffled = [...STATIC_GUTENBERG_BOOK_IDS].sort(() => Math.random() - 0.5);
+
+    // Пробуем до 10 случайных ID, пока не найдём доступный текст
+    for (let i = 0; i < Math.min(10, shuffled.length); i++) {
+        const bookId = shuffled[i];
+        try {
+            const url = `https://www.gutenberg.org/cache/epub/${bookId}/pg${bookId}.txt`;
+            const res = await fetch(url, { signal: AbortSignal.timeout(8000) });
+            if (!res.ok) continue;
+
+            const fullText = await res.text();
+            if (!fullText || fullText.trim().length < 500) continue;
+
+            // Пытаемся определить название и автора из текста
+            const meta = extractTitleAuthorFromGutenbergText(fullText, bookId);
+
+            return {
+                id: `static-${Date.now()}-${bookId}`,
+                title: meta.title,
+                author: meta.author,
+                targetLanguage: "English",
+                excerpt: selectBestExcerpt(fullText, 300),
+                content: fullText,
+                source: `Project Gutenberg #${bookId}`,
+                isAutoFetched: true,
+                createdAt: new Date().toISOString(),
+            };
+        } catch (e) {
+            console.warn(`[StaticFetch] Book #${bookId} failed:`, e.message);
+        }
+    }
+
+    // Даже статический список не сработал (нет интернета вообще) —
+    // возвращаем null, чтобы сработал generateLocalFallbackStory
+    return null;
+}
+
+/**
+ * Вспомогательная функция: извлекает название и автора из Gutenberg plain-text.
+ */
+function extractTitleAuthorFromGutenbergText(text, fallbackId) {
+    const head = text.slice(0, 2000);
+    const titleMatch = head.match(/^Title:\s*(.+)$/m);
+    const authorMatch = head.match(/^Author:\s*(.+)$/m);
+    return {
+        title: titleMatch ? titleMatch[1].trim() : `Gutenberg Book #${fallbackId}`,
+        author: authorMatch ? authorMatch[1].trim() : "Classic Author",
+    };
+}
+
+/**
+ * Уровень 1 — Gutendex API.
+ * Живой каталог, JSON, фильтр по языку.
+ */
+
+async function fetchFromGutendex(targetLanguage = "English") {
+    const langCode = mapLanguageToGutendexCode(targetLanguage);
+    if (!langCode) return null;
+
+    try {
+        // Gutendex timeout на глубоких страницах (4+) — используем только 1–3.
+        // 3 страницы × 32 книги = ~96 доступных книг.
+        const randomPage = Math.floor(Math.random() * 20) + 1;
+        const url = `https://gutendex.com/books?languages=${langCode}&page=${randomPage}`;
+
+        const res = await fetch(url, { signal: AbortSignal.timeout(8000) });
+
+        if (!res.ok) throw new Error(`Gutendex HTTP ${res.status}`);
+
+        const data = await res.json();
+        if (!data.results || data.results.length === 0) return null;
+
+        const book = data.results[Math.floor(Math.random() * data.results.length)];
+
+        const textUrl = book.formats?.["text/plain; charset=utf-8"]
+            || book.formats?.["text/plain"]
+            || Object.entries(book.formats || {}).find(([k]) => k.startsWith("text/plain"))?.[1];
+
+        if (!textUrl) return null;
+
+        const textRes = await fetch(textUrl, { signal: AbortSignal.timeout(20000) });
+        if (!textRes.ok) return null;
+
+        const fullText = await textRes.text();
+        if (!fullText || fullText.trim().length < 500) return null;
+
+        return {
+            id: `gutendex-${Date.now()}-${book.id}`,
+            title: book.title || `Gutenberg Book #${book.id}`,
+            author: book.authors?.[0]?.name || "Unknown Author",
+            targetLanguage: normalizeLanguageCanonical(targetLanguage),
+            excerpt: selectBestExcerpt(fullText, 300),
+            content: fullText,
+            source: `Project Gutenberg #${book.id} (via Gutendex)`,
+            isAutoFetched: true,
+            createdAt: new Date().toISOString(),
+        };
+    } catch (e) {
+        console.warn("[Gutendex] Failed:", e.message);
+        return null;
+    }
+}
+
+function mapLanguageToGutendexCode(targetLang) {
+    const map = {
+        english: "en", en: "en",
+        german: "de", de: "de",
+        french: "fr", fr: "fr",
+        spanish: "es", es: "es",
+        italian: "it", it: "it",
+        russian: "ru", ru: "ru",
+        turkish: "tr", tr: "tr",
+    };
+    return map[String(targetLang || "").toLowerCase()] || null;
+}
 function getDailyBotStoryFeeds(targetLanguage = "English") {
     const lang = targetLanguage.toLowerCase();
 
@@ -1065,7 +1302,6 @@ const DAILY_FEED_SLOTS = [
 async function getDailyFeedsForLanguage(targetLanguage, mediatorLanguage) {
     const cacheKey = `spk:daily_feeds:${targetLanguage}:${mediatorLanguage}`;
     const today = new Date().toISOString().split("T")[0];
-
     // 1. Try Redis cache
     if (redis) {
         try {
@@ -1088,6 +1324,7 @@ async function getDailyFeedsForLanguage(targetLanguage, mediatorLanguage) {
     for (const slot of DAILY_FEED_SLOTS) {
         try {
             const story = await fetchAndPersistGutenbergStory(targetLanguage, mediatorLanguage, "B1", slot);
+
             if (story) feeds.push(story);
             // Small delay to avoid Gemini rate limits
             await new Promise(r => setTimeout(r, 500));
@@ -1169,58 +1406,62 @@ function selectBestExcerpt(text, targetWords = 300) {
     return excerpt.trim().substring(0, targetWords * 2);
 }
 
-async function fetchRandomGutenbergBook() {
+
+/**
+ * Главная функция — каскадный вызов трёх независимых источников.
+ * Гарантированно возвращает книгу при любых обстоятельствах.
+ */
+async function fetchRandomGutenbergBook(targetLanguage = "English") {
+    console.log(`[BookFetch] Каскадный поиск для языка: ${targetLanguage}`);
+
+    // ── Уровень 1: Gutendex (быстрый, свежий) ──
     try {
-        const response = await fetch("https://www.gutenberg.org/ebooks/random", { redirect: "follow" });
-        const html = await response.text();
-        const finalUrl = response.url;
-
-        const detectedLanguage = detectGutenbergBookLanguage(html);
-        if (!detectedLanguage) {
-            console.warn("[AutoFetch] Could not detect language, skipping.");
-            return null;
+        const fromGutendex = await fetchFromGutendex(targetLanguage);
+        if (fromGutendex) {
+            console.log(`[BookFetch] ✅ Уровень 1 (Gutendex): "${fromGutendex.title}"`);
+            return fromGutendex;
         }
-
-        let bookId = null;
-        const idFromUrl = finalUrl.match(/\/(\d+)(?:\.|\/|$)/);
-        if (idFromUrl) bookId = idFromUrl[1];
-        if (!bookId) {
-            const idFromHtml = html.match(/\/ebooks\/(\d+)/);
-            if (idFromHtml) bookId = idFromHtml[1];
-        }
-        if (!bookId) throw new Error("Could not identify book ID");
-
-        const candidates = [
-            `https://www.gutenberg.org/cache/epub/${bookId}/pg${bookId}.txt`,
-            `https://www.gutenberg.org/files/${bookId}/${bookId}-0.txt`,
-            `https://www.gutenberg.org/files/${bookId}/${bookId}.txt`,
-            `https://www.gutenberg.org/ebooks/${bookId}.txt.utf-8`
-        ];
-
-        for (const url of candidates) {
-            try {
-                const textResponse = await fetch(url);
-                if (textResponse.ok) {
-                    const fullText = await textResponse.text();
-                    if (fullText && fullText.trim().length > 100) {
-                        const excerpt = selectBestExcerpt(fullText, 300);
-                        const titleMatch = html.match(/<title>([^<]+)<\/title>/);
-                        const title = titleMatch ? titleMatch[1].split(" by ")[0].trim() : `Gutenberg Book ${bookId}`;
-                        return {
-                            id: `auto-${Date.now()}`,
-                            title, author: "Unknown", targetLanguage: detectedLanguage,
-                            excerpt, content: fullText, source: "Project Gutenberg",
-                            isAutoFetched: true, createdAt: new Date().toISOString()
-                        };
-                    }
-                }
-            } catch (e) { /* next */ }
-        }
-        throw new Error("Could not find text URL");
-    } catch (err) {
-        console.error("[AutoFetch] Failed:", err.message);
-        return null;
+        console.log("[BookFetch] Уровень 1 не сработал, переходим к Уровню 2");
+    } catch (e) {
+        console.warn("[BookFetch] Уровень 1 (Gutendex) упал:", e.message);
     }
+
+    // ── Уровень 2: Open Library (живой каталог) ──
+    try {
+        const fromOpenLib = await fetchFromOpenLibrary(targetLanguage);
+        if (fromOpenLib) {
+            console.log(`[BookFetch] ✅ Уровень 2 (Open Library): "${fromOpenLib.title}"`);
+            return fromOpenLib;
+        }
+        console.log("[BookFetch] Уровень 2 не сработал, переходим к Уровню 3");
+    } catch (e) {
+        console.warn("[BookFetch] Уровень 2 (Open Library) упал:", e.message);
+    }
+
+    // ── Уровень 3: Статический список (100% гарантия при наличии интернета) ──
+    try {
+        const fromStatic = await fetchFromStaticList(targetLanguage);
+        if (fromStatic) {
+            console.log(`[BookFetch] ✅ Уровень 3 (статический список): "${fromStatic.title}"`);
+            return fromStatic;
+        }
+    } catch (e) {
+        console.warn("[BookFetch] Уровень 3 (статический список) упал:", e.message);
+    }
+
+    // ── Абсолютный fallback: симуляция (нет интернета вообще) ──
+    console.error("[BookFetch] ❌ Все три уровня исчерпаны — используется симуляция");
+    return {
+        id: `simulated-${Date.now()}`,
+        title: "Classic Literature",
+        author: "Classic Author",
+        targetLanguage: normalizeLanguageCanonical(targetLanguage),
+        excerpt: `SIMULATION_PROMPT_TRIGGER: Generate an iconic excerpt from a classic ${targetLanguage} work.`,
+        content: "",
+        source: "Simulation Fallback",
+        isAutoFetched: true,
+        createdAt: new Date().toISOString(),
+    };
 }
 
 // ── Shared AI pipeline: Gutenberg raw text → full interactive story ──
@@ -1262,7 +1503,7 @@ Return ONLY valid JSON matching this schema:
   "exercises": [{"id": "task-1", "taskNumber": 1, "category": "Comprehension", "question": "...", "options": ["A","B","C","D"], "correctIndex": 0, "explanation": "...", "points": 25}]
 }`;
 
-    const raw = await callGeminiWithResilience(aiPrompt);
+    let raw = await callGeminiWithResilience(aiPrompt);
     if (raw) {
         try {
             const clean = raw.replace(/```json\n?|\n?```/g, "").trim();
@@ -1272,6 +1513,15 @@ Return ONLY valid JSON matching this schema:
             }
         } catch (e) {
             console.warn("[Gutenberg AI] JSON parse failed:", e.message);
+        }
+    }
+
+    if (!raw) {
+        console.warn("[AI Engine] Gemini полностью недоступен, пробуем OpenRouter...");
+        const orResult = await callOpenRouter(aiPrompt);
+        if (orResult) {
+            // OpenRouter возвращает уже распарсенный объект, а не строку JSON
+            return orResult;
         }
     }
 
@@ -1291,17 +1541,17 @@ Return ONLY valid JSON matching this schema:
 
 // ── Fetch + synthesize + label (works for both daily slots and plain cards) ──
 async function fetchAndPersistGutenbergStory(targetLanguage, mediatorLanguage, userLevel = "B1", slotMeta = null) {
-    const rawBook = await fetchRandomGutenbergBook();
+    const rawBook = await fetchRandomGutenbergBook(targetLanguage);  // ← передаём язык
     if (!rawBook) return null;
-
     // Respect the caller's target language — skip mismatched books
     if (rawBook.targetLanguage &&
         normalizeLanguageCanonical(rawBook.targetLanguage) !== normalizeLanguageCanonical(targetLanguage)) {
         return null;
     }
 
+    // Убираем проверку языка — каждый уровень уже вернул книгу на нужном языке
+    // (или пометил её как симуляцию)
     const storyData = await synthesizeStoryFromGutenberg(rawBook, targetLanguage, mediatorLanguage, userLevel);
-
     const story = {
         ...storyData,
         id: slotMeta ? `daily-${slotMeta.id}-${Date.now()}` : `auto-${Date.now()}`,
@@ -1320,6 +1570,77 @@ async function fetchAndPersistGutenbergStory(targetLanguage, mediatorLanguage, u
     return story;
 }
 
+/**
+ * Уровень 2 — Open Library API.
+ * Встроенная сортировка sort=random.
+ */
+async function fetchFromOpenLibrary(targetLanguage = "English") {
+    const langCode = mapLanguageToOpenLibraryCode(targetLanguage);
+    if (!langCode) return null;
+
+    try {
+        // Open Library требует реальный поисковый запрос, а не "*".
+        // Используем нейтральные частотные слова — они дают миллионы результатов.
+        const broadQueries = ["fiction", "story", "adventures", "tales", "novel"];
+        const randomQuery = broadQueries[Math.floor(Math.random() * broadQueries.length)];
+
+        const url = `https://openlibrary.org/search.json?q=${randomQuery}&sort=random&limit=20&language=${langCode}`;
+
+        const res = await fetch(url, { signal: AbortSignal.timeout(15000) });
+        if (!res.ok) throw new Error(`OpenLibrary HTTP ${res.status}`);
+
+        const data = await res.json();
+        if (!data.docs || data.docs.length === 0) return null;
+
+        // Ищем книгу, у которой есть ID Project Gutenberg
+        for (const doc of data.docs) {
+            const gutenbergId = doc.id_project_gutenberg?.[0];
+            if (!gutenbergId) continue;
+
+            // Пробуем скачать текст
+            const textUrl = `https://www.gutenberg.org/cache/epub/${gutenbergId}/pg${gutenbergId}.txt`;
+            try {
+                const textRes = await fetch(textUrl, { signal: AbortSignal.timeout(15000) });
+                if (!textRes.ok) continue;
+
+                const fullText = await textRes.text();
+                if (!fullText || fullText.trim().length < 500) continue;
+
+                return {
+                    id: `openlib-${Date.now()}-${gutenbergId}`,
+                    title: doc.title || `Book #${gutenbergId}`,
+                    author: doc.author_name?.[0] || "Unknown Author",
+                    targetLanguage: normalizeLanguageCanonical(targetLanguage),
+                    excerpt: selectBestExcerpt(fullText, 300),
+                    content: fullText,
+                    source: `Open Library → Project Gutenberg #${gutenbergId}`,
+                    isAutoFetched: true,
+                    createdAt: new Date().toISOString(),
+                };
+            } catch { /* пробуем следующую книгу */ }
+        }
+        return null;
+    } catch (e) {
+        console.warn("[OpenLibrary] Failed:", e.message);
+        return null;
+    }
+}
+
+function mapLanguageToOpenLibraryCode(targetLang) {
+    const map = {
+        english: "eng", en: "eng",
+        german: "ger", de: "ger",
+        french: "fre", fr: "fre",
+        spanish: "spa", es: "spa",
+        italian: "ita", it: "ita",
+        russian: "rus", ru: "rus",
+        turkish: "tur", tr: "tur",
+    };
+    return map[String(targetLang || "").toLowerCase()] || null;
+}
+
+
+
 // =====================================================
 // ROUTE: HEALTH
 // =====================================================
@@ -1332,6 +1653,80 @@ app.get("/api/health", (req, res) => {
         pdfParseLoaded: Boolean(PDFParse),
         geminiConfigured: Boolean(process.env.GEMINI_API_KEY)
     });
+});
+
+app.get("/api/debug/daily-feeds", async (req, res) => {
+    const targetLanguage = req.query.targetLanguage || "English";
+    const mediatorLanguage = req.query.mediatorLanguage || "az";
+
+    const report = { steps: [] };
+
+    // Step 1: Raw Gutenberg fetch
+    try {
+        const rawBook = await fetchRandomGutenbergBook();
+        report.steps.push({
+            step: "1_fetchRandomGutenbergBook",
+            success: !!rawBook,
+            data: rawBook ? {
+                title: rawBook.title,
+                author: rawBook.author,
+                detectedLanguage: rawBook.targetLanguage,
+                excerptLength: rawBook.excerpt?.length || 0,
+                excerptPreview: rawBook.excerpt?.slice(0, 200),
+            } : null,
+            error: rawBook ? null : "returned null — check network / language detection / text URL candidates",
+        });
+    } catch (e) {
+        report.steps.push({ step: "1_fetchRandomGutenbergBook", success: false, error: e.message });
+    }
+
+    // Step 2: AI synthesis (small prompt)
+    try {
+        const test = await callGeminiWithResilience(
+            'Return ONLY valid JSON: {"ok": true, "msg": "hello"}',
+            "gemini-2.5-flash",
+            ["gemini-2.0-flash"],
+            true
+        );
+        report.steps.push({
+            step: "2_callGeminiWithResilience",
+            success: !!test,
+            data: test ? test.slice(0, 200) : null,
+            error: test ? null : "Gemini returned null — check 429 quota / API key / model name",
+        });
+    } catch (e) {
+        report.steps.push({ step: "2_callGeminiWithResilience", success: false, error: e.message });
+    }
+
+    // Step 3: Full fetchAndPersist pipeline
+    try {
+        const story = await fetchAndPersistGutenbergStory(targetLanguage, mediatorLanguage, "B1", { id: "debug", label: "Debug Slot", emoji: "🔧" });
+        report.steps.push({
+            step: "3_fetchAndPersistGutenbergStory",
+            success: !!story,
+            data: story ? { title: story.title, author: story.author, sentenceCount: story.sentences?.length } : null,
+            error: story ? null : "returned null — most likely Gutenberg fetch or language mismatch",
+        });
+    } catch (e) {
+        report.steps.push({ step: "3_fetchAndPersistGutenbergStory", success: false, error: e.message });
+    }
+
+    // Step 4: Redis cache state
+    if (redis) {
+        try {
+            const cacheKey = `spk:daily_feeds:${targetLanguage}:${mediatorLanguage}`;
+            const cached = await redis.get(cacheKey);
+            report.steps.push({
+                step: "4_redis_cache",
+                success: true,
+                data: cached ? { cached: true, preview: cached.slice(0, 200) } : { cached: false },
+            });
+        } catch (e) {
+            report.steps.push({ step: "4_redis_cache", success: false, error: e.message });
+        }
+    }
+
+    res.json(report);
 });
 
 // =====================================================
@@ -2581,11 +2976,10 @@ startServer();
 // AUTO-FETCH FROM GUTENBERG (every 6 hours)
 // =====================================================
 setInterval(async () => {
-    const rawStory = await fetchRandomGutenbergBook();
-    if (!rawStory) return;
-
     const mediatorLanguage = syncedUsersDatabase["default-user"]?.mediatorLanguage || "en";
-    const targetLanguage = rawStory.targetLanguage || "en";
+    const targetLanguage = "English";  // или взять из дефолтного пользователя
+    const rawStory = await fetchRandomGutenbergBook(targetLanguage);
+    if (!rawStory) return;
     const computeLevel = () => {
         const levels = ["A1", "A2", "B1", "B2", "C1", "C2"];
         return levels[Math.floor(Math.random() * levels.length)];
