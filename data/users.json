@@ -1,0 +1,191 @@
+{
+  "default-user": {
+    "userId": "usr_speakbot_84920482",
+    "isPremium": false,
+    "usageCount": 0,
+    "premiumExpiresAt": null,
+    "telegramUsername": "@speakbot_learner",
+    "currentLevel": "B1",
+    "targetLanguage": "English",
+    "mediatorLanguage": "ru",
+    "overallScore": 68,
+    "testHistory": [
+      {
+        "date": "2026-09-07T10:46:10.214Z",
+        "testType": "Initial Diagnostic /start",
+        "level": "B1",
+        "score": 68,
+        "source": "telegram_bot"
+      }
+    ],
+    "skillLevels": {
+      "grammar": {
+        "level": "B1",
+        "score": 65,
+        "lastTested": "2026-09-08T10:46:10.214Z"
+      },
+      "vocabulary": {
+        "level": "B2",
+        "score": 72,
+        "lastTested": "2026-09-08T10:46:10.214Z"
+      },
+      "listening": {
+        "level": "B1",
+        "score": 68,
+        "lastTested": "2026-09-07T10:46:10.214Z"
+      },
+      "reading": {
+        "level": "B2",
+        "score": 75,
+        "lastTested": "2026-09-06T10:46:10.214Z"
+      },
+      "speaking": {
+        "level": "B1",
+        "score": 60,
+        "lastTested": "2026-09-09T10:46:10.214Z"
+      }
+    },
+    "skillScores": {
+      "grammar": 65,
+      "vocabulary": 72,
+      "listening": 68,
+      "reading": 75,
+      "speaking": 60
+    },
+    "vocabularyByLanguage": {
+      "English": [
+        {
+          "id": "custom-word-1789038047054",
+          "word": "inclined",
+          "translation": "meyilli, həvəsli",
+          "cefr": "B1",
+          "ipa": "/ɪnˈklaɪnd/",
+          "pos": "adjective",
+          "addedAt": "2026-09-10T11:00:47.054Z"
+        },
+        {
+          "id": "custom-word-1789038047040",
+          "word": "blundering",
+          "translation": "səhv edən, yöndəmsiz, bəsirətsiz",
+          "cefr": "B1",
+          "ipa": "/ˈblʌndərɪŋ/",
+          "pos": "adjective",
+          "addedAt": "2026-09-10T11:00:47.040Z"
+        },
+        {
+          "id": "custom-word-1789038047030",
+          "word": "time out of mind",
+          "translation": "çox qədim zamanlardan bəri",
+          "cefr": "B1",
+          "ipa": "/taɪm aʊt əv maɪnd/",
+          "pos": "phrase",
+          "addedAt": "2026-09-10T11:00:47.030Z"
+        },
+        {
+          "id": "custom-word-1789038047027",
+          "word": "well-to-do",
+          "translation": "imkanlı, varlı",
+          "cefr": "B1",
+          "ipa": "/ˌwel tə ˈduː/",
+          "pos": "adjective",
+          "addedAt": "2026-09-10T11:00:47.027Z"
+        },
+        {
+          "id": "vocab-en-1",
+          "word": "synthesize",
+          "translation": "birləşdirmək, sintez etmək",
+          "targetLanguage": "English",
+          "pos": "verb",
+          "ipa": "/ˈsɪnθəsaɪz/",
+          "example": "Researchers synthesize novel linguistic data models.",
+          "savedAt": "2026-09-10T10:46:10.214Z"
+        },
+        {
+          "id": "vocab-en-2",
+          "word": "meticulous",
+          "translation": "hədsiz dərəcədə diqqətli, dəqiq",
+          "targetLanguage": "English",
+          "pos": "adjective",
+          "ipa": "/məˈtɪkjələs/",
+          "example": "He maintained meticulous grammatical accuracy.",
+          "savedAt": "2026-09-10T10:46:10.214Z"
+        }
+      ],
+      "German": [
+        {
+          "id": "vocab-de-1",
+          "word": "Nachhaltigkeit",
+          "translation": "davamlılıq / dayanıqlılıq",
+          "targetLanguage": "German",
+          "pos": "noun",
+          "ipa": "/ˈnaːxhaltɪçkaɪt/",
+          "example": "Nachhaltigkeit ist ein zentrales Prinzip moderner Sprachförderung.",
+          "savedAt": "2026-09-10T10:46:10.214Z"
+        }
+      ]
+    },
+    "savedVocabulary": [
+      {
+        "id": "custom-word-1789038047054",
+        "word": "inclined",
+        "translation": "meyilli, həvəsli",
+        "cefr": "B1",
+        "ipa": "/ɪnˈklaɪnd/",
+        "pos": "adjective",
+        "addedAt": "2026-09-10T11:00:47.054Z"
+      },
+      {
+        "id": "custom-word-1789038047040",
+        "word": "blundering",
+        "translation": "səhv edən, yöndəmsiz, bəsirətsiz",
+        "cefr": "B1",
+        "ipa": "/ˈblʌndərɪŋ/",
+        "pos": "adjective",
+        "addedAt": "2026-09-10T11:00:47.040Z"
+      },
+      {
+        "id": "custom-word-1789038047030",
+        "word": "time out of mind",
+        "translation": "çox qədim zamanlardan bəri",
+        "cefr": "B1",
+        "ipa": "/taɪm aʊt əv maɪnd/",
+        "pos": "phrase",
+        "addedAt": "2026-09-10T11:00:47.030Z"
+      },
+      {
+        "id": "custom-word-1789038047027",
+        "word": "well-to-do",
+        "translation": "imkanlı, varlı",
+        "cefr": "B1",
+        "ipa": "/ˌwel tə ˈduː/",
+        "pos": "adjective",
+        "addedAt": "2026-09-10T11:00:47.027Z"
+      },
+      {
+        "id": "vocab-en-1",
+        "word": "synthesize",
+        "translation": "birləşdirmək, sintez etmək",
+        "targetLanguage": "English",
+        "pos": "verb",
+        "ipa": "/ˈsɪnθəsaɪz/",
+        "example": "Researchers synthesize novel linguistic data models.",
+        "savedAt": "2026-09-10T10:46:10.214Z"
+      },
+      {
+        "id": "vocab-en-2",
+        "word": "meticulous",
+        "translation": "hədsiz dərəcədə diqqətli, dəqiq",
+        "targetLanguage": "English",
+        "pos": "adjective",
+        "ipa": "/məˈtɪkjələs/",
+        "example": "He maintained meticulous grammatical accuracy.",
+        "savedAt": "2026-09-10T10:46:10.214Z"
+      }
+    ],
+    "lastSyncedAt": "2026-09-10T10:46:10.214Z",
+    "xp": 285,
+    "completedStories": [
+      "story-custom-pdf-1789037371839"
+    ]
+  }
+}

@@ -17,6 +17,7 @@ import { createRequire } from "module";
 import zlib from "zlib";
 import fs from "fs";
 import { generateGrammarGuidePdfBuffer, generateRoadmapPdfBuffer, generateVocabularyPdfBuffer, generateClassicStoryPdfBuffer } from './src/utils/pdfServerGenerator.js';
+import FALLBACK_WORDS_MAP from "./src/data/fallbackWords.js";
 import { GAMES_VOCABULARY } from './src/data/gamesVocabularyData.js';
 import { createClient } from '@supabase/supabase-js';
 import Redis from 'ioredis';
@@ -93,10 +94,13 @@ async function ensureSupabaseSchema() {
 }
 ensureSupabaseSchema();
 
+
 // =====================================================
 // PDF STORAGE (Supabase Storage + Memory Fallback)
 // =====================================================
 const pdfStorage = {};
+
+
 
 async function savePdfToSupabase(pdfBuffer, filename, userId, type) {
     if (!supabase) {
@@ -246,7 +250,11 @@ function getGeminiClient() {
     return geminiClient;
 }
 
-async function callGeminiWithResilience(prompt, preferredModel = "gemini-3.6-flash", fallbackModels = [], isJson = true) {
+async function callGeminiWithResilience(prompt,
+    preferredModel = "gemini-2.5-flash",
+    fallbackModels = ["gemini-2.0-flash"],
+    isJson = true
+) {
     const apiKey = process.env.GEMINI_API_KEY;
     if (!apiKey) return null;
 
@@ -384,32 +392,51 @@ const DATA_DIR = path.dirname(STORAGE_FILE);
 
 if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
 
-function loadUsersFromDisk() {
-    try { return fs.existsSync(USERS_FILE) ? JSON.parse(fs.readFileSync(USERS_FILE, "utf-8")) : {}; }
-    catch { return {}; }
-}
+
 function saveUsersToDisk() {
     try { fs.writeFileSync(USERS_FILE, JSON.stringify(syncedUsersDatabase, null, 2)); }
     catch (e) { console.error("Save users failed:", e); }
 }
-function loadStoriesFromDisk() {
-    try {
-        if (fs.existsSync(STORAGE_FILE)) return JSON.parse(fs.readFileSync(STORAGE_FILE, "utf-8"));
-    } catch (err) { console.warn("[Storage] load:", err.message); }
-    return { userCustomStories: {}, autoFetchedStories: [] };
+function loadUsersFromDisk() {
+    try { return fs.existsSync(USERS_FILE) ? JSON.parse(fs.readFileSync(USERS_FILE, "utf-8")) : {}; }
+    catch { return {}; }
 }
-function saveStoriesToDisk() {
+async function saveStoriesToSupabase() {
+    if (!supabase) return;  // fall back to memory
     try {
-        const payload = { userCustomStories, autoFetchedStories, savedAt: new Date().toISOString() };
-        fs.writeFileSync(STORAGE_FILE, zipText(JSON.stringify(payload)));
-    } catch (err) { console.error("[Storage] save:", err.message); }
+        const { error } = await supabase
+            .from('user_stories')
+            .upsert({
+                id: 'global',
+                payload: { userCustomStories, autoFetchedStories },
+                updated_at: new Date().toISOString()
+            });
+        if (error) throw error;
+    } catch (err) {
+        console.warn('[Supabase] story persist failed:', err.message);
+    }
+}
+
+async function loadStoriesFromSupabase() {
+    if (!supabase) return null;
+    try {
+        const { data, error } = await supabase
+            .from('user_stories')
+            .select('payload')
+            .eq('id', 'global')
+            .maybeSingle();
+        if (error) throw error;
+        return data?.payload || null;
+    } catch (err) {
+        console.warn('[Supabase] story load failed:', err.message);
+        return null;
+    }
 }
 
 const loadedUsers = loadUsersFromDisk();
 for (const uid in loadedUsers) {
     if (!syncedUsersDatabase[uid]) syncedUsersDatabase[uid] = loadedUsers[uid];
 }
-
 syncedUsersDatabase["default-user"].savedVocabulary =
     syncedUsersDatabase["default-user"].vocabularyByLanguage[syncedUsersDatabase["default-user"].targetLanguage] ||
     syncedUsersDatabase["default-user"].vocabularyByLanguage.English;
@@ -422,11 +449,73 @@ function ensureUserVocabStructure(user) {
     if (!user.vocabularyByLanguage[activeLang]) user.vocabularyByLanguage[activeLang] = [];
     user.savedVocabulary = user.vocabularyByLanguage[activeLang];
 }
+function loadStoriesFromDisk() {
+    try {
+        if (fs.existsSync(STORAGE_FILE)) {
+            const raw = fs.readFileSync(STORAGE_FILE, "utf-8");
+            // Try plain JSON first (legacy files or future format change)
+            try {
+                return JSON.parse(raw);
+            } catch {
+                // Fall back to gzip-base64 (current save format)
+                return JSON.parse(unzipText(raw));
+            }
+        }
+    } catch (err) {
+        console.warn("[Storage] load:", err.message);
+    }
+    return { userCustomStories: {}, autoFetchedStories: [] };
+}
+function saveStoriesToDisk() {
+    try {
+        const payload = { userCustomStories, autoFetchedStories, savedAt: new Date().toISOString() };
+        fs.writeFileSync(STORAGE_FILE, JSON.stringify(payload, null, 2));
+        // Mirror to Supabase (fire-and-forget)
+        saveStoriesToSupabase().catch(e => console.warn("[Supabase mirror]", e.message));
+    } catch (err) {
+        console.error("[Storage] save:", err.message);
+    }
+}
 
+let storiesHydrated = false;
+let hydrationInFlight = null;
+
+async function ensureStoriesHydrated() {
+    if (storiesHydrated) return;
+    if (hydrationInFlight) return hydrationInFlight;
+
+    hydrationInFlight = (async () => {
+        try {
+            const remote = await loadStoriesFromSupabase();
+            if (remote) {
+                userCustomStories = remote.userCustomStories || userCustomStories;
+                autoFetchedStories = remote.autoFetchedStories || autoFetchedStories;
+                console.log(`[Supabase] Hydrated ${Object.keys(userCustomStories).length} users, ${(autoFetchedStories || []).length} auto-stories`);
+            } else {
+                console.log(`[Supabase] No remote stories found — will fall back to Gutenberg on demand`);
+            }
+        } catch (e) {
+            console.warn("[Supabase] Hydrate failed:", e.message);
+        } finally {
+            storiesHydrated = true;
+        }
+    })();
+
+    return hydrationInFlight;
+}
 const diskData = loadStoriesFromDisk();
 let userCustomStories = diskData.userCustomStories || {};
 let autoFetchedStories = diskData.autoFetchedStories || [];
 
+// Hydrate from Supabase (overrides local disk if present)
+(async () => {
+    const remote = await loadStoriesFromSupabase();
+    if (remote) {
+        userCustomStories = remote.userCustomStories || userCustomStories;
+        autoFetchedStories = remote.autoFetchedStories || autoFetchedStories;
+        saveStoriesToDisk();  // mirror to local
+    }
+})();
 // =====================================================
 // LANGUAGE CANONICAL MAPPER
 // =====================================================
@@ -550,15 +639,6 @@ async function extractTextFromPdfBuffer(buffer) {
                     const cleaned = cleanExtractedPdfText(raw);
                     if (isReadableLiteraryText(cleaned) && cleaned.length > 50) return cleaned;
                 } catch (e1) { console.warn("[PDF] PDFParse class:", e1.message); }
-                try {
-                    const parseFunc = typeof PDFParse === "function" ? PDFParse : PDFParse.default;
-                    if (typeof parseFunc === "function") {
-                        const res = await parseFunc(buffer, { max: 30 });
-                        const raw = typeof res === "string" ? res : (res && res.text ? res.text : "");
-                        const cleaned = cleanExtractedPdfText(raw);
-                        if (isReadableLiteraryText(cleaned) && cleaned.length > 50) return cleaned;
-                    }
-                } catch (e2) { console.warn("[PDF] pdf-parse:", e2.message); }
             }
         }
     } catch (err) { console.warn("[PDF Engine] Core parse:", err.message); }
@@ -976,7 +1056,63 @@ function getDailyBotStoryFeeds(targetLanguage = "English") {
     const feedKey = languageMap[lang] || 'english';
     return feeds[feedKey] && feeds[feedKey].length > 0 ? feeds[feedKey] : feeds.english;
 }
+const DAILY_FEED_SLOTS = [
+    { id: "morning", label: "Morning Classic (08:00)", emoji: "🌅" },
+    { id: "afternoon", label: "Afternoon Dialogue (14:00)", emoji: "☀️" },
+    { id: "evening", label: "Evening Literary Masterpiece (20:00)", emoji: "🌙" },
+];
 
+async function getDailyFeedsForLanguage(targetLanguage, mediatorLanguage) {
+    const cacheKey = `spk:daily_feeds:${targetLanguage}:${mediatorLanguage}`;
+    const today = new Date().toISOString().split("T")[0];
+
+    // 1. Try Redis cache
+    if (redis) {
+        try {
+            const cached = await redis.get(cacheKey);
+            if (cached) {
+                const parsed = JSON.parse(cached);
+                if (parsed.date === today && Array.isArray(parsed.feeds) && parsed.feeds.length > 0) {
+                    console.log(`[DailyFeeds] Redis cache hit for ${targetLanguage}`);
+                    return parsed.feeds;
+                }
+            }
+        } catch (e) {
+            console.warn("[DailyFeeds] Redis get failed:", e.message);
+        }
+    }
+
+    // 2. Generate fresh
+    console.log(`[DailyFeeds] Generating fresh feeds for ${targetLanguage}...`);
+    const feeds = [];
+    for (const slot of DAILY_FEED_SLOTS) {
+        try {
+            const story = await fetchAndPersistGutenbergStory(targetLanguage, mediatorLanguage, "B1", slot);
+            if (story) feeds.push(story);
+            // Small delay to avoid Gemini rate limits
+            await new Promise(r => setTimeout(r, 500));
+        } catch (e) {
+            console.warn(`[DailyFeeds] Slot ${slot.id} failed:`, e.message);
+        }
+    }
+
+    // 3. Fall back to hardcoded if everything failed
+    if (feeds.length === 0) {
+        console.warn(`[DailyFeeds] All dynamic slots failed, using hardcoded fallback`);
+        return getDailyBotStoryFeeds(targetLanguage);
+    }
+
+    // 4. Cache for 24h
+    if (redis) {
+        try {
+            await redis.set(cacheKey, JSON.stringify({ date: today, feeds }), 'EX', 86400);
+        } catch (e) {
+            console.warn("[DailyFeeds] Redis set failed:", e.message);
+        }
+    }
+
+    return feeds;
+}
 // =====================================================
 // GUTENBERG HELPERS
 // =====================================================
@@ -1085,6 +1221,103 @@ async function fetchRandomGutenbergBook() {
         console.error("[AutoFetch] Failed:", err.message);
         return null;
     }
+}
+
+// ── Shared AI pipeline: Gutenberg raw text → full interactive story ──
+async function synthesizeStoryFromGutenberg(rawStory, targetLanguage, mediatorLanguage, userLevel = "B1") {
+    const aiPrompt = `You are SpeakBot's Chief NLP Literary Pedagogical Engine.
+The user uploaded a book/story titled "${rawStory.title}" by "${rawStory.author || "Unknown"}".
+Target Language of Book: ${targetLanguage}
+User Target CEFR Level: ${userLevel}
+Mediator Language for translations & explanations: ${mediatorLanguage}
+
+Here is the authentic text excerpt extracted from the book:
+"""
+${rawStory.excerpt}
+"""
+
+Synthesize a complete, interactive Classic Story reading and audio study module based on this excerpt.
+CRITICAL REQUIREMENTS:
+1. Every sentence, vocabulary word, stylistic device, conversation question, and exercise MUST be uniquely tailored to "${rawStory.title}" and this specific passage.
+2. Provide authentic, accurate translations in ${mediatorLanguage}.
+3. Generate at least 4 SEQUENTIAL Socratic dialogue questions.
+4. Generate at least 5 COMPREHENSIVE tasks & exercises.
+5. IMPORTANT: If the book is non-fiction (technical/practical), generate comprehension questions about the subject matter, NOT literary analysis.
+
+Return ONLY valid JSON matching this schema:
+{
+  "title": "${rawStory.title}",
+  "author": "${rawStory.author || "Unknown"}",
+  "authorEra": "Literary Era",
+  "level": "${userLevel}",
+  "mode": "both",
+  "duration": "4 min read • 2 min audio",
+  "targetLanguage": "${targetLanguage}",
+  "culturalLinguisticContext": "2-sentence context.",
+  "paragraphs": ["Paragraph 1", "Paragraph 2"],
+  "sentences": [{"text": "Exact sentence", "translation": "Translation in ${mediatorLanguage}", "literaryNote": "Commentary", "audioTime": "0:00 - 0:08"}],
+  "keyVocabulary": [{"word": "...", "ipa": "/.../", "pos": "noun", "translation": "...", "cefr": "${userLevel}", "example": "..."}],
+  "stylisticDevices": [{"device": "...", "exampleFromText": "...", "explanation": "..."}],
+  "conversations": [{"id": "socratic-1", "stepNumber": 1, "persona": "SpeakBot Socratic Mentor", "topic": "...", "prompt": "...", "options": ["A","B","C"], "correctIndex": 0, "botFeedback": "...", "points": 25}],
+  "exercises": [{"id": "task-1", "taskNumber": 1, "category": "Comprehension", "question": "...", "options": ["A","B","C","D"], "correctIndex": 0, "explanation": "...", "points": 25}]
+}`;
+
+    const raw = await callGeminiWithResilience(aiPrompt);
+    if (raw) {
+        try {
+            const clean = raw.replace(/```json\n?|\n?```/g, "").trim();
+            const parsed = JSON.parse(clean);
+            if (parsed && Array.isArray(parsed.sentences) && parsed.sentences.length > 0) {
+                return parsed;
+            }
+        } catch (e) {
+            console.warn("[Gutenberg AI] JSON parse failed:", e.message);
+        }
+    }
+
+    // Graceful fallback — build a usable story from the raw excerpt
+    return generateLocalFallbackStory({
+        bookTitle: rawStory.title,
+        author: rawStory.author || "Classic Author",
+        authorEra: "World Literature",
+        canonKey: null,
+        targetLanguage,
+        mediatorLanguage,
+        userLevel,
+        excerptSlice: rawStory.excerpt,
+        isSimulated: false,
+    });
+}
+
+// ── Fetch + synthesize + label (works for both daily slots and plain cards) ──
+async function fetchAndPersistGutenbergStory(targetLanguage, mediatorLanguage, userLevel = "B1", slotMeta = null) {
+    const rawBook = await fetchRandomGutenbergBook();
+    if (!rawBook) return null;
+
+    // Respect the caller's target language — skip mismatched books
+    if (rawBook.targetLanguage &&
+        normalizeLanguageCanonical(rawBook.targetLanguage) !== normalizeLanguageCanonical(targetLanguage)) {
+        return null;
+    }
+
+    const storyData = await synthesizeStoryFromGutenberg(rawBook, targetLanguage, mediatorLanguage, userLevel);
+
+    const story = {
+        ...storyData,
+        id: slotMeta ? `daily-${slotMeta.id}-${Date.now()}` : `auto-${Date.now()}`,
+        targetLanguage: normalizeLanguageCanonical(targetLanguage),
+        sourceBook: `Project Gutenberg • ${rawBook.title}`,
+        isAutoFetched: true,
+        createdAt: new Date().toISOString(),
+    };
+
+    if (slotMeta) {
+        story.feedSlot = slotMeta.label;
+        story.slotEmoji = slotMeta.emoji;
+        story.isDailyBotFeed = true;
+    }
+
+    return story;
 }
 
 // =====================================================
@@ -1374,13 +1607,51 @@ app.get("/api/download/server.js", (req, res) => {
 // =====================================================
 // ROUTE: STORIES
 // =====================================================
-app.get("/api/stories/custom-list", (req, res) => {
-    const userId = String(req.query.userId || "default-user");
-    const canonicalTarget = normalizeLanguageCanonical(req.query.targetLanguage || "English");
-    const userStories = (userCustomStories[userId] || []).filter(s => normalizeLanguageCanonical(s.targetLanguage) === canonicalTarget);
-    const autoStories = (autoFetchedStories || []).filter(s => normalizeLanguageCanonical(s.targetLanguage) === canonicalTarget);
-    const combined = [...userStories, ...autoStories];
-    res.json({ success: true, customStories: combined, dailyFeeds: getDailyBotStoryFeeds(canonicalTarget) });
+
+app.get("/api/stories/custom-list", async (req, res) => {
+    try {
+        const userId = String(req.query.userId || "default-user");
+        const canonicalTarget = normalizeLanguageCanonical(req.query.targetLanguage || "English");
+        const mediatorLanguage = req.query.mediatorLanguage
+            || syncedUsersDatabase[userId]?.mediatorLanguage
+            || "en";
+
+        // Step 1: Hydrate once from Supabase
+        await ensureStoriesHydrated();
+
+        // Step 2: Filter stories by language
+        const userStories = (userCustomStories[userId] || [])
+            .filter(s => normalizeLanguageCanonical(s.targetLanguage) === canonicalTarget);
+        const autoStories = (autoFetchedStories || [])
+            .filter(s => normalizeLanguageCanonical(s.targetLanguage) === canonicalTarget);
+        const combined = [...userStories, ...autoStories];
+
+        // Step 3: On-demand Gutenberg fallback when nothing exists
+        if (combined.length === 0) {
+            console.log(`[Stories] Empty list for ${canonicalTarget} — triggering on-demand Gutenberg fetch...`);
+            const fresh = await fetchAndPersistGutenbergStory(canonicalTarget, mediatorLanguage, "B1");
+            if (fresh) {
+                autoFetchedStories.unshift(fresh);
+                saveStoriesToDisk();          // persists locally + mirrors to Supabase
+                combined.push(fresh);
+                console.log(`[Stories] On-demand added: "${fresh.title}"`);
+            }
+        }
+
+        // Step 4: Dynamic daily feeds (cached per-day in Redis)
+        const dailyFeeds = await getDailyFeedsForLanguage(canonicalTarget, mediatorLanguage);
+
+        res.json({ success: true, customStories: combined, dailyFeeds });
+    } catch (err) {
+        console.error("[Stories/custom-list] Error:", err);
+        const canonicalTarget = normalizeLanguageCanonical(req.query.targetLanguage || "English");
+        // Last-resort safety net — never return 500 to the UI
+        res.json({
+            success: true,
+            customStories: [],
+            dailyFeeds: getDailyBotStoryFeeds(canonicalTarget),
+        });
+    }
 });
 
 app.delete("/api/stories/custom-story/:storyId", (req, res) => {
@@ -2053,15 +2324,7 @@ app.get("/api/cubeword/generate-special-word", async (req, res) => {
 // =====================================================
 let memoryGames = {};
 
-const FALLBACK_WORDS_MAP = {
-    English: ["apple", "banana", "cherry", "date", "elder", "fig", "grape", "honey"],
-    Spanish: ["manzana", "plátano", "cereza", "dátil", "saúco", "higo", "uva", "miel"],
-    German: ["Apfel", "Banane", "Kirsche", "Dattel", "Holunder", "Feige", "Traube", "Honig"],
-    French: ["pomme", "banane", "cerise", "datte", "sureau", "figue", "raisin", "miel"],
-    Italian: ["mela", "banana", "ciliegia", "dattero", "sambuco", "fico", "uva", "miele"],
-    Russian: ["яблоко", "банан", "вишня", "финик", "бузина", "инжир", "виноград", "мёд"],
-    Turkish: ["elma", "muz", "kiraz", "hurma", "mürver", "incir", "üzüm", "bal"]
-};
+
 
 app.post("/api/games/memory/start", (req, res) => {
     const { userId = "default-user", targetLanguage = "English", customWords } = req.body;

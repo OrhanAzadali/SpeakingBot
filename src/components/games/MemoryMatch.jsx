@@ -12,7 +12,7 @@ import {
     BookmarkPlus,
     Play
 } from "lucide-react";
-import FALLBACK_WORDS from "../../data/fallbackWords.js";
+import FALLBACK_WORDS_MAP from "../../data/fallbackWords.js";
 
 export const MemoryMatch = ({
     targetLanguage = "English",
@@ -66,7 +66,7 @@ export const MemoryMatch = ({
         setTimer(0);
         setSavedWords(new Set());
 
-        let pool = FALLBACK_WORDS[targetLanguage] || FALLBACK_WORDS["English"];
+        let pool = FALLBACK_WORDS_MAP[targetLanguage] || FALLBACK_WORDS_MAP["English"];
         try {
             const res = await axios.post("/api/games/generate-words", {
                 targetLanguage,

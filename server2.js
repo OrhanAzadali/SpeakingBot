@@ -13,7 +13,7 @@ import { GAMES_VOCABULARY } from './src/data/gamesVocabularyData.js';
 // Add this near the top of server.js after the imports
 // Add this near the top of server.js after the imports
 import { createClient } from '@supabase/supabase-js';
-import FALLBACK_WORDS from './src/data/fallbackWords.js';
+import FALLBACK_WORDS_MAP from './src/data/fallbackWords.js';
 
 // =====================================================
 // SUPABASE INITIALIZATION - UPDATED FOR NEW API KEYS
@@ -2776,7 +2776,7 @@ app.post("/api/games/memory/start", (req, res) => {
     const langKey = normalizeLanguageCanonical(targetLanguage);
     const pool = (Array.isArray(customWords) && customWords.length >= 4)
         ? customWords
-        : (FALLBACK_WORDS[langKey] || FALLBACK_WORDS["English"]);
+        : (FALLBACK_WORDS_MAP[langKey] || FALLBACK_WORDS_MAP["English"]);
 
     // Select 6 unique words
     const selectedWords = [...pool].sort(() => 0.5 - Math.random()).slice(0, 6);
@@ -2803,7 +2803,7 @@ app.post("/api/games/memory/flip", (req, res) => {
     const { userId = "default-user", cardId } = req.body;
     let game = memoryGames[userId];
     if (!game) {
-        const pool = FALLBACK_WORDS["English"];
+        const pool = FALLBACK_WORDS_MAP["English"];
         const deck = [];
         pool.slice(0, 6).forEach((word, pairIdx) => {
             deck.push({ id: pairIdx * 2, word, pairId: pairIdx, matched: false });
@@ -3009,10 +3009,10 @@ app.post("/api/games/generate-words", async (req, res) => {
     }
 
     // Fallback to static list per language
-    const normalizedLang = Object.keys(FALLBACK_WORDS).find(
+    const normalizedLang = Object.keys(FALLBACK_WORDS_MAP).find(
         (lang) => lang.toLowerCase() === targetLanguage.toLowerCase()
     ) || "English";
-    const words = FALLBACK_WORDS[normalizedLang].slice(0, count);
+    const words = FALLBACK_WORDS_MAP[normalizedLang].slice(0, count);
     res.json({ success: true, words });
 });
 
