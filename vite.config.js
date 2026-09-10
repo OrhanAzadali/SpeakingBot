@@ -9,8 +9,14 @@ const __dirname = path.dirname(__filename);
 
 export default defineConfig(() => {
   return {
-    base: './', // <--- ДОБАВЬТЕ ЭТУ СТРОКУ (указывает Vite делать пути относительными)
+    base: './',
     plugins: [react(), tailwindcss()],
+    ssr: {
+      external: [
+        '@supabase/supabase-js',
+        'ioredis',
+      ],
+    },
     resolve: {
       alias: {
         '@': path.resolve(__dirname, '.'),
