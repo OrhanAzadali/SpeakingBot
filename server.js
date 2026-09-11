@@ -4474,18 +4474,43 @@ app.post('/api/gemini/generate-grammar-guide', async (req, res) => {
             mediatorLanguage = "en"
         } = req.body;
 
-        const prompt = `You are a master grammar expert. Generate a comprehensive grammar study guide for ${targetLanguage} at CEFR ${level} about "${ruleTitle}".
-Mediator: ${mediatorLanguage}.
+        const prompt = `You are a master grammar expert writing a comprehensive study guide for ${targetLanguage} at CEFR ${level} on the topic "${ruleTitle}". Mediator language for explanations: ${mediatorLanguage}.
 
-Return ONLY valid JSON:
+STRICT REQUIREMENTS — the guide is considered INVALID if any minimum is not met:
+- coreRules: MINIMUM 4 distinct rules (not variations of one rule). Each rule MUST have 5-8 tokens with full linguistic metadata.
+- commonMistakes: MINIMUM 4 distinct mistakes, each illustrating a DIFFERENT pitfall.
+- practiceExercises: MINIMUM 6 exercises covering different sub-aspects.
+- Every explanationInMediator MUST be written exactly in ${mediatorLanguage}. The mediator language is EXACTLY this: ${mediatorLanguage}. Do NOT use any other language (not Hungarian, not Turkish, not English, not ${targetLanguage}, not any other language).
+- If you do not know a word in ${mediatorLanguage}, use a simpler word in the same language — never substitute another language.
+- The field "reason" in commonMistakes and "explanation" in practiceExercises must also be in ${mediatorLanguage}.
+- Self-check before returning: verify the first 10 words of every mediator field are in ${mediatorLanguage}.
+- IPA transcription must be accurate for the target word.
+
+Return ONLY valid JSON. No markdown, no code fences.
+
+Schema:
 {
-  "title": "...",
+  "title": "Comprehensive Guide: <Topic> in <Language>",
   "category": "Grammar",
   "level": "${level}",
-  "summary": "...",
-  "coreRules": [{"ruleTitle": "...", "explanationInMediator": "...", "formula": "...", "example": "...", "tokens": [{"text": "...", "lemma": "...", "pos": "VERB", "syntaxRole": "Predicate", "cefrLevel": "B1", "ipa": "/.../", "mediatorTranslation": "..."}]}],
-  "commonMistakes": [{"incorrect": "...", "correct": "...", "reason": "..."}],
-  "practiceExercises": [{"question": "...", "options": ["A","B","C","D"], "correctIndex": 0, "explanation": "..."}]
+  "summary": "3-4 sentences describing the scope and learning outcomes.",
+  "coreRules": [
+    {
+      "ruleTitle": "...",
+      "explanationInMediator": "<full explanation in ${mediatorLanguage}>",
+      "formula": "...",
+      "example": "...",
+      "tokens": [
+        { "text": "...", "lemma": "...", "pos": "...", "syntaxRole": "...", "cefrLevel": "...", "ipa": "/.../", "mediatorTranslation": "<in ${mediatorLanguage}>" }
+      ]
+    }
+  ],
+  "commonMistakes": [
+    { "incorrect": "...", "correct": "...", "reason": "<in ${mediatorLanguage}>" }
+  ],
+  "practiceExercises": [
+    { "instruction": "...", "question": "...", "options": ["A","B","C","D"], "correctIndex": 0, "explanation": "<in ${mediatorLanguage}>" }
+  ]
 }`;
 
         let guide = null;
