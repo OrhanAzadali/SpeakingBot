@@ -337,794 +337,794 @@
   },
   "autoFetchedStories": [
     {
+      "id": "daily-evening-1789092769231",
+      "mode": "both",
+      "level": "B1",
       "title": "The Slave Trade, Domestic and Foreign",
       "author": "Henry Charles Carey",
-      "authorEra": "19th Century Political Economy",
-      "level": "B1",
-      "mode": "both",
       "duration": "4 min read • 2 min audio",
-      "targetLanguage": "English",
-      "culturalLinguisticContext": "This passage reflects 19th-century geopolitical critique, comparing American slavery with British foreign policies in China and domestic labor issues. It highlights hypocrisy in international moral judgments.",
-      "paragraphs": [
-        "_An American, accustomed to receive from us impassioned arguments against his own nation on account of slavery, might well be pardoned were he to say to us, with somewhat of intemperate feeling, 'Physician, heal thyself_,' and to expose with bitterness the awful inconsistency of Britain's vehement denunciation of American slavery, while, by most deadly measures, furthering Chinese demoralization.",
-        "CAHIR.--'I noticed, on Sunday, on coming from church, the streets crowded with labourers, with spades and other implements in their hands, standing to be hired; and I ascertained that any number of'"
-      ],
-      "sentences": [
-        {
-          "text": "_An American, accustomed to receive from us impassioned arguments against his own nation on account of slavery, might well be pardoned were he to say to us, with somewhat of intemperate feeling, 'Physician, heal thyself_', and to expose with bitterness the awful inconsistency of Britain's vehement denunciation of American slavery, while, by most deadly measures, furthering Chinese demoralization.",
-          "translation": "Американец, привыкший слышать от нас страстные аргументы против своей собственной нации из-за рабства, вполне может быть прощен, если скажет нам с некоторым несдержанным чувством: «Врач, исцели себя самого», — и с горечью обнажит ужасную непоследовательность яростного осуждения Великобританией американского рабства, в то время как она самыми смертоносными мерами способствует деморализации Китая.",
-          "literaryNote": "Uses the biblical proverb 'Physician, heal thyself' to highlight hypocrisy in international criticism.",
-          "audioTime": "0:00 - 0:15"
-        },
-        {
-          "text": "CAHIR.--'I noticed, on Sunday, on coming from church, the streets crowded with labourers, with spades and other implements in their hands, standing to be hired; and I ascertained that any number of'",
-          "translation": "КАХИР. — «Я заметил в воскресенье, по выходе из церкви, улицы, заполненные рабочими с лопатами и другими орудиями труда в руках, стоявшими в ожидании найма; и я выяснил, что любое количество...»",
-          "literaryNote": "Presents an eyewitness observation of impoverished laborers seeking casual work to illustrate domestic economic distress.",
-          "audioTime": "0:15 - 0:25"
-        }
-      ],
-      "keyVocabulary": [
-        {
-          "word": "impassioned",
-          "ipa": "/ɪmˈpæʃənd/",
-          "pos": "adjective",
-          "translation": "страстный, полный чувств",
-          "cefr": "B1",
-          "example": "He gave an impassioned speech about human rights."
-        },
-        {
-          "word": "inconsistency",
-          "ipa": "/ˌɪnkənˈsɪstənsi/",
-          "pos": "noun",
-          "translation": "непоследовательность, противоречивость",
-          "cefr": "B1",
-          "example": "There is an inconsistency in her statements."
-        },
-        {
-          "word": "denunciation",
-          "ipa": "/dɪˌnʌnsiˈeɪʃn/",
-          "pos": "noun",
-          "translation": "осуждение, обличение",
-          "cefr": "B1",
-          "example": "The government issued a strong denunciation of the violence."
-        },
-        {
-          "word": "implements",
-          "ipa": "/ˈɪmpləmənts/",
-          "pos": "noun",
-          "translation": "орудия, инструменты",
-          "cefr": "B1",
-          "example": "The workers carried agricultural implements."
-        },
-        {
-          "word": "demoralization",
-          "ipa": "/dɪˌmɒrəlaɪˈzeɪʃn/",
-          "pos": "noun",
-          "translation": "деморализация, разложение",
-          "cefr": "B1",
-          "example": "The crisis led to the demoralization of the workforce."
-        }
-      ],
-      "stylisticDevices": [
-        {
-          "device": "Allusion",
-          "exampleFromText": "'Physician, heal thyself'",
-          "explanation": "A biblical reference used to point out hypocrisy, telling the critic to correct their own faults before judging others."
-        },
-        {
-          "device": "Contrast / Juxtaposition",
-          "exampleFromText": "Britain's vehement denunciation of American slavery, while... furthering Chinese demoralization.",
-          "explanation": "Contrasts Britain's moral outrage abroad with its own harmful foreign policies to expose double standards."
-        }
-      ],
-      "conversations": [
-        {
-          "id": "socratic-1",
-          "stepNumber": 1,
-          "persona": "SpeakBot Socratic Mentor",
-          "topic": "The central accusation of hypocrisy",
-          "prompt": "According to the text, how might an American respond to British criticism regarding slavery?",
-          "options": [
-            "By pointing out British hypocrisy and destructive foreign policies",
-            "By agreeing completely and changing American laws",
-            "By ignoring the criticism and cutting off trade"
-          ],
-          "correctIndex": 0,
-          "botFeedback": "Correct! The American would expose Britain's inconsistency using the phrase 'Physician, heal thyself'.",
-          "points": 25
-        },
-        {
-          "id": "socratic-2",
-          "stepNumber": 2,
-          "persona": "SpeakBot Socratic Mentor",
-          "topic": "The meaning of the proverb",
-          "prompt": "What does the biblical proverb 'Physician, heal thyself' mean in this context?",
-          "options": [
-            "Doctors should study medicine more carefully.",
-            "Britain should fix its own moral and social problems before criticizing America.",
-            "Americans need medical help for slavery."
-          ],
-          "correctIndex": 1,
-          "botFeedback": "Precisely! It urges the critic to address their own flaws before condemning others.",
-          "points": 25
-        },
-        {
-          "id": "socratic-3",
-          "stepNumber": 3,
-          "persona": "SpeakBot Socratic Mentor",
-          "topic": "British foreign policy critique",
-          "prompt": "Besides American slavery, what other international issue does the author mention regarding Britain?",
-          "options": [
-            "The colonization of Africa",
-            "Chinese demoralization",
-            "The economic crisis in France"
-          ],
-          "correctIndex": 1,
-          "botFeedback": "Spot on! The text mentions Britain furthering Chinese demoralization through deadly measures.",
-          "points": 25
-        },
-        {
-          "id": "socratic-4",
-          "stepNumber": 4,
-          "persona": "SpeakBot Socratic Mentor",
-          "topic": "Domestic labor conditions",
-          "prompt": "What did Cahir observe on Sunday coming from church in the second paragraph?",
-          "options": [
-            "Streets crowded with laborers standing with spades waiting to be hired",
-            "A grand celebration of the abolition of slavery",
-            "Factories closed down due to a major strike"
-          ],
-          "correctIndex": 0,
-          "botFeedback": "Great job! He saw streets crowded with laborers holding implements and waiting to be hired.",
-          "points": 25
-        }
-      ],
+      "feedSlot": "Evening Literary Masterpiece (20:00)",
+      "authorEra": "19th Century Political Economy",
+      "createdAt": "2026-09-11T02:12:49.231Z",
       "exercises": [
         {
           "id": "task-1",
-          "taskNumber": 1,
-          "category": "Comprehension",
-          "question": "What is the main argument presented by Henry Charles Carey in the opening sentence?",
+          "points": 25,
           "options": [
             "America has no right to criticize Britain.",
             "Britain criticizes American slavery while ignoring its own damaging foreign and domestic actions.",
             "Chinese workers were treated better than American slaves.",
             "Laborers in the streets were happy with their wages."
           ],
-          "correctIndex": 1,
+          "category": "Comprehension",
+          "question": "What is the main argument presented by Henry Charles Carey in the opening sentence?",
+          "taskNumber": 1,
           "explanation": "The text highlights the inconsistency of Britain denouncing American slavery while causing harm elsewhere.",
-          "points": 25
+          "correctIndex": 1
         },
         {
           "id": "task-2",
-          "taskNumber": 2,
-          "category": "Vocabulary",
-          "question": "Choose the synonym for 'impassioned' as used in the text.",
+          "points": 25,
           "options": [
             "Calm",
             "Emotional",
             "Indifferent",
             "Silent"
           ],
-          "correctIndex": 1,
+          "category": "Vocabulary",
+          "question": "Choose the synonym for 'impassioned' as used in the text.",
+          "taskNumber": 2,
           "explanation": "'Impassioned' means filled with strong feelings or passion, making 'emotional' the correct synonym.",
-          "points": 25
+          "correctIndex": 1
         },
         {
           "id": "task-3",
-          "taskNumber": 3,
-          "category": "Comprehension",
-          "question": "Why were laborers standing in the streets with spades on a Sunday according to Cahir's observation?",
+          "points": 25,
           "options": [
             "They were participating in a religious parade.",
             "They were building a new church.",
             "They were waiting to be hired for work.",
             "They were protesting against the government."
           ],
-          "correctIndex": 2,
+          "category": "Comprehension",
+          "question": "Why were laborers standing in the streets with spades on a Sunday according to Cahir's observation?",
+          "taskNumber": 3,
           "explanation": "Cahir noted that the streets were crowded with labourers 'standing to be hired'.",
-          "points": 25
+          "correctIndex": 2
         },
         {
           "id": "task-4",
-          "taskNumber": 4,
-          "category": "Grammar",
-          "question": "Identify the part of speech of the word 'inconsistency' in the phrase 'awful inconsistency of Britain'.",
+          "points": 25,
           "options": [
             "Verb",
             "Adjective",
             "Noun",
             "Adverb"
           ],
-          "correctIndex": 2,
+          "category": "Grammar",
+          "question": "Identify the part of speech of the word 'inconsistency' in the phrase 'awful inconsistency of Britain'.",
+          "taskNumber": 4,
           "explanation": "'Inconsistency' functions as a noun preceded by the adjective 'awful'.",
-          "points": 25
+          "correctIndex": 2
         },
         {
           "id": "task-5",
-          "taskNumber": 5,
-          "category": "Critical Thinking",
-          "question": "What rhetorical effect does quoting the proverb 'Physician, heal thyself' achieve?",
+          "points": 25,
           "options": [
             "It provides scientific medical data about diseases.",
             "It strengthens the critique of hypocrisy by turning the moral judgment back onto the accuser.",
             "It praises Britain for its excellent healthcare system.",
             "It changes the topic completely to personal health."
           ],
-          "correctIndex": 1,
+          "category": "Critical Thinking",
+          "question": "What rhetorical effect does quoting the proverb 'Physician, heal thyself' achieve?",
+          "taskNumber": 5,
           "explanation": "The proverb effectively turns the critique back onto Britain, showing that the accuser suffers from the same or worse moral failings.",
-          "points": 25
+          "correctIndex": 1
         }
-      ],
-      "id": "daily-evening-1789092769231",
-      "sourceBook": "Project Gutenberg • The Slave Trade, Domestic and Foreign",
-      "isAutoFetched": true,
-      "createdAt": "2026-09-11T02:12:49.231Z",
-      "feedSlot": "Evening Literary Masterpiece (20:00)",
-      "slotEmoji": "🌙",
-      "isDailyBotFeed": true
-    },
-    {
-      "title": "Wuthering Heights",
-      "author": "Emily Brontë",
-      "authorEra": "Victorian / 19th-century Romanticism",
-      "level": "B1",
-      "mode": "both",
-      "duration": "4 min read • 2 min audio",
-      "targetLanguage": "English",
-      "culturalLinguisticContext": "Set in the wild, isolated moors of Yorkshire, this Gothic masterpiece explores intense class divisions, deep passions, and generational conflict. The excerpt captures a tender yet tense moment between Nelly Dean, Catherine, and her father Edgar Linton.",
-      "paragraphs": [
-        "“He’s, perhaps, dreaming now,” she continued. “He twitched his shoulder as Juno twitches hers. Ask him, Ellen.” “Sorry? he’ll break his heart should anything happen!” I replied. “Don’t alarm him more than necessary.”",
-        "“What have I done?” sobbed she, instantly checked. “Papa charged me nothing: he’ll not scold me, Ellen—he’s never cross, like you!” “Well, we’ll turn our horses’ heads round when we reach him,” answered my companion; “our excursion shall lie towards home.”",
-        "“I shall bid father good-night first,” said Catherine, putting her arms round his neck, before we could hinder her. The poor t"
       ],
       "sentences": [
         {
-          "text": "“He’s, perhaps, dreaming now,” she continued.",
-          "translation": "«Он, возможно, сейчас видит сон», — продолжала она.",
-          "literaryNote": "Introduces a casual observation about a sleeping character, highlighting the intimate family dynamics.",
-          "audioTime": "0:00 - 0:03"
+          "text": "_An American, accustomed to receive from us impassioned arguments against his own nation on account of slavery, might well be pardoned were he to say to us, with somewhat of intemperate feeling, 'Physician, heal thyself_', and to expose with bitterness the awful inconsistency of Britain's vehement denunciation of American slavery, while, by most deadly measures, furthering Chinese demoralization.",
+          "audioTime": "0:00 - 0:15",
+          "translation": "Американец, привыкший слышать от нас страстные аргументы против своей собственной нации из-за рабства, вполне может быть прощен, если скажет нам с некоторым несдержанным чувством: «Врач, исцели себя самого», — и с горечью обнажит ужасную непоследовательность яростного осуждения Великобританией американского рабства, в то время как она самыми смертоносными мерами способствует деморализации Китая.",
+          "literaryNote": "Uses the biblical proverb 'Physician, heal thyself' to highlight hypocrisy in international criticism."
         },
         {
-          "text": "“He twitched his shoulder as Juno twitches hers.",
-          "translation": "«Он дернул плечом так, как Юнона дергает своим.",
-          "literaryNote": "Uses a canine comparison (Juno is a dog) to create a vivid visual image.",
-          "audioTime": "0:03 - 0:06"
-        },
-        {
-          "text": "Ask him, Ellen.”",
-          "translation": "Спроси его, Эллен».",
-          "literaryNote": "Refers to Nelly Dean by her familiar name, showing their close relationship.",
-          "audioTime": "0:06 - 0:08"
-        },
-        {
-          "text": "“Sorry? he’ll break his heart should anything happen!” I replied.",
-          "translation": "«Что простите? Он сорвет сердце, если что-нибудь случится!» — ответила я.",
-          "literaryNote": "Nelly expresses deep concern for Edgar Linton's fragile emotional state.",
-          "audioTime": "0:08 - 0:13"
-        },
-        {
-          "text": "“Don’t alarm him more than necessary.”",
-          "translation": "«Не пугай его больше, чем нужно».",
-          "literaryNote": "A warning to protect a loved one from anxiety.",
-          "audioTime": "0:13 - 0:16"
-        },
-        {
-          "text": "“What have I done?” sobbed she, instantly checked.",
-          "translation": "«Что я сделала?» — всхлипнула она, мгновенно остановившись.",
-          "literaryNote": "Catherine's sudden emotional shift from stubbornness to distress.",
-          "audioTime": "0:16 - 0:20"
-        },
-        {
-          "text": "“Papa charged me nothing: he’ll not scold me, Ellen—he’s never cross, like you!”",
-          "translation": "«Папа ничего мне не поручал: он не станет меня ругать, Эллен — он никогда не бывает сердитым, как ты!»",
-          "literaryNote": "Highlights the contrasting personalities of the strict servant/guardian Nelly and the indulgent father Edgar.",
-          "audioTime": "0:20 - 0:27"
-        },
-        {
-          "text": "“Well, we’ll turn our horses’ heads round when we reach him,” answered my companion; “our excursion shall lie towards home.”",
-          "translation": "«Ну, мы повернем головы наших лошадей назад, когда доберемся до него, — ответила моя спутница; — наша поездка будет лежать домой».",
-          "literaryNote": "Signals a change of direction, aborting their trip due to rising concerns.",
-          "audioTime": "0:27 - 0:35"
-        },
-        {
-          "text": "“I shall bid father good-night first,” said Catherine, putting her arms round his neck, before we could hinder her.",
-          "translation": "«Я сначала скажу отцу спокойной ночи», — сказала Catherine, обхватив его за шею, прежде чем мы смогли помешать ей.",
-          "literaryNote": "Demonstrates Catherine's impulsive and affectionate nature toward her father.",
-          "audioTime": "0:35 - 0:43"
-        },
-        {
-          "text": "The poor t",
-          "translation": "Бедный т...",
-          "literaryNote": "An abrupt sentence cut-off, leaving the scene suspended in tension.",
-          "audioTime": "0:43 - 0:45"
+          "text": "CAHIR.--'I noticed, on Sunday, on coming from church, the streets crowded with labourers, with spades and other implements in their hands, standing to be hired; and I ascertained that any number of'",
+          "audioTime": "0:15 - 0:25",
+          "translation": "КАХИР. — «Я заметил в воскресенье, по выходе из церкви, улицы, заполненные рабочими с лопатами и другими орудиями труда в руках, стоявшими в ожидании найма; и я выяснил, что любое количество...»",
+          "literaryNote": "Presents an eyewitness observation of impoverished laborers seeking casual work to illustrate domestic economic distress."
         }
       ],
-      "keyVocabulary": [
-        {
-          "word": "twitch",
-          "ipa": "/twɪtʃ/",
-          "pos": "verb",
-          "translation": "дергать(ся)",
-          "cefr": "B1",
-          "example": "He gave a slight twitch of his eyebrow."
-        },
-        {
-          "word": "alarm",
-          "ipa": "/əˈlɑːm/",
-          "pos": "verb",
-          "translation": "тревожить, пугать",
-          "cefr": "B1",
-          "example": "Don't alarm your mother with bad news."
-        },
-        {
-          "word": "sob",
-          "ipa": "/sɒb/",
-          "pos": "verb",
-          "translation": "всхлипывать, рыдать",
-          "cefr": "B1",
-          "example": "She began to sob quietly in the corner."
-        },
-        {
-          "word": "scold",
-          "ipa": "/skəʊld/",
-          "pos": "verb",
-          "translation": "ругать, бранить",
-          "cefr": "B1",
-          "example": "The teacher had to scold the noisy students."
-        },
-        {
-          "word": "excursion",
-          "ipa": "/ɪkˈskɜːʃn/",
-          "pos": "noun",
-          "translation": "поездка, экскурсия",
-          "cefr": "B1",
-          "example": "We planned a pleasant excursion to the hills."
-        },
-        {
-          "word": "hinder",
-          "ipa": "/ˈhɪndə(r)/",
-          "pos": "verb",
-          "translation": "мешать, препятствовать",
-          "cefr": "B1",
-          "example": "High winds hindered the rescue effort."
-        }
+      "slotEmoji": "🌙",
+      "paragraphs": [
+        "_An American, accustomed to receive from us impassioned arguments against his own nation on account of slavery, might well be pardoned were he to say to us, with somewhat of intemperate feeling, 'Physician, heal thyself_,' and to expose with bitterness the awful inconsistency of Britain's vehement denunciation of American slavery, while, by most deadly measures, furthering Chinese demoralization.",
+        "CAHIR.--'I noticed, on Sunday, on coming from church, the streets crowded with labourers, with spades and other implements in their hands, standing to be hired; and I ascertained that any number of'"
       ],
-      "stylisticDevices": [
-        {
-          "device": "Simile",
-          "exampleFromText": "He twitched his shoulder as Juno twitches hers.",
-          "explanation": "Compares a human physical movement to that of an animal (a dog named Juno), emphasizing natural, uncalculated gestures."
-        },
-        {
-          "device": "Hyperbole",
-          "exampleFromText": "he’ll break his heart should anything happen!",
-          "explanation": "An exaggeration used by Nelly to emphasize Edgar Linton's extreme vulnerability and deep affection for his daughter."
-        }
-      ],
+      "sourceBook": "Project Gutenberg • The Slave Trade, Domestic and Foreign",
       "conversations": [
         {
           "id": "socratic-1",
-          "stepNumber": 1,
-          "persona": "SpeakBot Socratic Mentor",
-          "topic": "Character Emotion",
-          "prompt": "How does Catherine react when Nelly warns her not to alarm her father?",
+          "topic": "The central accusation of hypocrisy",
+          "points": 25,
+          "prompt": "According to the text, how might an American respond to British criticism regarding slavery?",
           "options": [
-            "She gets angry and leaves immediately.",
-            "She becomes instantly upset and asks what she has done.",
-            "She laughs and ignores Nelly completely."
+            "By pointing out British hypocrisy and destructive foreign policies",
+            "By agreeing completely and changing American laws",
+            "By ignoring the criticism and cutting off trade"
           ],
-          "correctIndex": 1,
-          "botFeedback": "Correct! Catherine is instantly checked and asks 'What have I done?', showing her sensitivity to causing trouble.",
-          "points": 25
+          "persona": "SpeakBot Socratic Mentor",
+          "stepNumber": 1,
+          "botFeedback": "Correct! The American would expose Britain's inconsistency using the phrase 'Physician, heal thyself'.",
+          "correctIndex": 0
         },
         {
           "id": "socratic-2",
-          "stepNumber": 2,
-          "persona": "SpeakBot Socratic Mentor",
-          "topic": "Parental Dynamic",
-          "prompt": "What distinction does Catherine make between Edgar Linton (her father) and Nelly?",
+          "topic": "The meaning of the proverb",
+          "points": 25,
+          "prompt": "What does the biblical proverb 'Physician, heal thyself' mean in this context?",
           "options": [
-            "She thinks Nelly is kind and her father is strict.",
-            "She believes her father never scolds her and is never cross, unlike Nelly.",
-            "She feels both of them treat her unfairly."
+            "Doctors should study medicine more carefully.",
+            "Britain should fix its own moral and social problems before criticizing America.",
+            "Americans need medical help for slavery."
           ],
-          "correctIndex": 1,
-          "botFeedback": "Spot on! She complains that her father 'he’ll not scold me... he’s never cross, like you!' highlighting Nelly's stricter role.",
-          "points": 25
+          "persona": "SpeakBot Socratic Mentor",
+          "stepNumber": 2,
+          "botFeedback": "Precisely! It urges the critic to address their own flaws before condemning others.",
+          "correctIndex": 1
         },
         {
           "id": "socratic-3",
-          "stepNumber": 3,
-          "persona": "SpeakBot Socratic Mentor",
-          "topic": "Plot Action",
-          "prompt": "What do the characters decide to do regarding their excursion after discussing the father?",
+          "topic": "British foreign policy critique",
+          "points": 25,
+          "prompt": "Besides American slavery, what other international issue does the author mention regarding Britain?",
           "options": [
-            "They decide to continue their journey far away from home.",
-            "They decide to turn their horses' heads around and head back towards home.",
-            "They decide to dismount and rest on the grass."
+            "The colonization of Africa",
+            "Chinese demoralization",
+            "The economic crisis in France"
           ],
-          "correctIndex": 1,
-          "botFeedback": "Exactly. Nelly states 'our excursion shall lie towards home,' aborting the trip to look after Edgar.",
-          "points": 25
+          "persona": "SpeakBot Socratic Mentor",
+          "stepNumber": 3,
+          "botFeedback": "Spot on! The text mentions Britain furthering Chinese demoralization through deadly measures.",
+          "correctIndex": 1
         },
         {
           "id": "socratic-4",
-          "stepNumber": 4,
-          "persona": "SpeakBot Socratic Mentor",
-          "topic": "Thematic Interpretation",
-          "prompt": "Based on this excerpt, how does Emily Brontë characterize the relationship between Catherine and her father?",
+          "topic": "Domestic labor conditions",
+          "points": 25,
+          "prompt": "What did Cahir observe on Sunday coming from church in the second paragraph?",
           "options": [
-            "Distant and cold",
-            "Overly formal and strict",
-            "Deeply affectionate and protective"
+            "Streets crowded with laborers standing with spades waiting to be hired",
+            "A grand celebration of the abolition of slavery",
+            "Factories closed down due to a major strike"
           ],
-          "correctIndex": 2,
-          "botFeedback": "Wonderful insight! Catherine's impulsive hug ('putting her arms round his neck') reveals a very warm, close bond.",
-          "points": 25
+          "persona": "SpeakBot Socratic Mentor",
+          "stepNumber": 4,
+          "botFeedback": "Great job! He saw streets crowded with laborers holding implements and waiting to be hired.",
+          "correctIndex": 0
         }
       ],
+      "isAutoFetched": true,
+      "keyVocabulary": [
+        {
+          "ipa": "/ɪmˈpæʃənd/",
+          "pos": "adjective",
+          "cefr": "B1",
+          "word": "impassioned",
+          "example": "He gave an impassioned speech about human rights.",
+          "translation": "страстный, полный чувств"
+        },
+        {
+          "ipa": "/ˌɪnkənˈsɪstənsi/",
+          "pos": "noun",
+          "cefr": "B1",
+          "word": "inconsistency",
+          "example": "There is an inconsistency in her statements.",
+          "translation": "непоследовательность, противоречивость"
+        },
+        {
+          "ipa": "/dɪˌnʌnsiˈeɪʃn/",
+          "pos": "noun",
+          "cefr": "B1",
+          "word": "denunciation",
+          "example": "The government issued a strong denunciation of the violence.",
+          "translation": "осуждение, обличение"
+        },
+        {
+          "ipa": "/ˈɪmpləmənts/",
+          "pos": "noun",
+          "cefr": "B1",
+          "word": "implements",
+          "example": "The workers carried agricultural implements.",
+          "translation": "орудия, инструменты"
+        },
+        {
+          "ipa": "/dɪˌmɒrəlaɪˈzeɪʃn/",
+          "pos": "noun",
+          "cefr": "B1",
+          "word": "demoralization",
+          "example": "The crisis led to the demoralization of the workforce.",
+          "translation": "деморализация, разложение"
+        }
+      ],
+      "isDailyBotFeed": true,
+      "targetLanguage": "English",
+      "stylisticDevices": [
+        {
+          "device": "Allusion",
+          "explanation": "A biblical reference used to point out hypocrisy, telling the critic to correct their own faults before judging others.",
+          "exampleFromText": "'Physician, heal thyself'"
+        },
+        {
+          "device": "Contrast / Juxtaposition",
+          "explanation": "Contrasts Britain's moral outrage abroad with its own harmful foreign policies to expose double standards.",
+          "exampleFromText": "Britain's vehement denunciation of American slavery, while... furthering Chinese demoralization."
+        }
+      ],
+      "culturalLinguisticContext": "This passage reflects 19th-century geopolitical critique, comparing American slavery with British foreign policies in China and domestic labor issues. It highlights hypocrisy in international moral judgments."
+    },
+    {
+      "id": "daily-afternoon-1789092732559",
+      "mode": "both",
+      "level": "B1",
+      "title": "Wuthering Heights",
+      "author": "Emily Brontë",
+      "duration": "4 min read • 2 min audio",
+      "feedSlot": "Afternoon Dialogue (14:00)",
+      "authorEra": "Victorian / 19th-century Romanticism",
+      "createdAt": "2026-09-11T02:12:12.559Z",
       "exercises": [
         {
           "id": "task-1",
-          "taskNumber": 1,
-          "category": "Comprehension",
-          "question": "Who is Juno in this passage?",
+          "points": 25,
           "options": [
             "A family friend",
             "A dog whose twitching is compared to a human's",
             "Catherine's sister",
             "A horse"
           ],
-          "correctIndex": 1,
+          "category": "Comprehension",
+          "question": "Who is Juno in this passage?",
+          "taskNumber": 1,
           "explanation": "Juno is a dog whose physical twitching is used in a simile by the characters.",
-          "points": 25
+          "correctIndex": 1
         },
         {
           "id": "task-2",
-          "taskNumber": 2,
-          "category": "Vocabulary",
-          "question": "What does the verb 'scold' mean in the text?",
+          "points": 25,
           "options": [
             "To praise someone",
             "To hit someone gently",
             "To angrily criticize or reprimand someone",
             "To kiss someone goodnight"
           ],
-          "correctIndex": 2,
+          "category": "Vocabulary",
+          "question": "What does the verb 'scold' mean in the text?",
+          "taskNumber": 2,
           "explanation": "'Scold' means to find fault with someone noisily or angrily; Catherine is confident her father will not do this.",
-          "points": 25
+          "correctIndex": 2
         },
         {
           "id": "task-3",
-          "taskNumber": 3,
-          "category": "Literary Analysis",
-          "question": "What literary device is used in the phrase 'he’ll break his heart should anything happen'?",
+          "points": 25,
           "options": [
             "Hyperbole",
             "Onomatopoeia",
             "Alliteration",
             "Oxymoron"
           ],
-          "correctIndex": 0,
+          "category": "Literary Analysis",
+          "question": "What literary device is used in the phrase 'he’ll break his heart should anything happen'?",
+          "taskNumber": 3,
           "explanation": "It is an exaggeration (hyperbole) describing intense emotional distress.",
-          "points": 25
+          "correctIndex": 0
         },
         {
           "id": "task-4",
-          "taskNumber": 4,
-          "category": "Grammar",
-          "question": "Identify the tense used in: 'He’s, perhaps, dreaming now.'",
+          "points": 25,
           "options": [
             "Present Simple",
             "Present Continuous",
             "Past Simple",
             "Future Simple"
           ],
-          "correctIndex": 1,
+          "category": "Grammar",
+          "question": "Identify the tense used in: 'He’s, perhaps, dreaming now.'",
+          "taskNumber": 4,
           "explanation": "'Is dreaming' is the Present Continuous tense, used for an action happening right now.",
-          "points": 25
+          "correctIndex": 1
         },
         {
           "id": "task-5",
-          "taskNumber": 5,
-          "category": "Comprehension",
-          "question": "Why does Catherine put her arms around her father's neck before they leave?",
+          "points": 25,
           "options": [
             "To choke him playfully",
             "To bid him good-night first",
             "To hide from Nelly",
             "To steal his pocket watch"
           ],
-          "correctIndex": 1,
+          "category": "Comprehension",
+          "question": "Why does Catherine put her arms around her father's neck before they leave?",
+          "taskNumber": 5,
           "explanation": "Catherine says 'I shall bid father good-night first' before anyone can stop her.",
-          "points": 25
+          "correctIndex": 1
         }
-      ],
-      "id": "daily-afternoon-1789092732559",
-      "sourceBook": "Project Gutenberg • Wuthering Heights",
-      "isAutoFetched": true,
-      "createdAt": "2026-09-11T02:12:12.559Z",
-      "feedSlot": "Afternoon Dialogue (14:00)",
-      "slotEmoji": "☀️",
-      "isDailyBotFeed": true
-    },
-    {
-      "title": "The Secret of the Ninth Planet",
-      "author": "Wollheim, Donald A.",
-      "authorEra": "Mid-20th Century Science Fiction",
-      "level": "B1",
-      "mode": "both",
-      "duration": "4 min read • 2 min audio",
-      "targetLanguage": "English",
-      "culturalLinguisticContext": "This passage reflects classic mid-20th-century American science fiction, blending thrilling space exploration tropes with urgent scientific problem-solving. Written at a B1 intermediate level, it utilizes descriptive dialogue and dramatic tension to engage language learners in cosmic mysteries.",
-      "paragraphs": [
-        "\"Maybe deep underground?\" suggested the engineer, Caton. \"They might have living quarters a few miles underneath.\"",
-        "Burl had never seen it through Terrestrial telescopes, but he sensed something was wrong. He realized suddenly, \"Both poles are enlarged! It's winter on _both_ hemispheres! And that's impossible!\"",
-        "They ran to him. \"He's alive!\" cried Haines, as he saw that Boulton was still breathing, his breath whistling back and forth through the oxygen mask. Quickly Haines examines him. \"His heart's all right. He's just been knocked unconscious.\"",
-        "\"The satellite's like a huge ball of thin mud th...\""
       ],
       "sentences": [
         {
-          "text": "\"Maybe deep underground?\" suggested the engineer, Caton.",
-          "translation": "\"Может быть, глубоко под землей?\" — предположил инженер Кейтон.",
-          "literaryNote": "Introduces dialogue and speculative problem-solving among the crew.",
-          "audioTime": "0:00 - 0:03"
+          "text": "“He’s, perhaps, dreaming now,” she continued.",
+          "audioTime": "0:00 - 0:03",
+          "translation": "«Он, возможно, сейчас видит сон», — продолжала она.",
+          "literaryNote": "Introduces a casual observation about a sleeping character, highlighting the intimate family dynamics."
         },
         {
-          "text": "\"They might have living quarters a few miles underneath.\"",
-          "translation": "\"У них могут быть жилые помещения в нескольких милях под поверхностью\".",
-          "literaryNote": "Speculates about alien habitability.",
-          "audioTime": "0:03 - 0:06"
+          "text": "“He twitched his shoulder as Juno twitches hers.",
+          "audioTime": "0:03 - 0:06",
+          "translation": "«Он дернул плечом так, как Юнона дергает своим.",
+          "literaryNote": "Uses a canine comparison (Juno is a dog) to create a vivid visual image."
         },
         {
-          "text": "Burl had never seen it through Terrestrial telescopes, but he sensed something was wrong.",
-          "translation": "Бёрл никогда не видел этого в земные телескопы, но он чувствовал, что что-то не так.",
-          "literaryNote": "Establishes Burl's intuitive connection to the anomaly.",
-          "audioTime": "0:06 - 0:11"
+          "text": "Ask him, Ellen.”",
+          "audioTime": "0:06 - 0:08",
+          "translation": "Спроси его, Эллен».",
+          "literaryNote": "Refers to Nelly Dean by her familiar name, showing their close relationship."
         },
         {
-          "text": "He realized suddenly, \"Both poles are enlarged! It's winter on both hemispheres! And that's impossible!\"",
-          "translation": "Он внезапно понял: \"Оба полюса увеличены! На обоих полушариях зима! И это невозможно!\"",
-          "literaryNote": "Climax of the scientific realization, using exclamation to show shock.",
-          "audioTime": "0:11 - 0:18"
+          "text": "“Sorry? he’ll break his heart should anything happen!” I replied.",
+          "audioTime": "0:08 - 0:13",
+          "translation": "«Что простите? Он сорвет сердце, если что-нибудь случится!» — ответила я.",
+          "literaryNote": "Nelly expresses deep concern for Edgar Linton's fragile emotional state."
         },
         {
-          "text": "They ran to him.",
-          "translation": "Они побежали к нему.",
-          "literaryNote": "Quick action sentence shifting focus back to an injured crewmate.",
-          "audioTime": "0:18 - 0:20"
+          "text": "“Don’t alarm him more than necessary.”",
+          "audioTime": "0:13 - 0:16",
+          "translation": "«Не пугай его больше, чем нужно».",
+          "literaryNote": "A warning to protect a loved one from anxiety."
         },
         {
-          "text": "\"He's alive!\" cried Haines, as he saw that Boulton was still breathing, his breath whistling back and forth through the oxygen mask.",
-          "translation": "\"Он жив!\" — воскликнул Хэйнс, увидев, что Боултон все еще дышит, и его дыхание со свистом проносится сквозь кислородную маску.",
-          "literaryNote": "Sensory details ('whistling') enhance the urgency.",
-          "audioTime": "0:20 - 0:28"
+          "text": "“What have I done?” sobbed she, instantly checked.",
+          "audioTime": "0:16 - 0:20",
+          "translation": "«Что я сделала?» — всхлипнула она, мгновенно остановившись.",
+          "literaryNote": "Catherine's sudden emotional shift from stubbornness to distress."
         },
         {
-          "text": "Quickly Haines examined him.",
-          "translation": "Хэйнс быстро осмотрел его.",
-          "literaryNote": "Concise narration reflecting fast-paced medical assessment.",
-          "audioTime": "0:28 - 0:31"
+          "text": "“Papa charged me nothing: he’ll not scold me, Ellen—he’s never cross, like you!”",
+          "audioTime": "0:20 - 0:27",
+          "translation": "«Папа ничего мне не поручал: он не станет меня ругать, Эллен — он никогда не бывает сердитым, как ты!»",
+          "literaryNote": "Highlights the contrasting personalities of the strict servant/guardian Nelly and the indulgent father Edgar."
         },
         {
-          "text": "\"His heart's all right. He's just been knocked unconscious.\"",
-          "translation": "\"Его сердце в порядке. Он просто потерял сознание\".",
-          "literaryNote": "Relieves immediate tension regarding survival.",
-          "audioTime": "0:31 - 0:35"
+          "text": "“Well, we’ll turn our horses’ heads round when we reach him,” answered my companion; “our excursion shall lie towards home.”",
+          "audioTime": "0:27 - 0:35",
+          "translation": "«Ну, мы повернем головы наших лошадей назад, когда доберемся до него, — ответила моя спутница; — наша поездка будет лежать домой».",
+          "literaryNote": "Signals a change of direction, aborting their trip due to rising concerns."
         },
         {
-          "text": "\"The satellite's like a huge ball of thin mud th...\"",
-          "translation": "\"Спутник похож на огромный шар из жидкой грязи...\"",
-          "literaryNote": "Abrupt cutoff leaves a cliffhanger about the nature of the satellite.",
-          "audioTime": "0:35 - 0:40"
+          "text": "“I shall bid father good-night first,” said Catherine, putting her arms round his neck, before we could hinder her.",
+          "audioTime": "0:35 - 0:43",
+          "translation": "«Я сначала скажу отцу спокойной ночи», — сказала Catherine, обхватив его за шею, прежде чем мы смогли помешать ей.",
+          "literaryNote": "Demonstrates Catherine's impulsive and affectionate nature toward her father."
+        },
+        {
+          "text": "The poor t",
+          "audioTime": "0:43 - 0:45",
+          "translation": "Бедный т...",
+          "literaryNote": "An abrupt sentence cut-off, leaving the scene suspended in tension."
         }
       ],
-      "keyVocabulary": [
-        {
-          "word": "underground",
-          "ipa": "/ˈʌndərɡraʊnd/",
-          "pos": "adverb",
-          "translation": "под землей",
-          "cefr": "B1",
-          "example": "They built tunnels underground to hide from the storm."
-        },
-        {
-          "word": "telescope",
-          "ipa": "/ˈtelɪskəʊp/",
-          "pos": "noun",
-          "translation": "телескоп",
-          "cefr": "B1",
-          "example": "Astronomers use a telescope to study distant stars."
-        },
-        {
-          "word": "hemisphere",
-          "ipa": "/ˈhemɪsfɪər/",
-          "pos": "noun",
-          "translation": "полушарие",
-          "cefr": "B1",
-          "example": "Winter in the northern hemisphere starts in December."
-        },
-        {
-          "word": "oxygen",
-          "ipa": "/ˈɒksɪdʒən/",
-          "pos": "noun",
-          "translation": "кислород",
-          "cefr": "B1",
-          "example": "Divers need an oxygen tank to breathe underwater."
-        },
-        {
-          "word": "unconscious",
-          "ipa": "/ʌnˈkɒnʃəs/",
-          "pos": "adjective",
-          "translation": "без сознания",
-          "cefr": "B1",
-          "example": "He fell off the ladder and was unconscious for a few minutes."
-        }
+      "slotEmoji": "☀️",
+      "paragraphs": [
+        "“He’s, perhaps, dreaming now,” she continued. “He twitched his shoulder as Juno twitches hers. Ask him, Ellen.” “Sorry? he’ll break his heart should anything happen!” I replied. “Don’t alarm him more than necessary.”",
+        "“What have I done?” sobbed she, instantly checked. “Papa charged me nothing: he’ll not scold me, Ellen—he’s never cross, like you!” “Well, we’ll turn our horses’ heads round when we reach him,” answered my companion; “our excursion shall lie towards home.”",
+        "“I shall bid father good-night first,” said Catherine, putting her arms round his neck, before we could hinder her. The poor t"
       ],
-      "stylisticDevices": [
-        {
-          "device": "Exclamation for dramatic tension",
-          "exampleFromText": "And that's impossible!",
-          "explanation": "Used to emphasize the crew's disbelief and scientific shock at discovering an impossible planetary condition."
-        },
-        {
-          "device": "Onomatopoeic / Descriptive sound",
-          "exampleFromText": "his breath whistling back and forth through the oxygen mask",
-          "explanation": "The word 'whistling' helps the reader hear the labored breathing, heightening the medical emergency scene."
-        },
-        {
-          "device": "Cliffhanger interruption",
-          "exampleFromText": "The satellite's like a huge ball of thin mud th...",
-          "explanation": "An abrupt sentence cutoff that creates suspense and leaves the reader guessing what the satellite actually is."
-        }
-      ],
+      "sourceBook": "Project Gutenberg • Wuthering Heights",
       "conversations": [
         {
           "id": "socratic-1",
-          "stepNumber": 1,
-          "persona": "SpeakBot Socratic Mentor",
-          "topic": "Setting the Scene & Location",
-          "prompt": "Where does the engineer Caton suggest that living quarters might be located?",
+          "topic": "Character Emotion",
+          "points": 25,
+          "prompt": "How does Catherine react when Nelly warns her not to alarm her father?",
           "options": [
-            "Deep underground",
-            "On the high mountains",
-            "Inside a spaceship"
+            "She gets angry and leaves immediately.",
+            "She becomes instantly upset and asks what she has done.",
+            "She laughs and ignores Nelly completely."
           ],
-          "correctIndex": 0,
-          "botFeedback": "Correct! Caton suggests they might be living a few miles underneath.",
-          "points": 25
+          "persona": "SpeakBot Socratic Mentor",
+          "stepNumber": 1,
+          "botFeedback": "Correct! Catherine is instantly checked and asks 'What have I done?', showing her sensitivity to causing trouble.",
+          "correctIndex": 1
         },
         {
           "id": "socratic-2",
-          "stepNumber": 2,
-          "persona": "SpeakBot Socratic Mentor",
-          "topic": "Scientific Anomaly",
-          "prompt": "What shocking discovery does Burl make about the planet's poles?",
+          "topic": "Parental Dynamic",
+          "points": 25,
+          "prompt": "What distinction does Catherine make between Edgar Linton (her father) and Nelly?",
           "options": [
-            "They are melting completely",
-            "Both poles are enlarged, meaning winter is on both hemispheres",
-            "They have completely vanished"
+            "She thinks Nelly is kind and her father is strict.",
+            "She believes her father never scolds her and is never cross, unlike Nelly.",
+            "She feels both of them treat her unfairly."
           ],
-          "correctIndex": 1,
-          "botFeedback": "Spot on! Burl realizes both poles are enlarged, which is physically impossible under normal conditions.",
-          "points": 25
+          "persona": "SpeakBot Socratic Mentor",
+          "stepNumber": 2,
+          "botFeedback": "Spot on! She complains that her father 'he’ll not scold me... he’s never cross, like you!' highlighting Nelly's stricter role.",
+          "correctIndex": 1
         },
         {
           "id": "socratic-3",
-          "stepNumber": 3,
-          "persona": "SpeakBot Socratic Mentor",
-          "topic": "Medical Emergency",
-          "prompt": "What does Haines discover when he checks on Boulton?",
+          "topic": "Plot Action",
+          "points": 25,
+          "prompt": "What do the characters decide to do regarding their excursion after discussing the father?",
           "options": [
-            "Boulton is dead",
-            "Boulton has a broken arm",
-            "Boulton is alive and breathing, just knocked unconscious"
+            "They decide to continue their journey far away from home.",
+            "They decide to turn their horses' heads around and head back towards home.",
+            "They decide to dismount and rest on the grass."
           ],
-          "correctIndex": 2,
-          "botFeedback": "Exactly right. Haines confirms Boulton's heart is fine and he is only unconscious.",
-          "points": 25
+          "persona": "SpeakBot Socratic Mentor",
+          "stepNumber": 3,
+          "botFeedback": "Exactly. Nelly states 'our excursion shall lie towards home,' aborting the trip to look after Edgar.",
+          "correctIndex": 1
         },
         {
           "id": "socratic-4",
-          "stepNumber": 4,
-          "persona": "SpeakBot Socratic Mentor",
-          "topic": "Narrative Suspense",
-          "prompt": "How does the excerpt end, leaving the reader with a mystery?",
+          "topic": "Thematic Interpretation",
+          "points": 25,
+          "prompt": "Based on this excerpt, how does Emily Brontë characterize the relationship between Catherine and her father?",
           "options": [
-            "With an unfinished sentence describing the satellite as a ball of thin mud",
-            "With the crew escaping in a rocket",
-            "With a peaceful sunset on Earth"
+            "Distant and cold",
+            "Overly formal and strict",
+            "Deeply affectionate and protective"
           ],
-          "correctIndex": 0,
-          "botFeedback": "Brilliant! The sudden cutoff leaves us wondering about the strange satellite.",
-          "points": 25
+          "persona": "SpeakBot Socratic Mentor",
+          "stepNumber": 4,
+          "botFeedback": "Wonderful insight! Catherine's impulsive hug ('putting her arms round his neck') reveals a very warm, close bond.",
+          "correctIndex": 2
         }
       ],
+      "isAutoFetched": true,
+      "keyVocabulary": [
+        {
+          "ipa": "/twɪtʃ/",
+          "pos": "verb",
+          "cefr": "B1",
+          "word": "twitch",
+          "example": "He gave a slight twitch of his eyebrow.",
+          "translation": "дергать(ся)"
+        },
+        {
+          "ipa": "/əˈlɑːm/",
+          "pos": "verb",
+          "cefr": "B1",
+          "word": "alarm",
+          "example": "Don't alarm your mother with bad news.",
+          "translation": "тревожить, пугать"
+        },
+        {
+          "ipa": "/sɒb/",
+          "pos": "verb",
+          "cefr": "B1",
+          "word": "sob",
+          "example": "She began to sob quietly in the corner.",
+          "translation": "всхлипывать, рыдать"
+        },
+        {
+          "ipa": "/skəʊld/",
+          "pos": "verb",
+          "cefr": "B1",
+          "word": "scold",
+          "example": "The teacher had to scold the noisy students.",
+          "translation": "ругать, бранить"
+        },
+        {
+          "ipa": "/ɪkˈskɜːʃn/",
+          "pos": "noun",
+          "cefr": "B1",
+          "word": "excursion",
+          "example": "We planned a pleasant excursion to the hills.",
+          "translation": "поездка, экскурсия"
+        },
+        {
+          "ipa": "/ˈhɪndə(r)/",
+          "pos": "verb",
+          "cefr": "B1",
+          "word": "hinder",
+          "example": "High winds hindered the rescue effort.",
+          "translation": "мешать, препятствовать"
+        }
+      ],
+      "isDailyBotFeed": true,
+      "targetLanguage": "English",
+      "stylisticDevices": [
+        {
+          "device": "Simile",
+          "explanation": "Compares a human physical movement to that of an animal (a dog named Juno), emphasizing natural, uncalculated gestures.",
+          "exampleFromText": "He twitched his shoulder as Juno twitches hers."
+        },
+        {
+          "device": "Hyperbole",
+          "explanation": "An exaggeration used by Nelly to emphasize Edgar Linton's extreme vulnerability and deep affection for his daughter.",
+          "exampleFromText": "he’ll break his heart should anything happen!"
+        }
+      ],
+      "culturalLinguisticContext": "Set in the wild, isolated moors of Yorkshire, this Gothic masterpiece explores intense class divisions, deep passions, and generational conflict. The excerpt captures a tender yet tense moment between Nelly Dean, Catherine, and her father Edgar Linton."
+    },
+    {
+      "id": "daily-morning-1789092679410",
+      "mode": "both",
+      "level": "B1",
+      "title": "The Secret of the Ninth Planet",
+      "author": "Wollheim, Donald A.",
+      "duration": "4 min read • 2 min audio",
+      "feedSlot": "Morning Classic (08:00)",
+      "authorEra": "Mid-20th Century Science Fiction",
+      "createdAt": "2026-09-11T02:11:19.410Z",
       "exercises": [
         {
           "id": "task-1",
-          "taskNumber": 1,
-          "category": "Comprehension",
-          "question": "What impossibility does Burl observe about the planet?",
+          "points": 25,
           "options": [
             "It has two suns",
             "It's winter on both hemispheres simultaneously",
             "It is spinning backwards",
             "It has no atmosphere"
           ],
-          "correctIndex": 1,
+          "category": "Comprehension",
+          "question": "What impossibility does Burl observe about the planet?",
+          "taskNumber": 1,
           "explanation": "Burl notes that both poles are enlarged and it's winter on both hemispheres, which he calls impossible.",
-          "points": 25
+          "correctIndex": 1
         },
         {
           "id": "task-2",
-          "taskNumber": 2,
-          "category": "Vocabulary",
-          "question": "Choose the correct synonym for 'unconscious' based on the text context:",
+          "points": 25,
           "options": [
             "Sleeping normally",
             "Senseless or knocked out",
             "Dead",
             "Extremely energetic"
           ],
-          "correctIndex": 1,
+          "category": "Vocabulary",
+          "question": "Choose the correct synonym for 'unconscious' based on the text context:",
+          "taskNumber": 2,
           "explanation": "Haines says Boulton's heart is fine and he's just been knocked unconscious, meaning he is temporarily senseless/knocked out.",
-          "points": 25
+          "correctIndex": 1
         },
         {
           "id": "task-3",
-          "taskNumber": 3,
-          "category": "Grammar",
-          "question": "Identify the tense used in: 'Burl had never seen it through Terrestrial telescopes.'",
+          "points": 25,
           "options": [
             "Past Simple",
             "Present Perfect",
             "Past Perfect",
             "Future Simple"
           ],
-          "correctIndex": 2,
+          "category": "Grammar",
+          "question": "Identify the tense used in: 'Burl had never seen it through Terrestrial telescopes.'",
+          "taskNumber": 3,
           "explanation": "'Had never seen' is the Past Perfect tense, used to describe an action completed before another action in the past.",
-          "points": 25
+          "correctIndex": 2
         },
         {
           "id": "task-4",
-          "taskNumber": 4,
-          "category": "Contextual Analysis",
-          "question": "What equipment is helping Boulton breathe?",
+          "points": 25,
           "options": [
             "A space helmet",
             "An oxygen mask",
             "A scuba regulator",
             "A medical ventilator"
           ],
-          "correctIndex": 1,
+          "category": "Contextual Analysis",
+          "question": "What equipment is helping Boulton breathe?",
+          "taskNumber": 4,
           "explanation": "The text explicitly states his breath is whistling through the oxygen mask.",
-          "points": 25
+          "correctIndex": 1
         },
         {
           "id": "task-5",
-          "taskNumber": 5,
-          "category": "Literary Device",
-          "question": "What effect does the unfinished sentence at the end ('The satellite's like a huge ball of thin mud th...') have?",
+          "points": 25,
           "options": [
             "It shows the author made a printing mistake",
             "It creates suspense and a dramatic cliffhanger",
             "It signals the end of the book",
             "It describes a weather forecast"
           ],
-          "correctIndex": 1,
+          "category": "Literary Device",
+          "question": "What effect does the unfinished sentence at the end ('The satellite's like a huge ball of thin mud th...') have?",
+          "taskNumber": 5,
           "explanation": "The abrupt cutoff creates immediate narrative suspense, acting as a cliffhanger for the reader.",
-          "points": 25
+          "correctIndex": 1
         }
       ],
-      "id": "daily-morning-1789092679410",
-      "sourceBook": "Project Gutenberg • The Secret of the Ninth Planet",
-      "isAutoFetched": true,
-      "createdAt": "2026-09-11T02:11:19.410Z",
-      "feedSlot": "Morning Classic (08:00)",
+      "sentences": [
+        {
+          "text": "\"Maybe deep underground?\" suggested the engineer, Caton.",
+          "audioTime": "0:00 - 0:03",
+          "translation": "\"Может быть, глубоко под землей?\" — предположил инженер Кейтон.",
+          "literaryNote": "Introduces dialogue and speculative problem-solving among the crew."
+        },
+        {
+          "text": "\"They might have living quarters a few miles underneath.\"",
+          "audioTime": "0:03 - 0:06",
+          "translation": "\"У них могут быть жилые помещения в нескольких милях под поверхностью\".",
+          "literaryNote": "Speculates about alien habitability."
+        },
+        {
+          "text": "Burl had never seen it through Terrestrial telescopes, but he sensed something was wrong.",
+          "audioTime": "0:06 - 0:11",
+          "translation": "Бёрл никогда не видел этого в земные телескопы, но он чувствовал, что что-то не так.",
+          "literaryNote": "Establishes Burl's intuitive connection to the anomaly."
+        },
+        {
+          "text": "He realized suddenly, \"Both poles are enlarged! It's winter on both hemispheres! And that's impossible!\"",
+          "audioTime": "0:11 - 0:18",
+          "translation": "Он внезапно понял: \"Оба полюса увеличены! На обоих полушариях зима! И это невозможно!\"",
+          "literaryNote": "Climax of the scientific realization, using exclamation to show shock."
+        },
+        {
+          "text": "They ran to him.",
+          "audioTime": "0:18 - 0:20",
+          "translation": "Они побежали к нему.",
+          "literaryNote": "Quick action sentence shifting focus back to an injured crewmate."
+        },
+        {
+          "text": "\"He's alive!\" cried Haines, as he saw that Boulton was still breathing, his breath whistling back and forth through the oxygen mask.",
+          "audioTime": "0:20 - 0:28",
+          "translation": "\"Он жив!\" — воскликнул Хэйнс, увидев, что Боултон все еще дышит, и его дыхание со свистом проносится сквозь кислородную маску.",
+          "literaryNote": "Sensory details ('whistling') enhance the urgency."
+        },
+        {
+          "text": "Quickly Haines examined him.",
+          "audioTime": "0:28 - 0:31",
+          "translation": "Хэйнс быстро осмотрел его.",
+          "literaryNote": "Concise narration reflecting fast-paced medical assessment."
+        },
+        {
+          "text": "\"His heart's all right. He's just been knocked unconscious.\"",
+          "audioTime": "0:31 - 0:35",
+          "translation": "\"Его сердце в порядке. Он просто потерял сознание\".",
+          "literaryNote": "Relieves immediate tension regarding survival."
+        },
+        {
+          "text": "\"The satellite's like a huge ball of thin mud th...\"",
+          "audioTime": "0:35 - 0:40",
+          "translation": "\"Спутник похож на огромный шар из жидкой грязи...\"",
+          "literaryNote": "Abrupt cutoff leaves a cliffhanger about the nature of the satellite."
+        }
+      ],
       "slotEmoji": "🌅",
-      "isDailyBotFeed": true
+      "paragraphs": [
+        "\"Maybe deep underground?\" suggested the engineer, Caton. \"They might have living quarters a few miles underneath.\"",
+        "Burl had never seen it through Terrestrial telescopes, but he sensed something was wrong. He realized suddenly, \"Both poles are enlarged! It's winter on _both_ hemispheres! And that's impossible!\"",
+        "They ran to him. \"He's alive!\" cried Haines, as he saw that Boulton was still breathing, his breath whistling back and forth through the oxygen mask. Quickly Haines examines him. \"His heart's all right. He's just been knocked unconscious.\"",
+        "\"The satellite's like a huge ball of thin mud th...\""
+      ],
+      "sourceBook": "Project Gutenberg • The Secret of the Ninth Planet",
+      "conversations": [
+        {
+          "id": "socratic-1",
+          "topic": "Setting the Scene & Location",
+          "points": 25,
+          "prompt": "Where does the engineer Caton suggest that living quarters might be located?",
+          "options": [
+            "Deep underground",
+            "On the high mountains",
+            "Inside a spaceship"
+          ],
+          "persona": "SpeakBot Socratic Mentor",
+          "stepNumber": 1,
+          "botFeedback": "Correct! Caton suggests they might be living a few miles underneath.",
+          "correctIndex": 0
+        },
+        {
+          "id": "socratic-2",
+          "topic": "Scientific Anomaly",
+          "points": 25,
+          "prompt": "What shocking discovery does Burl make about the planet's poles?",
+          "options": [
+            "They are melting completely",
+            "Both poles are enlarged, meaning winter is on both hemispheres",
+            "They have completely vanished"
+          ],
+          "persona": "SpeakBot Socratic Mentor",
+          "stepNumber": 2,
+          "botFeedback": "Spot on! Burl realizes both poles are enlarged, which is physically impossible under normal conditions.",
+          "correctIndex": 1
+        },
+        {
+          "id": "socratic-3",
+          "topic": "Medical Emergency",
+          "points": 25,
+          "prompt": "What does Haines discover when he checks on Boulton?",
+          "options": [
+            "Boulton is dead",
+            "Boulton has a broken arm",
+            "Boulton is alive and breathing, just knocked unconscious"
+          ],
+          "persona": "SpeakBot Socratic Mentor",
+          "stepNumber": 3,
+          "botFeedback": "Exactly right. Haines confirms Boulton's heart is fine and he is only unconscious.",
+          "correctIndex": 2
+        },
+        {
+          "id": "socratic-4",
+          "topic": "Narrative Suspense",
+          "points": 25,
+          "prompt": "How does the excerpt end, leaving the reader with a mystery?",
+          "options": [
+            "With an unfinished sentence describing the satellite as a ball of thin mud",
+            "With the crew escaping in a rocket",
+            "With a peaceful sunset on Earth"
+          ],
+          "persona": "SpeakBot Socratic Mentor",
+          "stepNumber": 4,
+          "botFeedback": "Brilliant! The sudden cutoff leaves us wondering about the strange satellite.",
+          "correctIndex": 0
+        }
+      ],
+      "isAutoFetched": true,
+      "keyVocabulary": [
+        {
+          "ipa": "/ˈʌndərɡraʊnd/",
+          "pos": "adverb",
+          "cefr": "B1",
+          "word": "underground",
+          "example": "They built tunnels underground to hide from the storm.",
+          "translation": "под землей"
+        },
+        {
+          "ipa": "/ˈtelɪskəʊp/",
+          "pos": "noun",
+          "cefr": "B1",
+          "word": "telescope",
+          "example": "Astronomers use a telescope to study distant stars.",
+          "translation": "телескоп"
+        },
+        {
+          "ipa": "/ˈhemɪsfɪər/",
+          "pos": "noun",
+          "cefr": "B1",
+          "word": "hemisphere",
+          "example": "Winter in the northern hemisphere starts in December.",
+          "translation": "полушарие"
+        },
+        {
+          "ipa": "/ˈɒksɪdʒən/",
+          "pos": "noun",
+          "cefr": "B1",
+          "word": "oxygen",
+          "example": "Divers need an oxygen tank to breathe underwater.",
+          "translation": "кислород"
+        },
+        {
+          "ipa": "/ʌnˈkɒnʃəs/",
+          "pos": "adjective",
+          "cefr": "B1",
+          "word": "unconscious",
+          "example": "He fell off the ladder and was unconscious for a few minutes.",
+          "translation": "без сознания"
+        }
+      ],
+      "isDailyBotFeed": true,
+      "targetLanguage": "English",
+      "stylisticDevices": [
+        {
+          "device": "Exclamation for dramatic tension",
+          "explanation": "Used to emphasize the crew's disbelief and scientific shock at discovering an impossible planetary condition.",
+          "exampleFromText": "And that's impossible!"
+        },
+        {
+          "device": "Onomatopoeic / Descriptive sound",
+          "explanation": "The word 'whistling' helps the reader hear the labored breathing, heightening the medical emergency scene.",
+          "exampleFromText": "his breath whistling back and forth through the oxygen mask"
+        },
+        {
+          "device": "Cliffhanger interruption",
+          "explanation": "An abrupt sentence cutoff that creates suspense and leaves the reader guessing what the satellite actually is.",
+          "exampleFromText": "The satellite's like a huge ball of thin mud th..."
+        }
+      ],
+      "culturalLinguisticContext": "This passage reflects classic mid-20th-century American science fiction, blending thrilling space exploration tropes with urgent scientific problem-solving. Written at a B1 intermediate level, it utilizes descriptive dialogue and dramatic tension to engage language learners in cosmic mysteries."
     },
     {
       "id": "daily-evening-1789089034005",
@@ -2641,236 +2641,6 @@
       "regenerationAttempts": 0,
       "generatedWithMediator": "az",
       "culturalLinguisticContext": "Bu parça, 20. yüzyılın başlarındaki Amerikan tüketici kültürünü, reklam dilini ve orta sınıfın yüzeysel hırslarını eleştirel bir dille ele almaktadır. Sinclair Lewis, dönemin reklam jargonu ile bireylerin hayal kırıklıklarını mizahi bir üslupla harmanlar."
-    },
-    {
-      "id": "daily-evening-1789088517345",
-      "mode": "both",
-      "level": "B1",
-      "title": "Pericles",
-      "author": "William Shakespeare",
-      "duration": "4 min read • 2 min audio",
-      "feedSlot": "Evening Literary Masterpiece (20:00)",
-      "authorEra": "Early Modern / Jacobean",
-      "createdAt": "2026-09-11T01:01:57.345Z",
-      "exercises": [
-        {
-          "id": "task-1",
-          "points": 25,
-          "options": [
-            "Disclaimers of certain implied warranties",
-            "Reading Shakespeare",
-            "Speaking French in public",
-            "Writing digital books"
-          ],
-          "category": "Comprehension",
-          "question": "What do some states not allow according to the legal text?",
-          "taskNumber": 1,
-          "explanation": "The text explicitly states: 'Some states do not allow disclaimers of certain implied warranties...'",
-          "correctIndex": 0
-        },
-        {
-          "id": "task-2",
-          "points": 25,
-          "options": [
-            "Zəmanət",
-            "Məsuliyyətdən imtina",
-            "Müqavilə",
-            "Zərər"
-          ],
-          "category": "Vocabulary",
-          "question": "What is the Azerbaijani meaning of the English word 'disclaimer'?",
-          "taskNumber": 2,
-          "explanation": "A disclaimer is a statement denying responsibility or disclaiming a warranty.",
-          "correctIndex": 1
-        },
-        {
-          "id": "task-3",
-          "points": 25,
-          "options": [
-            "Past Simple",
-            "Present Simple",
-            "Future Simple",
-            "Present Continuous"
-          ],
-          "category": "Grammar",
-          "question": "Identify the tense of 'do not allow' in the first sentence.",
-          "taskNumber": 3,
-          "explanation": "'Do not allow' is the negative form of the Present Simple tense.",
-          "correctIndex": 1
-        },
-        {
-          "id": "task-4",
-          "points": 25,
-          "options": [
-            "Shakespeare was a lawyer.",
-            "The text is extracted from a copyrighted digital archive with standard terms.",
-            "It is part of a modern courtroom drama.",
-            "Pericles is on trial."
-          ],
-          "category": "Context Analysis",
-          "question": "Why is a Shakespearean play excerpt accompanied by a legal notice here?",
-          "taskNumber": 4,
-          "explanation": "Archival electronic texts commonly include standard Project Gutenberg terms of use at the top.",
-          "correctIndex": 1
-        },
-        {
-          "id": "task-5",
-          "points": 25,
-          "options": [
-            "Lakin icazə verin.",
-            "Bura necə gəldin?",
-            "Mən sənə inanıram.",
-            "Son sözə qədər."
-          ],
-          "category": "Translation",
-          "question": "Translate into Azerbaijani: 'Cependant permettez.'",
-          "taskNumber": 5,
-          "explanation": "'Cependant' means 'however/nevertheless' (lakin/ancaq) and 'permettez' means 'allow/permit' (icazə verin).",
-          "correctIndex": 0
-        }
-      ],
-      "sentences": [
-        {
-          "text": "Some states do not allow disclaimers of certain implied warranties or the exclusion or limitation of certain types of damages.",
-          "audioTime": "0:00 - 0:05",
-          "translation": "Bəzi ştatlar müəyyən nəzərdə tutulmuş zəmanətlərdən imtinaya və ya müəyyən zərər növlərinin xaric edilməsinə icazə vermir.",
-          "literaryNote": "A standard legal disclaimer typically found at the beginning of Project Gutenberg digital texts."
-        },
-        {
-          "text": "PÉRICLÈS.--Je vous croirai jusqu'au dernier mot.",
-          "audioTime": "0:06 - 0:10",
-          "translation": "PERIKL.--Mən sizə son sözə qədər inanacağam.",
-          "literaryNote": "A transition into a theatrical script format featuring French translation lines."
-        },
-        {
-          "text": "Cependant permettez.--Comment êtes-vous venue ici?",
-          "audioTime": "0:11 - 0:15",
-          "translation": "Ancaq icazə verin.--Bura necə gəlmisiniz?",
-          "literaryNote": "Pericles questions his interlocutor with sudden urgency."
-        },
-        {
-          "text": "Où fûtes-vous él",
-          "audioTime": "0:16 - 0:20",
-          "translation": "Harada tərbiyə olundunuz (və ya yetişdirildiniz)...",
-          "literaryNote": "An incomplete sentence cutoff typical of raw text extraction artifacts."
-        }
-      ],
-      "slotEmoji": "🌙",
-      "paragraphs": [
-        "Some states do not allow disclaimers of certain implied warranties or the exclusion or limitation of certain types of damages.",
-        "PÉRICLÈS.--Je vous croirai jusqu'au dernier mot. Cependant permettez.--Comment êtes-vous venue ici? Où fûtes-vous él"
-      ],
-      "sourceBook": "Project Gutenberg • Pericles",
-      "conversations": [
-        {
-          "id": "socratic-1",
-          "topic": "Text Origin",
-          "points": 25,
-          "prompt": "Why does this literary excerpt begin with a legal statement about warranties and damages?",
-          "options": [
-            "It is part of the digital publisher's standard license agreement.",
-            "Shakespeare wrote it as a prologue.",
-            "It describes a law court scene in the play."
-          ],
-          "persona": "SpeakBot Socratic Mentor",
-          "stepNumber": 1,
-          "botFeedback": "Correct! Digital libraries like Project Gutenberg prepend legal disclaimers to their text files.",
-          "correctIndex": 0
-        },
-        {
-          "id": "socratic-2",
-          "topic": "Language Shift",
-          "points": 25,
-          "prompt": "What language does Pericles speak in the second part of the excerpt?",
-          "options": [
-            "Latin",
-            "French",
-            "Spanish"
-          ],
-          "persona": "SpeakBot Socratic Mentor",
-          "stepNumber": 2,
-          "botFeedback": "Spot on! The text labels him 'PÉRICLÈS' and uses French dialogue ('Je vous croirai...').",
-          "correctIndex": 1
-        },
-        {
-          "id": "socratic-3",
-          "topic": "Character Inquiry",
-          "points": 25,
-          "prompt": "In the French dialogue, what is Pericles asking about?",
-          "options": [
-            "How much the warranty costs",
-            "How the person arrived and where they were raised",
-            "Directions to the nearest port"
-          ],
-          "persona": "SpeakBot Socratic Mentor",
-          "stepNumber": 3,
-          "botFeedback": "Great job! He asks 'Comment êtes-vous venue ici? Où fûtes-vous él...' (How did you come here? Where were you raised...).",
-          "correctIndex": 1
-        },
-        {
-          "id": "socratic-4",
-          "topic": "Text Integrity",
-          "points": 25,
-          "prompt": "How does the excerpt end?",
-          "options": [
-            "With a definitive conclusion",
-            "With an incomplete word ('él')",
-            "With a French poem"
-          ],
-          "persona": "SpeakBot Socratic Mentor",
-          "stepNumber": 4,
-          "botFeedback": "Exactly. The text cuts off mid-word due to extraction limits.",
-          "correctIndex": 1
-        }
-      ],
-      "isAutoFetched": true,
-      "keyVocabulary": [
-        {
-          "ipa": "/dɪsˈkleɪmər/",
-          "pos": "noun",
-          "cefr": "B1",
-          "word": "Disclaimer",
-          "example": "The agreement includes a legal disclaimer regarding warranties.",
-          "translation": "Məsuliyyətdən imtina"
-        },
-        {
-          "ipa": "/ˈwɔːrənti/",
-          "pos": "noun",
-          "cefr": "B1",
-          "word": "Warranty",
-          "example": "The product comes with a one-year warranty.",
-          "translation": "Zəmanət"
-        },
-        {
-          "ipa": "/ˌlɪmɪˈteɪʃən/",
-          "pos": "noun",
-          "cefr": "B1",
-          "word": "Limitation",
-          "example": "There is a limitation on how much data you can download.",
-          "translation": "Məhdudiyyət"
-        },
-        {
-          "ipa": "/sə.pɑ̃.dɑ̃/",
-          "pos": "adverb",
-          "cefr": "B1",
-          "word": "Cependant",
-          "example": "Cependant, we must consider other options.",
-          "translation": "Ancaq / Lakin"
-        }
-      ],
-      "regeneratedAt": "2026-09-11T01:05:44.215Z",
-      "isDailyBotFeed": true,
-      "targetLanguage": "English",
-      "stylisticDevices": [
-        {
-          "device": "Juxtaposition",
-          "explanation": "Highlights the text's nature as a digitized archival document combining publisher metadata with play text.",
-          "exampleFromText": "Legal boilerplate text abruptly switching to a dramatic French script dialogue."
-        }
-      ],
-      "regenerationAttempts": 0,
-      "generatedWithMediator": "az",
-      "culturalLinguisticContext": "This text contains a mix of standard legal boilerplate (from digital archives) and a dramatic shift into Shakespearean dialogue featuring French and English. It illustrates the unusual juxtaposition found in open-source text repositories."
     },
     {
       "id": "daily-afternoon-1789088497187",
@@ -4701,267 +4471,6 @@
       "regenerationAttempts": 0,
       "generatedWithMediator": "az",
       "culturalLinguisticContext": "Elizabeth Barrett Browning's Sonnet I reflects the transition from an isolated life of imagination to a vibrant reality inspired by love. Written during the Victorian period, it showcases classic poetic forms with deeply personal emotional truths."
-    },
-    {
-      "id": "daily-morning-1789083372181",
-      "mode": "both",
-      "level": "B1",
-      "title": "Printcrime",
-      "author": "Cory Doctorow",
-      "duration": "4 min read • 2 min audio",
-      "feedSlot": "Morning Classic (08:00)",
-      "authorEra": "Contemporary Science Fiction",
-      "createdAt": "2026-09-10T23:36:12.181Z",
-      "exercises": [
-        {
-          "id": "task-1",
-          "points": 25,
-          "options": [
-            "A poem",
-            "A legal disclaimer or EULA",
-            "A news report",
-            "A diary entry"
-          ],
-          "category": "Comprehension",
-          "question": "What kind of text does the excerpt open with?",
-          "taskNumber": 1,
-          "explanation": "The text begins with standard legal warranty and liability disclaimers (1.F.5).",
-          "correctIndex": 1
-        },
-        {
-          "id": "task-2",
-          "points": 25,
-          "options": [
-            "A statement denying responsibility or legal liability",
-            "A loud argument",
-            "A software update",
-            "A type of printer"
-          ],
-          "category": "Vocabulary",
-          "question": "What does the word 'disclaimer' mean in the context of the legal text?",
-          "taskNumber": 2,
-          "explanation": "A disclaimer is a formal statement denying responsibility or limiting liability.",
-          "correctIndex": 0
-        },
-        {
-          "id": "task-3",
-          "points": 25,
-          "options": [
-            "Lanie",
-            "Cory",
-            "An officer",
-            "No one"
-          ],
-          "category": "Comprehension",
-          "question": "Who is the character speaking to in the dialogue?",
-          "taskNumber": 3,
-          "explanation": "The character addresses Lanie directly: 'I'm not stupid, Lanie.'",
-          "correctIndex": 0
-        },
-        {
-          "id": "task-4",
-          "points": 25,
-          "options": [
-            "First Conditional",
-            "Second Conditional",
-            "Third Conditional",
-            "Zero Conditional"
-          ],
-          "category": "Grammar",
-          "question": "Identify the conditional structure in the first paragraph: 'If any disclaimer or limitation set forth in this agreement violates the law...'",
-          "taskNumber": 4,
-          "explanation": "It follows a standard conditional structure (If + present, future/modal) common in legal writing.",
-          "correctIndex": 0
-        },
-        {
-          "id": "task-5",
-          "points": 25,
-          "options": [
-            "Because manufacturing physical objects might be strictly controlled by copyright and licensing laws",
-            "Because hats and laptops are illegal to wear",
-            "Because 3D printers do not work on fabric",
-            "Because the government hates clothing"
-          ],
-          "category": "Critical Thinking",
-          "question": "Why might printing a hat or laptop be illegal in the context of 'Printcrime'?",
-          "taskNumber": 5,
-          "explanation": "Doctorow's story explores the criminalization of unauthorized manufacturing and digital fabrication.",
-          "correctIndex": 0
-        }
-      ],
-      "sentences": [
-        {
-          "text": "Some states do not allow disclaimers of certain implied warranties or the exclusion or limitation of certain types of damages.",
-          "audioTime": "0:00 - 0:05",
-          "translation": "Bəzi ştatlar müəyyən nəzərdə tutulmuş zəmanətlərdən imtina edilməsinə və ya müəyyən zərər növlərinin istisna edilməsinə və ya məhdudlaşdırılmasına icazə vermir.",
-          "literaryNote": "Legalistic boilerplate language used to contrast with the personal narrative that follows."
-        },
-        {
-          "text": "If any disclaimer or limitation set forth in this agreement violates the law of the state applicable to this agreement, the agreement shall be interpreted to make the maximum disclaimer or limitation permitted by the applicable state law.",
-          "audioTime": "0:05 - 0:14",
-          "translation": "Əgər bu razılaşmada göstərilən hər hansı bir imtina və ya məhdudiyyət bu razılaşmaya tətbiq olunan ştatın qanununu pozursa, razılaşma tətbiq olunan ştat qanununun icazə verdiyi maksimum imtina və ya məhdudiyyəti təmin etmək üçün şərh edilməlidir.",
-          "literaryNote": "Complex conditional structure typical of legal end-user license agreements (EULAs)."
-        },
-        {
-          "text": "The invalidity or unenforceability of any provision of this agreement shall not void the remaining provisions.",
-          "audioTime": "0:14 - 0:19",
-          "translation": "Bu razılaşmanın hər hansı bir müddəasının etibarsızlığı və ya icra oluna bilməməsi qalan müddəaları ləğv etməyəcək.",
-          "literaryNote": "Severability clause framing the contract's resilience."
-        },
-        {
-          "text": "He grinned.",
-          "audioTime": "0:19 - 0:21",
-          "translation": "O, gülümsədi.",
-          "literaryNote": "A sharp shift from legal text to character action."
-        },
-        {
-          "text": "\"I'm not stupid, Lanie.\"",
-          "audioTime": "0:21 - 0:23",
-          "translation": "\"Mən axmaq deyiləm, Leni.\"",
-          "literaryNote": "Direct dialogue establishing informal character interaction."
-        },
-        {
-          "text": "\"I've learned my lesson.\"",
-          "audioTime": "0:23 - 0:25",
-          "translation": "\"Mən dərsimi almışam.\"",
-          "literaryNote": "Implies past mistakes related to the central theme of 'printcrime'."
-        },
-        {
-          "text": "\"There's no hat or laptop that's worth going to jail for.\"",
-          "audioTime": "0:25 - 0:30",
-          "translation": "\"Həbsxanaya getməyə dəyəcək heç bir papaq və ya noutbuk yoxdur.\"",
-          "literaryNote": "Mentions everyday objects produced via unauthorized fabrication, underlining the stakes."
-        }
-      ],
-      "slotEmoji": "🌅",
-      "paragraphs": [
-        "1.F.5. Some states do not allow disclaimers of certain implied warranties or the exclusion or limitation of certain types of damages. If any disclaimer or limitation set forth in this agreement violates the law of the state applicable to this agreement, the agreement shall be interpreted to make the maximum disclaimer or limitation permitted by the applicable state law. The invalidity or unenforceability of any provision of this agreement shall not void the remaining provisions.",
-        "He grinned. 'I'm not stupid, Lanie. I've learned my lesson. There's no hat or laptop that's worth going to jail for.'"
-      ],
-      "sourceBook": "Project Gutenberg • Printcrime",
-      "conversations": [
-        {
-          "id": "socratic-1",
-          "topic": "Legal Text Context",
-          "points": 25,
-          "prompt": "Why does the excerpt begin with a dry, legalistic disclaimer before introducing the characters?",
-          "options": [
-            "To establish a contrast between rigid corporate rules and unauthorized human actions",
-            "To teach the reader real contract law",
-            "To fill space before the story begins"
-          ],
-          "persona": "SpeakBot Socratic Mentor",
-          "stepNumber": 1,
-          "botFeedback": "Correct! The legal text sets up the rigid constraints that the characters are rebelling against.",
-          "correctIndex": 0
-        },
-        {
-          "id": "socratic-2",
-          "topic": "Character Motivation",
-          "points": 25,
-          "prompt": "What does the speaker mean when they say 'I've learned my lesson'?",
-          "options": [
-            "They failed a school exam recently",
-            "They previously faced negative consequences for unauthorized 3D printing",
-            "They read the legal disclaimer carefully"
-          ],
-          "persona": "SpeakBot Socratic Mentor",
-          "stepNumber": 2,
-          "botFeedback": "Spot on! The phrase implies past trouble related to 'printcrime'.",
-          "correctIndex": 1
-        },
-        {
-          "id": "socratic-3",
-          "topic": "The Stakes",
-          "points": 25,
-          "prompt": "According to the character, what are they not willing to risk going to jail for?",
-          "options": [
-            "A hat or a laptop",
-            "A car or a house",
-            "Money or gold"
-          ],
-          "persona": "SpeakBot Socratic Mentor",
-          "stepNumber": 3,
-          "botFeedback": "Exactly right. Even everyday items like hats or laptops carry high legal risks in this world.",
-          "correctIndex": 0
-        },
-        {
-          "id": "socratic-4",
-          "topic": "Core Theme",
-          "points": 25,
-          "prompt": "Based on this passage and the title 'Printcrime', what central conflict is suggested?",
-          "options": [
-            "A dispute between friends over borrowed property",
-            "A conflict between individual freedom of creation and strict manufacturing laws",
-            "A disagreement about computer programming languages"
-          ],
-          "persona": "SpeakBot Socratic Mentor",
-          "stepNumber": 4,
-          "botFeedback": "Excellent deduction! Printcrime deals with the criminalization of manufacturing physical objects via technology.",
-          "correctIndex": 0
-        }
-      ],
-      "isAutoFetched": true,
-      "keyVocabulary": [
-        {
-          "ipa": "/dɪsˈkleɪmər/",
-          "pos": "noun",
-          "cefr": "B2",
-          "word": "disclaimer",
-          "example": "The software has a disclaimer about data loss.",
-          "translation": "imtina, məsuliyyətdən imtina bəyanatı"
-        },
-        {
-          "ipa": "/ˈwɔːrənti/",
-          "pos": "noun",
-          "cefr": "B2",
-          "word": "warranty",
-          "example": "The laptop comes with a one-year warranty.",
-          "translation": "zəmanət"
-        },
-        {
-          "ipa": "/ˈvaɪəleɪt/",
-          "pos": "verb",
-          "cefr": "B1",
-          "word": "violate",
-          "example": "Parking here will violate city regulations.",
-          "translation": "pozmaq"
-        },
-        {
-          "ipa": "/prəˈvɪʒən/",
-          "pos": "noun",
-          "cefr": "B2",
-          "word": "provision",
-          "example": "Every provision of the contract must be followed.",
-          "translation": "mddəa, şərt"
-        },
-        {
-          "ipa": "/ɡrɪn/",
-          "pos": "verb",
-          "cefr": "B1",
-          "word": "grin",
-          "example": "He gave a wide grin when he passed the test.",
-          "translation": "sırıtmaq, dişini göstərərək gülümsəmək"
-        }
-      ],
-      "regeneratedAt": "2026-09-11T00:54:29.201Z",
-      "isDailyBotFeed": true,
-      "targetLanguage": "English",
-      "stylisticDevices": [
-        {
-          "device": "Juxtaposition",
-          "explanation": "Creates a jarring contrast between impersonal corporate/legal constraints and personal human rebellion.",
-          "exampleFromText": "Legal disclaimer text placed directly before casual dialogue ('He grinned')."
-        },
-        {
-          "device": "Hyperbole",
-          "explanation": "Emphasizes the extreme legal consequences attached to everyday manufactured items in this dystopian setting.",
-          "exampleFromText": "\"There's no hat or laptop that's worth going to jail for.\""
-        }
-      ],
-      "regenerationAttempts": 0,
-      "generatedWithMediator": "az",
-      "culturalLinguisticContext": "This excerpt transitions abruptly from dry, legalistic disclaimer boilerplate to a dramatic sci-fi narrative about unauthorized 3D printing. It highlights themes of technological rebellion and legal risk in a futuristic society."
     },
     {
       "id": "daily-evening-1789083345408",
@@ -7832,239 +7341,6 @@
       "culturalLinguisticContext": "This passage highlights early 19th-century social observations and travel dynamics in Regency England. Jane Austen uses subtle irony to depict class perceptions and interpersonal judgments."
     },
     {
-      "id": "daily-evening-1789079758930",
-      "mode": "both",
-      "level": "B1",
-      "title": "Northwestnet NUSIRG Internet Guide",
-      "author": "Jonathan Kochmer",
-      "duration": "4 min read • 2 min audio",
-      "feedSlot": "Evening Literary Masterpiece (20:00)",
-      "authorEra": "Digital/Modern Era",
-      "createdAt": "2026-09-10T22:35:58.930Z",
-      "exercises": [
-        {
-          "id": "task-1",
-          "points": 25,
-          "options": [
-            "Reading Project Gutenberg books online",
-            "Disclaimers of certain implied warranties or limitations of damages",
-            "Using the internet without a license",
-            "Publishing guides about networking"
-          ],
-          "category": "Comprehension",
-          "question": "What do some states prohibit according to the first sentence?",
-          "taskNumber": 1,
-          "explanation": "The text explicitly mentions that some states do not allow disclaimers of certain implied warranties or the limitation of certain damages.",
-          "correctIndex": 1
-        },
-        {
-          "id": "task-2",
-          "points": 25,
-          "options": [
-            "Food and supplies",
-            "A financial investment",
-            "A clause or condition in a legal document",
-            "An internet connection speed"
-          ],
-          "category": "Vocabulary",
-          "question": "In this legal context, what does the word 'provision' mean?",
-          "taskNumber": 2,
-          "explanation": "In legal terminology, a 'provision' refers to a distinct clause, term, or condition within a contract or agreement.",
-          "correctIndex": 2
-        },
-        {
-          "id": "task-3",
-          "points": 25,
-          "options": [
-            "shall be interpreted",
-            "does not allow",
-            "sets forth",
-            "violates the law"
-          ],
-          "category": "Grammar",
-          "question": "Identify the passive structure in the sentence: '...the agreement shall be interpreted to make the maximum disclaimer...'",
-          "taskNumber": 3,
-          "explanation": "'shall be interpreted' is a modal passive verb construction used frequently in legal texts.",
-          "correctIndex": 0
-        },
-        {
-          "id": "task-4",
-          "points": 25,
-          "options": [
-            "The entire document is destroyed.",
-            "The remaining provisions stay valid.",
-            "The user must sign a new agreement.",
-            "The author goes to court immediately."
-          ],
-          "category": "Critical Thinking",
-          "question": "If a court finds one part of this agreement illegal, what happens to the rest of the text?",
-          "taskNumber": 4,
-          "explanation": "The text states that invalidity of one provision 'shall not void the remaining provisions'.",
-          "correctIndex": 1
-        },
-        {
-          "id": "task-5",
-          "points": 25,
-          "options": [
-            "A user manual for connecting to Northwestnet",
-            "A legal shield limiting the publisher's liability",
-            "A historical essay about the internet",
-            "A tutorial on Python programming"
-          ],
-          "category": "Application",
-          "question": "Which of these best summarizes the overall function of this excerpt?",
-          "taskNumber": 5,
-          "explanation": "The excerpt is entirely composed of legal disclaimers designed to limit liability and protect the publisher.",
-          "correctIndex": 1
-        }
-      ],
-      "sentences": [
-        {
-          "text": "Some states do not allow disclaimers of certain implied warranties or the exclusion or limitation of certain types of damages.",
-          "audioTime": "0:00 - 0:05",
-          "translation": "Algunos estados no permiten renuncias a ciertas garantías implícitas o la exclusión o limitación de ciertos tipos de daños.",
-          "literaryNote": "Introduces the legal context regarding state laws and limitations of liability."
-        },
-        {
-          "text": "If any disclaimer or limitation set forth in this agreement violates the law of the state applicable to this agreement, the agreement shall be interpreted to make the maximum disclaimer or limitation permitted by the applicable state law.",
-          "audioTime": "0:05 - 0:13",
-          "translation": "Si alguna renuncia o limitación establecida en este acuerdo viola la ley del estado aplicable a este acuerdo, el acuerdo se interpretará para hacer la máxima renuncia o limitación permitida por la ley estatal aplicable.",
-          "literaryNote": "Explains how the contract adapts if a specific part breaks local state laws."
-        },
-        {
-          "text": "The invalidity or unenforceability of any provision of this agreement shall not void the remaining provisions.",
-          "audioTime": "0:13 - 0:18",
-          "translation": "La invalidez o inaplicabilidad de cualquier disposición de este acuerdo no anulará las disposiciones restantes.",
-          "literaryNote": "A standard severability clause ensuring the whole document remains valid if one part fails."
-        }
-      ],
-      "slotEmoji": "🌙",
-      "paragraphs": [
-        "Some states do not allow disclaimers of certain implied warranties or the exclusion or limitation of certain types of damages.",
-        "If any disclaimer or limitation set forth in this agreement violates the law of the state applicable to this agreement, the agreement shall be interpreted to make the maximum disclaimer or limitation permitted by the applicable state law.",
-        "The invalidity or unenforceability of any provision of this agreement shall not void the remaining provisions."
-      ],
-      "sourceBook": "Project Gutenberg • Northwestnet NUSIRG Internet Guide",
-      "conversations": [
-        {
-          "id": "socratic-1",
-          "topic": "Understanding State Laws",
-          "points": 25,
-          "prompt": "According to the text, what happens if local state laws do not allow certain disclaimers?",
-          "options": [
-            "The entire internet guide becomes completely illegal.",
-            "The agreement is interpreted to use the maximum limitation allowed by that state's law.",
-            "The user is allowed to rewrite the entire contract."
-          ],
-          "persona": "SpeakBot Socratic Mentor",
-          "stepNumber": 1,
-          "botFeedback": "Correct! The text states the agreement will be interpreted to make the maximum disclaimer permitted by the applicable state law.",
-          "correctIndex": 1
-        },
-        {
-          "id": "socratic-2",
-          "topic": "Severability Clause",
-          "points": 25,
-          "prompt": "What is the purpose of the sentence: 'The invalidity or unenforceability of any provision... shall not void the remaining provisions'?",
-          "options": [
-            "To ensure that if one rule fails, the rest of the agreement still works.",
-            "To cancel the whole contract if a single word is misspelled.",
-            "To give users a full refund."
-          ],
-          "persona": "SpeakBot Socratic Mentor",
-          "stepNumber": 2,
-          "botFeedback": "Spot on! This is a standard severability clause protecting the rest of the document.",
-          "correctIndex": 0
-        },
-        {
-          "id": "socratic-3",
-          "topic": "Implied Warranties",
-          "points": 25,
-          "prompt": "Why might some states have rules against disclaiming implied warranties?",
-          "options": [
-            "To protect consumers from buying defective products or guides without recourse.",
-            "To make internet guides load faster.",
-            "To help authors sell more books internationally."
-          ],
-          "persona": "SpeakBot Socratic Mentor",
-          "stepNumber": 3,
-          "botFeedback": "Exactly right. Consumer protection laws prevent companies or authors from completely avoiding basic responsibilities.",
-          "correctIndex": 0
-        },
-        {
-          "id": "socratic-4",
-          "topic": "Contextual Application",
-          "points": 25,
-          "prompt": "Why would an Internet Guide like Jonathan Kochmer's include this specific legal text?",
-          "options": [
-            "To teach readers how to write computer code.",
-            "To protect the publisher and author from unexpected legal claims regarding digital content.",
-            "To advertise internet service providers."
-          ],
-          "persona": "SpeakBot Socratic Mentor",
-          "stepNumber": 4,
-          "botFeedback": "Brilliant! Legal disclaimers protect creators from liability when distributing information online.",
-          "correctIndex": 1
-        }
-      ],
-      "isAutoFetched": true,
-      "keyVocabulary": [
-        {
-          "ipa": "/dɪsˈkleɪmər/",
-          "pos": "noun",
-          "cefr": "B1",
-          "word": "disclaimer",
-          "example": "The software includes a legal disclaimer regarding user liability.",
-          "translation": "descargo de responsabilidad"
-        },
-        {
-          "ipa": "/ˈwɔːrənti/",
-          "pos": "noun",
-          "cefr": "B1",
-          "word": "warranty",
-          "example": "This computer comes with a one-year manufacturer warranty.",
-          "translation": "garantía"
-        },
-        {
-          "ipa": "/ˌlɪmɪˈteɪʃən/",
-          "pos": "noun",
-          "cefr": "B1",
-          "word": "limitation",
-          "example": "There is a limitation on how much data you can download.",
-          "translation": "limitación"
-        },
-        {
-          "ipa": "/ˈvaɪəleɪt/",
-          "pos": "verb",
-          "cefr": "B1",
-          "word": "violate",
-          "example": "Sharing copyrighted files may violate local laws.",
-          "translation": "violar, infringir"
-        },
-        {
-          "ipa": "/prəˈvɪʒən/",
-          "pos": "noun",
-          "cefr": "B1",
-          "word": "provision",
-          "example": "Every provision in the contract must be followed.",
-          "translation": "disposición, cláusula"
-        }
-      ],
-      "regeneratedAt": "2026-09-10T23:35:56.516Z",
-      "isDailyBotFeed": true,
-      "targetLanguage": "English",
-      "stylisticDevices": [
-        {
-          "device": "Legal Formalism",
-          "explanation": "Uses precise, technical legal terminology typical of digital agreements and user guides to ensure binding contractual meaning.",
-          "exampleFromText": "The invalidity or unenforceability of any provision of this agreement shall not void the remaining provisions."
-        }
-      ],
-      "regenerationAttempts": 0,
-      "generatedWithMediator": "az",
-      "culturalLinguisticContext": "This text is a standard legal disclaimer found in early internet guides and electronic texts like Project Gutenberg editions. It establishes the legal boundaries and responsibilities between users and digital publishers."
-    },
-    {
       "id": "daily-afternoon-1789079732111",
       "mode": "both",
       "level": "B1",
@@ -9072,75 +8348,75 @@
           "id": "task-1",
           "points": 25,
           "options": [
-            "Zəmanətlər və məsuliyyətdən imtina şərtlərini",
-            "Romantik bir səhnənin təsvirini",
-            "İqtisadi böhran tarixini",
-            "Elmi məqalənin xülasəsini"
+            "Условия гарантий и отказа от ответственности",
+            "Описание романтической сцены",
+            "История экономического кризиса",
+            "Аннотация научной статьи"
           ],
           "category": "Comprehension",
-          "question": "Mətndəki ingilisdilli hissə əsasən nəyi əhatə edir?",
+          "question": "О чём в основном говорится в англоязычной части текста?",
           "taskNumber": 1,
-          "explanation": "Mətnin ilk hissəsi hüquqi sənədlərdə rast gəlinən 'disclaimers of certain implied warranties' haqqındadır.",
+          "explanation": "Первая часть текста посвящена «отказам от определенных подразумеваемых гарантий», которые встречаются в юридических документах.",
           "correctIndex": 0
         },
         {
           "id": "task-2",
           "points": 25,
           "options": [
-            "Məsuliyyətdən imtina",
-            "Yeni məhsul",
-            "Müqavilənin ləğvi",
-            "Məhkəmə qərarı"
+            "Отказ от ответственности",
+            "Новый продукт",
+            "Расторжение договора",
+            "Судебное решение"
           ],
           "category": "Vocabulary",
-          "question": "'Disclaimer' sözünün mənası azərbaycan dilində necədir?",
+          "question": "Что означает слово «Disclaimer» на азербайджанском языке?",
           "taskNumber": 2,
-          "explanation": "Disclaimer — hər hansı bir məsuliyyətdən və ya hüquqdan imtina etməyi bildirən hüquqi termindir.",
+          "explanation": "Дисклеймер — это юридический термин, означающий отказ от какой-либо ответственности или прав.",
           "correctIndex": 0
         },
         {
           "id": "task-3",
           "points": 25,
           "options": [
-            "Hüquqi və bədii üslubların kəskin kontrastı",
-            "Yalnız elmi faktların sadalanması",
-            "Klassik nağıl strukturu",
-            "Şeir forması"
+            "Резкий контраст между юридическим и художественным стилями",
+            "Только перечисление научных фактов",
+            "Классическая структура сказки",
+            "Форма стихотворения"
           ],
           "category": "Literary Analysis",
-          "question": "Mətnin bədii strukturu üçün hansı ifadə daha uyğundur?",
+          "question": "Какое выражение больше подходит для художественной структуры текста?",
           "taskNumber": 3,
-          "explanation": "Mətn quru hüquqi dildən dərhal sonra zərif və bədii portret təsvirinə keçir.",
+          "explanation": "Текст сразу после сухого юридического языка переходит к изящному и художественному портретному описанию.",
           "correctIndex": 0
         },
         {
           "id": "task-4",
           "points": 25,
           "options": [
-            "Müqavilənin bəndi / müddəası",
-            "Ərzaq təminatı",
-            "Gələcək planı",
-            "Maliyyə yardımı"
+            "Пункт / положение договора",
+            "Продовольственное обеспечение",
+            "Планы на будущее",
+            "Финансовая помощь"
           ],
           "category": "Grammar",
-          "question": "'The invalidity or unenforceability of any provision...' cümləsində 'provision' sözü hansı mənada işlənmişdir?",
+          "question": "В предложении 'The invalidity or unenforceability of any provision...' в каком значении используется слово 'provision'?",
           "taskNumber": 4,
-          "explanation": "Hüquqi kontekstdə 'provision' müqavilənin və ya qanunun hər hansı bir bəndi və ya müddəası deməkdir.",
+          "explanation": "В юридическом контексте «provision» означает положение или условие договора либо закона.",
           "correctIndex": 0
         },
         {
           "id": "task-5",
           "points": 25,
           "options": [
-            "Qüsursuz dərəcədə zərif",
-            "Bir qədər səliqəsiz",
-            "Köhnə geyinmiş",
-            "Çox sadə"
+            "Безупречно элегантный",
+            "Немного неаккуратно",
+            "Поношенный",
+            "Очень просто"
           ],
           "category": "Translation",
-          "question": "'Nieposzlakowanie elegancki' ifadəsinin ən dəqiq tərcüməsi hansıdır?",
+          "question": "Каков наиболее точный перевод выражения «nieposzlakowanie elegancki»?",
           "taskNumber": 5,
-          "explanation": "'Nieposzlakowanie' — qüsursuz, ləkəsiz mənasını verir, 'elegancki' isə zərif deməkdir.",
+          "explanation": "Nieposzlakowanie» означает «безупречный», «пятнавший», а «elegancki» — это «элегантный».",
           "correctIndex": 0
         }
       ],
@@ -9148,26 +8424,26 @@
         {
           "text": "Some states do not allow disclaimers of certain implied warranties or the exclusion or limitation of certain types of damages.",
           "audioTime": "0:00 - 0:05",
-          "translation": "Bəzi ştatlar müəyyən nəzərdə tutulmuş zəmanətlərdən imtina edilməsinə və ya müəyyən zərər növlərinin istisna edilməsinə və ya məhdudlaşdırılmasına icazə vermir.",
-          "literaryNote": "Hüquqi dildə yazılmış bu giriş, sonrakı ədəbi təsvirlə ironik bir kontrast yaradır."
+          "translation": "В некоторых штатах не допускается отказ от определенных предусмотренных гарантий, а также исключение или ограничение определенных видов убытков.",
+          "literaryNote": "Написанное юридическим языком введение создает ироничный контраст с последующим литературным описанием."
         },
         {
           "text": "If any disclaimer or limitation set forth in this agreement violates the law of the state applicable to this agreement, the agreement shall be interpreted to make the maximum disclaimer or limitation permitted by the applicable state law.",
           "audioTime": "0:05 - 0:14",
-          "translation": "Əgər bu sazişdə göstərilən hər hansı imtina və ya məhdudiyyət bu sazişə tətbiq olunan ştatın qanununu pozursa, saziş tətbiq olunan ştat qanununun icazə verdiyi maksimum imtina və ya məhdudiyyəti təmin etmək üçün təfsir ediləcəkdir.",
-          "literaryNote": "Mürəkkəb hüquqi terminologiya və şərt cümləsi."
+          "translation": "Если какое-либо положение об отказе от ответственности или ограничении, указанное в настоящем соглашении, нарушает применимое к настоящему соглашению законодательство штата, оно подлежит толкованию таким образом, чтобы обеспечить максимальный отказ от ответственности или ограничение, допускаемые применимым законодательством штата.",
+          "literaryNote": "Сложная юридическая терминология и условное предложение."
         },
         {
           "text": "The invalidity or unenforceability of any provision of this agreement shall not void the remaining provisions.",
           "audioTime": "0:14 - 0:19",
-          "translation": "Bu sazişin hər hansı müddəasının etibarsızlığı və ya icraolunmazlığı qalan müddəaları ləğv etməyəcəkdir.",
-          "literaryNote": "Müqavilələrdə standart hüquqi qoruma qeydi."
+          "translation": "Недействительность или неисполнимость какого-либо положения настоящего соглашения не влечет за собой аннулирование остальных положений.",
+          "literaryNote": "Стандартная оговорка о правовой защите в договорах."
         },
         {
           "text": "Młodzieniec, ciemny szatyn, nieposzlakowanie elegancki, o impertynenckiej nieco, choć wielkoświatowej powierzchowności",
           "audioTime": "0:19 - 0:28",
-          "translation": "Gənc oğlan, tünd qəhvəyi saçlı, qüsursuz dərəcədə zərif, bir qədər təkəbbürlü, lakin yüksək cəmiyyətə məxsus görünüşə malik idi.",
-          "literaryNote": "Polyak dilində yazılmış bu hissə hüquqi mətnin ardınca gələrək oxucuya kəskin obraz keçidi təqdim edir."
+          "translation": "Молодой человек, с темными каштановыми волосами, безупречно элегантный, с несколько высокомерным, но свойственным высшему обществу видом.",
+          "literaryNote": "Этот фрагмент, написанный на польском языке, следует за юридическим текстом, предлагая читателю резкий переход к образности."
         }
       ],
       "slotEmoji": "🌙",
@@ -9179,62 +8455,62 @@
       "conversations": [
         {
           "id": "socratic-1",
-          "topic": "Hüquqi mətnin təyinatı",
+          "topic": "Назначение юридического текста",
           "points": 25,
-          "prompt": "Mətnin əvvəlində niyə hüquqi məsuliyyətdən imtina (disclaimer) dili istifadə olunur?",
+          "prompt": "Почему в начале текста используется язык отказа от юридической ответственности (дисклеймер)?",
           "options": [
-            "Oxucunu hüquqi məsuliyyət və şərtlər barədə xəbərdar etmək üçün",
-            "Kitabın bədii keyfiyyətini artırmaq üçün",
-            "Yalnız ingilis dili dərsi keçmək üçün"
+            "Предупредить читателя об юридической ответственности и условиях",
+            "Для повышения художественного качества книги",
+            "Только для проведения уроков английского языка"
           ],
           "persona": "SpeakBot Socratic Mentor",
           "stepNumber": 1,
-          "botFeedback": "Mükəmməl! Müəllif hüquqi terminlərdən istifadə edərək kontrast yaratmaq məqsədi güdür.",
+          "botFeedback": "Отлично! Автор стремится создать контракт, используя юридические термины.",
           "correctIndex": 0
         },
         {
           "id": "socratic-2",
-          "topic": "Dil dəyişikliyi",
+          "topic": "Смена языка",
           "points": 25,
-          "prompt": "İngilis dilindəki hüquqi hissədən polyak dilindəki gənc oğlan təsvirinə keçid hansı effekti yaradır?",
+          "prompt": "Какое впечатление производит переход от юридического фрагмента на английском языке к описанию молодого человека на польском языке?",
           "options": [
-            "Kəskin kontrast və ironiya",
-            "Mətnin mənasını itirməsi",
-            "Tərcümə xətası"
+            "Резкий контраст и ирония",
+            "Потеря смысла текста",
+            "Ошибка перевода"
           ],
           "persona": "SpeakBot Socratic Mentor",
           "stepNumber": 2,
-          "botFeedback": "Düzdür! Bu keçid əsərin adına ('Ironia Pozorów') uyğun olaraq səthi görünüş ilə reallıq arasındakı ironiyanı vurğulayır.",
+          "botFeedback": "Верно! Этот отрывок в соответствии с названием произведения («Ironia Pozorów») подчеркивает иронию между поверхностным видимым и реальностью.",
           "correctIndex": 0
         },
         {
           "id": "socratic-3",
-          "topic": "Karakterin xüsusiyyətləri",
+          "topic": "Характеристики персонажа",
           "points": 25,
-          "prompt": "Polyakca təsvir edilən gənc oğlanın ('młodzieniec') xarici görünüşü necədir?",
+          "prompt": "Каковы внешние особенности молодого человека ('młodzieniec'), описанного на польском языке?",
           "options": [
-            "Qüsursuz zərif və bir qədər təkəbbürlü",
-            "Çox kasıb və səliqəsiz",
-            "Sadəlövh və qorxaq"
+            "Безупречно элегантный и слегка надменный",
+            "Очень бедный и неопрятный",
+            "Наивный и трусливый"
           ],
           "persona": "SpeakBot Socratic Mentor",
           "stepNumber": 3,
-          "botFeedback": "Çox yaxşı! 'Nieposzlakowanie elegancki' və 'impertynenckiej nieco' ifadələri onun qüsursuz, lakin təkəbbürlü olduğunu göstərir.",
+          "botFeedback": "Очень хорошо! Выражения «Nieposzlakowanie elegancki» и «impertynenckiej nieco» показывают, что он безупречен, но при этом немного дерзок.",
           "correctIndex": 0
         },
         {
           "id": "socratic-4",
-          "topic": "Ümumi mövzu",
+          "topic": "Общая тема",
           "points": 25,
-          "prompt": "Sizcə, bu parça kitabın ümumi atmosferi haqqında bizə nə deyir?",
+          "prompt": "Как по-вашему, о чем этот отрывок говорит нам в контексте общей атмосферы книги?",
           "options": [
-            "Müasir dünyanın bürokratik və formal tərəfi ilə fərdi xarakterlərin qarşılaşacağını",
-            "Kitabın yalnız hüquqi sənədlərdən ibarət olacağını",
-            "Hadisələrin keçmiş əsrdə qaldığını"
+            "Столкновение бюрократической и формальной стороны современного мира с индивидуальными характерами",
+            "Что книга будет состоять исключительно из юридических документов",
+            "То, что события остались в прошлом веке"
           ],
           "persona": "SpeakBot Socratic Mentor",
           "stepNumber": 4,
-          "botFeedback": "Əla təhlil! Formal hüquqi giriş ilə fərdi xarakterin təsviri müasir həyatın ikili təbiətini açır.",
+          "botFeedback": "Отличный анализ! Формальный юридический подход в сочетании с описанием личного характера раскрывает двойственную природу современной жизни.",
           "correctIndex": 0
         }
       ],
@@ -9246,7 +8522,7 @@
           "cefr": "B1",
           "word": "Disclaimer",
           "example": "The website includes a legal disclaimer about financial advice.",
-          "translation": "Məsuliyyətdən imtina"
+          "translation": "Отказ от ответственности"
         },
         {
           "ipa": "/ˈwɒr.ən.ti/",
@@ -9254,7 +8530,7 @@
           "cefr": "B1",
           "word": "Warranty",
           "example": "The product comes with a one-year warranty.",
-          "translation": "Zəmanət"
+          "translation": "Гарантия"
         },
         {
           "ipa": "/prəˈvɪʒ.ən/",
@@ -9262,7 +8538,7 @@
           "cefr": "B1",
           "word": "Provision",
           "example": "We must check the cancellation provision in the contract.",
-          "translation": "Müddəa, şərt"
+          "translation": "Утверждение, условие"
         },
         {
           "ipa": "/ɲɛ.pɔ.ʂla.kɔˈva.ɲɨ/",
@@ -9270,7 +8546,7 @@
           "cefr": "B1",
           "word": "Nieposzlakowany",
           "example": "Młodzieniec był nieposzlakowanie elegancki.",
-          "translation": "Qüsursuz, ləkəsiz"
+          "translation": "Безупречный, безукоризненный"
         },
         {
           "ipa": "/pɔ.vjɛr.xɔvˈnɔɕt͡ɕ/",
@@ -9278,22 +8554,22 @@
           "cefr": "B1",
           "word": "Powierzchowność",
           "example": "Jego powierzchowność zdradzała wysoki status.",
-          "translation": "Görünüş, zahiri görkəm"
+          "translation": "Внешность, внешний вид"
         }
       ],
-      "regeneratedAt": "2026-09-11T02:01:10.256Z",
+      "regeneratedAt": "2026-09-11T15:03:56.856Z",
       "isDailyBotFeed": true,
       "targetLanguage": "English",
       "stylisticDevices": [
         {
           "device": "Contrast / Juxtaposition",
-          "explanation": "Quru və darıxdırıcı hüquqi dil ilə emosional və zərif ədəbi təsvirin yanaşı qoyulması oxucuda ironik təəssürat yaradır.",
+          "explanation": "Сопоставление сухого и скучного юридического языка с эмоциональным и изящным литературным описанием создает у читателя ироничное впечатление.",
           "exampleFromText": "Legal boilerplate text followed by a vivid description of a young man ('Młodzieniec, ciemny szatyn...')"
         }
       ],
       "regenerationAttempts": 0,
       "generatedWithMediator": "ru",
-      "culturalLinguisticContext": "Bu parça, yasal metin dili ile edebi tasvirin ani bir kontrast oluşturduğu modern bir esere aittir. Metin, kullanıcıyı hem resmi bir sorumluluk reddi metniyle hem de zengin bir karakter tasviriyle karşı karşıya bırakır."
+      "culturalLinguisticContext": "Этот фрагмент принадлежит современному произведению, в котором язык юридического текста внезапно контрастирует с художественным описанием. Текст сталкивает читателя как с официальным отказом от ответственности, так и с богатым описанием персонажа."
     },
     {
       "id": "daily-afternoon-1789073452248",
@@ -10148,5 +9424,5 @@
       "culturalLinguisticContext": "This excerpt from Plato's 'The Republic' discusses the role of education, music, and philosophy in shaping an ideal society. It addresses abstract philosophical ideas about truth and the nature of the soul, adapted here for B1 learners to explore classical philosophical discourse."
     }
   ],
-  "savedAt": "2026-09-11T02:12:49.934Z"
+  "savedAt": "2026-09-11T16:49:54.389Z"
 }

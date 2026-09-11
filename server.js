@@ -3109,6 +3109,155 @@ ${originalText}`;
         res.status(500).json({ success: false, error: e.message });
     }
 });
+
+// ═══════════════════════════════════════════════════════════════
+// DEBUG: перевод ОДНОГО поля story (scalar or array element)
+// По плану Step 2 / Option A. isJson=false. Plain text response.
+// Body: { storyId, field, to, source? }
+//   field = "culturalLinguisticContext"  |  "sentences.0.translation"
+//   to    = "ru" | "az" | ...
+//   source = (optional) явный текст-источник — перезапись мусора
+// ═══════════════════════════════════════════════════════════════
+app.post("/api/debug/translate-field", async (req, res) => {
+    const { storyId, field, to, source } = req.body || {};
+
+    if (!storyId || !field || !to) {
+        return res.status(400).json({
+            success: false,
+            error: "Required body fields: storyId, field, to"
+        });
+    }
+
+    // Whitelist top-level полей — защита от произвольного доступа
+    const ROOT_WHITELIST = [
+        "culturalLinguisticContext", "title", "author", "authorEra",
+        "sentences", "conversations", "exercises", "keyVocabulary", "stylisticDevices"
+    ];
+    const topKey = String(field).split(".")[0];
+    if (!ROOT_WHITELIST.includes(topKey)) {
+        return res.status(400).json({
+            success: false,
+            error: `field must start with one of: ${ROOT_WHITELIST.join(", ")}`
+        });
+    }
+
+    // Найти story
+    const uid = "default-user";
+    let story = null;
+    if (userCustomStories[uid]) {
+        story = userCustomStories[uid].find((s) => s.id === storyId);
+    }
+    if (!story) {
+        story = autoFetchedStories.find((s) => s.id === storyId);
+    }
+    if (!story) {
+        return res.status(404).json({ success: false, error: "Story not found" });
+    }
+
+    // Resolve path: "sentences.0.translation" → target=sentences[0], leafKey="translation"
+    const parts = String(field).split(".");
+    let target = story;
+    for (let i = 0; i < parts.length - 1; i++) {
+        if (target == null) break;
+        target = Array.isArray(target)
+            ? target[parseInt(parts[i], 10)]
+            : target[parts[i]];
+    }
+    const leafKey = parts[parts.length - 1];
+
+    if (target == null || typeof target !== "object" || !(leafKey in target)) {
+        return res.status(400).json({
+            success: false,
+            error: `Cannot resolve path: ${field}`
+        });
+    }
+
+    const beforeValue = target[leafKey];
+    if (typeof beforeValue !== "string") {
+        return res.status(400).json({
+            success: false,
+            error: `Field "${field}" is not a string (got ${typeof beforeValue})`
+        });
+    }
+
+    // Source — либо явный, либо текущее значение. Без source — обычный перевод.
+    const sourceText = (typeof source === "string" && source.trim().length > 5)
+        ? source.trim()
+        : beforeValue.trim();
+
+    if (sourceText.length < 5) {
+        return res.status(400).json({
+            success: false,
+            error: `Field "${field}" is empty and no valid "source" provided`
+        });
+    }
+
+    const langName = {
+        ru: "Russian", az: "Azerbaijani", tr: "Turkish", en: "English",
+        de: "German", es: "Spanish", fr: "French", it: "Italian",
+    }[to] || to;
+
+    // Один запрос — одно поле. isJson=false.
+    const prompt = `Translate the following text into ${langName}. Return ONLY the translation — no JSON, no quotes, no labels, no explanations, no preamble.
+
+Text:
+${sourceText}`;
+
+    try {
+        const raw = await callGeminiWithResilience(prompt, null, [], false);
+
+        if (!raw || raw.trim().length < 5) {
+            return res.status(502).json({
+                success: false,
+                error: "AI returned empty or null",
+                rawPreview: raw ? raw.slice(0, 200) : null,
+            });
+        }
+
+        const cleanTranslation = raw.trim()
+            .replace(/^["'«»\s]+|["'«»\s]+$/g, "")
+            .trim();
+
+        // Записываем результат
+        target[leafKey] = cleanTranslation;
+        story.generatedWithMediator = to;  // теперь флаг честный — мы явно прошли через ru
+        story.regeneratedAt = new Date().toISOString();
+
+        saveStoriesToDisk();
+        if (typeof saveStoriesToSupabase === "function") {
+            saveStoriesToSupabase().catch(() => { });
+        }
+
+        res.json({
+            success: true,
+            storyId,
+            storyTitle: story.title,
+            field,
+            to,
+            beforePreview: beforeValue.slice(0, 200),
+            afterPreview: cleanTranslation.slice(0, 200),
+            fullAfter: cleanTranslation,
+        });
+    } catch (e) {
+        console.error("[Translate-Field] FAILED:", e.message);
+        res.status(500).json({ success: false, error: e.message });
+    }
+});
+
+app.delete("/api/debug/remove-auto-story/:storyId", (req, res) => {
+    const { storyId } = req.params;
+    const found = autoFetchedStories.find(s => s.id === storyId);
+    if (!found) {
+        return res.status(404).json({ success: false, error: "Not found in autoFetchedStories" });
+    }
+    const before = autoFetchedStories.length;
+    autoFetchedStories = autoFetchedStories.filter(s => s.id !== storyId);
+    saveStoriesToDisk();
+    if (typeof saveStoriesToSupabase === "function") {
+        saveStoriesToSupabase().catch(() => { });
+    }
+    res.json({ success: true, removed: found.title, before, after: autoFetchedStories.length });
+});
 // =====================================================
 // ROUTE: PDF UPLOAD + NLT STORY SYNTHESIS
 // =====================================================
