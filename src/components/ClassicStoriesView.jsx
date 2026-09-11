@@ -217,7 +217,6 @@ export const ClassicStoriesView = ({
 
   // Load custom stories and daily feeds from backend
   const loadCustomStoriesAndFeeds = async () => {
-    setIsLoadingFeeds(true);
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 10000);   // 10 сек
 
@@ -661,7 +660,7 @@ export const ClassicStoriesView = ({
   };
 
   if (activeStory) {
-    console.log("[RENDER] activeStory:", activeStory.id, "| exercises:", activeStory.exercises?.length, "| conversations:", activeStory.conversations?.length, "| first ex question:", activeStory.exercises?.[0]?.question);
+
     return (
       <div className="space-y-6 pb-12">
         {/* Navigation Breadcrumb & Top Bar */}

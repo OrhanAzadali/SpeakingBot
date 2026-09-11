@@ -473,7 +473,7 @@ function MainApp() {
         onCycleTheme={handleCycleTheme}
         onUpdateMediatorLanguage={handleUpdateMediatorLanguage}
         onUpdateTargetLanguage={handleUpdateTargetLanguage}
-        onOpenPlacementTest={() => setShowTestModal(true)}
+        onOpenPlacementTest={() => setActiveTab("placement-test")}
         activeTab={activeTab}
         setActiveTab={handleTabSwitch}
         isMiniAppMode={isMiniAppMode}
@@ -485,8 +485,7 @@ function MainApp() {
         setRotationIndex={setRotationIndex}
         themeColors={themeColors}
         activeTheme={activeTheme}
-        onOpenTestModal={() => setShowTestModal(true)}
-        onOpenLanguageModal={() => setShowLangModal(true)}
+        onOpenTestModal={() => setActiveTab("placement-test")}
       />
       {
         /* Main Workspace Body */

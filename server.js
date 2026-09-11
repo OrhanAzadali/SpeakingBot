@@ -4819,21 +4819,27 @@ async function verifyWordInDictionary(word, language = "English") {
     if (cleanWord.length < 3) return false;
     const lang = String(language || "English").toLowerCase();
 
-    if (lang.includes("en") || lang.includes("ingl")) return englishWordSet.has(cleanWord);
-    if (lang.includes("es") || lang.includes("span")) {
+    // Быстрые локальные словари — только если реально загружены.
+    // Если набор пустой (пакет не установился), идём к AI-фоллбэку ниже.
+    if ((lang.includes("en") || lang.includes("ingl")) && englishWordSet.size > 0) {
+        return englishWordSet.has(cleanWord);
+    }
+    if ((lang.includes("es") || lang.includes("span")) && spanishWordSet.size > 0) {
         if (spanishWordSet.has(cleanWord)) return true;
         const noAccents = cleanWord.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
         return spanishWordSet.has(noAccents);
     }
-    if (lang.includes("fr")) {
+    if (lang.includes("fr") && frenchWordSet.size > 0) {
         if (frenchWordSet.has(cleanWord)) return true;
         const noAccents = cleanWord.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
         return frenchWordSet.has(noAccents);
     }
-    if (lang.includes("de") || lang.includes("germ") || lang.includes("alm")) return germanWordSet.has(cleanWord);
-    if (multilingualVocabSet.has(cleanWord)) return true;
-
-    try {
+    if ((lang.includes("de") || lang.includes("germ") || lang.includes("alm")) && germanWordSet.size > 0) {
+        return germanWordSet.has(cleanWord);
+    }
+    if (multilingualVocabSet.size > 0 && multilingualVocabSet.has(cleanWord)) {
+        return true;
+    } try {
         const prompt = `Is "${cleanWord}" a legitimate dictionary word in ${language}? Answer strictly in JSON: {"valid": true} or {"valid": false}`;
         const raw = await callGeminiWithResilience(prompt);
         if (raw) {
