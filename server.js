@@ -4517,14 +4517,19 @@ Schema:
 
         const raw = await callGeminiWithResilience(prompt, null, [], true, userId);
         if (raw) {
-            try {
-                const clean = raw.replace(/```json\n?|\n?```/g, "").trim();
-                guide = JSON.parse(clean);
-            } catch (e) { console.warn("Grammar guide JSON:", e.message); }
+            guide = await repairJson(raw);
+            if (!guide) {
+                console.warn("[Grammar Guide] repairJson returned null");
+            } else if (!Array.isArray(guide.coreRules) || guide.coreRules.length === 0) {
+                console.warn("[Grammar Guide] AI guide has no coreRules");
+                guide = null;
+            }
+        } else {
+            console.warn("[Grammar Guide] AI returned null");
         }
 
-        if (!guide || !Array.isArray(guide.coreRules) || guide.coreRules.length === 0) {
-            console.warn("[Grammar Guide] Using fallback guide.");
+        if (!guide) {
+            console.warn("[Grammar Guide] FALLBACK activated");
             guide = getFallbackGrammarGuide(targetLanguage, ruleTitle, level, mediatorLanguage);
         }
 
@@ -4616,33 +4621,30 @@ function getFallbackGrammarGuide(lang = "English", rule = "Verb Tenses", level =
     const langDisplay = lang.charAt(0).toUpperCase() + lang.slice(1).toLowerCase();
     const ruleDisplay = rule.charAt(0).toUpperCase() + rule.slice(1).toLowerCase();
 
-    const langSpecificContent = {
-        English: { explanationPrefix: "Used for facts, habits, and regular actions.", commonMistakeExample: "I have seen him yesterday.", commonMistakeCorrect: "I saw him yesterday.", commonMistakeReason: "Specific past time requires Past Simple." },
-        German: { explanationPrefix: "Wird für Fakten und Gewohnheiten verwendet.", commonMistakeExample: "Ich habe ihn gestern gesehen.", commonMistakeCorrect: "Ich sah ihn gestern.", commonMistakeReason: "Vergangenheitszeit erfordert Präteritum." },
-        Spanish: { explanationPrefix: "Se utiliza para hechos y hábitos.", commonMistakeExample: "He visto ayer a Juan.", commonMistakeCorrect: "Vi ayer a Juan.", commonMistakeReason: "El pasado específico requiere Pretérito Indefinido." }
-    };
-
-    const content = langSpecificContent[langDisplay] || langSpecificContent.English;
+    const msg = {
+        ru: `Не удалось сгенерировать руководство через AI. Попробуйте ещё раз или измените формулировку темы.`,
+        az: `AI vasitəsilə bələdçi yaratmaq mümkün olmadı. Yenidən cəhd edin və ya mövzunu dəyişdirin.`,
+        tr: `AI ile kılavuz oluşturulamadı. Tekrar deneyin veya konuyu değiştirin.`,
+        en: `Could not generate guide via AI. Try again or rephrase the topic.`,
+        de: `Leitfaden konnte nicht über KI generiert werden. Bitte erneut versuchen.`,
+        es: `No se pudo generar la guía mediante IA. Inténtelo de nuevo.`,
+    }[mediatorLang] || `Could not generate guide via AI.`;
 
     return {
-        title: `Comprehensive Guide: ${ruleDisplay} in ${langDisplay}`,
-        category: "Grammar", level: level || "B1",
-        summary: `Reference covering ${ruleDisplay} with formulas, errors, and drills for ${langDisplay}.`,
-        coreRules: [
-            {
-                ruleTitle: "Present Simple",
-                explanationInMediator: content.explanationPrefix,
-                formula: "Subject + V1 (s/es for 3rd person)",
-                example: "She reads books every evening.",
-                tokens: [
-                    { text: "She", lemma: "she", pos: "PRON", syntaxRole: "Subject", cefrLevel: "A1", ipa: "/ʃiː/", mediatorTranslation: mediatorLang === "az" ? "o" : mediatorLang === "ru" ? "она" : mediatorLang === "tr" ? "o" : "she" },
-                    { text: "reads", lemma: "read", pos: "VERB", syntaxRole: "Predicate", cefrLevel: "A1", ipa: "/riːdz/", mediatorTranslation: mediatorLang === "az" ? "oxuyur" : mediatorLang === "ru" ? "читает" : mediatorLang === "tr" ? "okur" : "reads" },
-                    { text: "books", lemma: "book", pos: "NOUN", syntaxRole: "Direct Object", cefrLevel: "A1", ipa: "/bʊks/", mediatorTranslation: mediatorLang === "az" ? "kitablar" : mediatorLang === "ru" ? "книги" : mediatorLang === "tr" ? "kitaplar" : "books" }
-                ]
-            }
-        ],
-        commonMistakes: [{ incorrect: content.commonMistakeExample, correct: content.commonMistakeCorrect, reason: content.commonMistakeReason }],
-        practiceExercises: [{ question: `Past form: 'She _____ to the store.'`, options: ["go", "went", "gone", "going"], correctIndex: 1, explanation: `Past of 'go' is 'went'.` }]
+        title: `${ruleDisplay} (${langDisplay})`,
+        category: "Grammar",
+        level: level || "B1",
+        isFallback: true,
+        summary: msg,
+        coreRules: [{
+            ruleTitle: `${ruleDisplay} — ${langDisplay}`,
+            explanationInMediator: msg,
+            formula: "—",
+            example: "",
+            tokens: []
+        }],
+        commonMistakes: [],
+        practiceExercises: []
     };
 }
 
