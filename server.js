@@ -2492,19 +2492,15 @@ async function getDailyFeedsForLanguage(targetLanguage, mediatorLanguage) {
     const cacheKey = `spk:daily_feeds:${targetLanguage}:${mediatorLanguage}`;
     const today = new Date().toISOString().split("T")[0];
 
-    // ── 1. Пробуем Redis ──
+    // ── 1. Redis ──
     if (redis) {
         try {
             const cached = await redis.get(cacheKey);
-
             if (cached) {
                 const parsed = JSON.parse(cached);
-
-                // внутри if (redis) { try { const cached = await redis.get(cacheKey); if (cached) {...} } }
                 if (parsed.date === today && Array.isArray(parsed.feeds) && parsed.feeds.length > 0) {
                     console.log(`[DailyFeeds] Redis cache hit for ${targetLanguage}`);
 
-                    // ── Persist из кэша в autoFetchedStories ──
                     let added = 0;
                     for (const feed of parsed.feeds) {
                         const isDup = autoFetchedStories.some(
@@ -2520,9 +2516,7 @@ async function getDailyFeedsForLanguage(targetLanguage, mediatorLanguage) {
                         if (typeof saveStoriesToSupabase === "function") {
                             saveStoriesToSupabase().catch(() => { });
                         }
-                        console.log(`[DailyFeeds] Restored ${added} cached feeds into autoFetchedStories (total: ${autoFetchedStories.length})`);
                     }
-
                     return parsed.feeds;
                 }
             }
@@ -2531,68 +2525,43 @@ async function getDailyFeedsForLanguage(targetLanguage, mediatorLanguage) {
         }
     }
 
-    // ── 2. Генерируем свежие, с защитой от race condition ──
-    if (dailyFeedsGenerationLock) {
-        console.log("[DailyFeeds] Generation already in progress — awaiting");
-        return dailyFeedsGenerationLock;
-    }
+    // ── 2. Cache miss — вернуть fallback СРАЗУ, генерацию запустить в фоне ──
+    const fallbackFeeds = getDailyBotStoryFeeds(targetLanguage);
 
-    console.log(`[DailyFeeds] Generating fresh feeds for ${targetLanguage}...`);
-
-    dailyFeedsGenerationLock = (async () => {
-        const feeds = [];
-        try {
-            for (const slot of DAILY_FEED_SLOTS) {
-                try {
-                    const story = await fetchAndPersistGutenbergStory(targetLanguage, mediatorLanguage, "B1", slot);
-                    if (story) feeds.push(story);
-                    await new Promise(r => setTimeout(r, 500));
-                } catch (e) {
-                    console.warn(`[DailyFeeds] Slot ${slot.id} failed:`, e.message);
+    // Fire-and-forget: генерация в фоне, кэширование в Redis
+    if (!dailyFeedsGenerationLock) {
+        dailyFeedsGenerationLock = (async () => {
+            console.log(`[DailyFeeds BG] Background generation for ${targetLanguage}...`);
+            const feeds = [];
+            try {
+                for (const slot of DAILY_FEED_SLOTS) {
+                    try {
+                        const story = await fetchAndPersistGutenbergStory(
+                            targetLanguage, mediatorLanguage, "B1", slot
+                        );
+                        if (story) feeds.push(story);
+                        await new Promise(r => setTimeout(r, 500));
+                    } catch (e) {
+                        console.warn(`[DailyFeeds BG] Slot ${slot.id} failed:`, e.message);
+                    }
                 }
+
+                if (feeds.length > 0 && redis) {
+                    try {
+                        await redis.set(cacheKey, JSON.stringify({ date: today, feeds }), 'EX', 86400);
+                        console.log(`[DailyFeeds BG] Cached ${feeds.length} feeds for ${targetLanguage}`);
+                    } catch (e) {
+                        console.warn("[DailyFeeds BG] Redis set failed:", e.message);
+                    }
+                }
+            } finally {
+                dailyFeedsGenerationLock = null;
             }
-        } finally {
-            dailyFeedsGenerationLock = null;
-        }
-        return feeds;
-    })();
-
-    const feeds = await dailyFeedsGenerationLock;
-
-    // ── 3. Если всё упало — hardcoded fallback ──
-    if (feeds.length === 0) {
-        console.warn(`[DailyFeeds] All dynamic slots failed, using hardcoded fallback`);
-        return getDailyBotStoryFeeds(targetLanguage);
+            return feeds;
+        })();
     }
 
-    // ── 4. Кэшируем на 24 часа ──
-    if (redis) {
-        try {
-            await redis.set(cacheKey, JSON.stringify({ date: today, feeds }), 'EX', 86400);
-        } catch (e) {
-            console.warn("[DailyFeeds] Redis set failed:", e.message);
-        }
-    }
-
-    // ── ГАРАНТИРОВАННЫЙ persist: добавляем все сгенерированные фиды в autoFetchedStories ──
-    for (const feed of feeds) {
-        const isDup = autoFetchedStories.some(
-            (s) => s.title === feed.title && s.author === feed.author
-        );
-        if (!isDup) {
-            autoFetchedStories.unshift(feed);
-        }
-    }
-    if (autoFetchedStories.length > 50) {
-        autoFetchedStories = autoFetchedStories.slice(0, 50);
-    }
-    saveStoriesToDisk();
-    if (typeof saveStoriesToSupabase === "function") {
-        saveStoriesToSupabase().catch(() => { });
-    }
-    console.log(`[DailyFeeds] Persisted — autoFetchedStories now has ${autoFetchedStories.length} items`);
-
-    return feeds;
+    return fallbackFeeds;
 }
 // =====================================================
 // GUTENBERG HELPERS
@@ -3505,12 +3474,10 @@ app.post("/api/socratic/chat", async (req, res) => {
         }
 
         const aiPrompt = `You are SpeakBot Socratic Mentor, an intellectually stimulating literary tutor having a live Socratic conversation about "${bookTitle}" by ${author}.
-Target Language: ${targetLanguage}
-Mediator Language: ${mediatorLanguage}
 
 The Excerpt:
 """
-${excerpt.slice(0, 1200)}
+${excerpt.slice(0, 2400)}
 """
 
 Recent Chat History:
@@ -3519,7 +3486,13 @@ ${chatHistory.slice(-4).map((m) => `${m.role === 'user' ? 'Learner' : 'Mentor'}:
 Learner's latest message:
 "${userMessage}"
 
-Respond in genuine Socratic dialogue style.
+CRITICAL LANGUAGE RULES:
+- Reply ONLY in ${targetLanguage}. Do NOT reply in ${mediatorLanguage}.
+- ${mediatorLanguage} is only for brief clarifications in parentheses if the learner is stuck — at most 1 short phrase per reply.
+- If the learner writes in a different language, still reply in ${targetLanguage}.
+- Do NOT invent words. If you don't know a ${mediatorLanguage} word, skip the parenthetical clarification entirely.
+
+Respond in genuine Socratic dialogue style, but also try not to completelt ignore the punches and humour of the Learner. Try always to be responsive, but always returning the learner to the topic that is being discussed - sometimes if you consider it's appropriate you can for one or two lines switch to discussing another book or classical story, but eventuall you should always get back to the main topic to discuss it further. 
 
 Return ONLY valid JSON:
 {
