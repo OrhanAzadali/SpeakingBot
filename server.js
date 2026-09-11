@@ -2628,8 +2628,28 @@ function detectGutenbergBookLanguage(html) {
 
 function selectBestExcerpt(text, targetWords = 300) {
     if (!text) return "";
-    const paragraphs = text.split(/\n\s*\n/).map(p => p.replace(/\s+/g, " ").trim()).filter(p => p.length > 100);
-    if (paragraphs.length === 0) return text.slice(0, targetWords);
+
+    // Boilerplate patterns — Project Gutenberg / legal / license.
+    // Такие абзацы не литература, их нельзя брать в excerpt.
+    const BOILERPLATE_PATTERNS = [
+        /^\d+\.F\.\d+/i,
+        /Some states do not allow/i,
+        /This eBook is for the use/i,
+        /Project Gutenberg-tm/i,
+        /Release Date:/i,
+        /START OF (THE|THIS) PROJECT GUTENBERG/i,
+        /END OF (THE|THIS) PROJECT GUTENBERG/i,
+        /Gutenberg Literary Archive Foundation/i,
+    ];
+
+    const isBoilerplate = (p) => BOILERPLATE_PATTERNS.some(rx => rx.test(p));
+
+    const paragraphs = text
+        .split(/\n\s*\n/)
+        .map(p => p.replace(/\s+/g, " ").trim())
+        .filter(p => p.length > 100 && !isBoilerplate(p));
+
+    if (paragraphs.length === 0) return "";
 
     const scoreParagraph = (p) => {
         const words = p.split(/\s+/).filter(Boolean);
@@ -2639,15 +2659,44 @@ function selectBestExcerpt(text, targetWords = 300) {
         return (unique / words.length) * 2 + avgWordLen * 0.3 + (hasLiteraryMarkers ? 5 : 0);
     };
 
-    const sorted = paragraphs.map((p, idx) => ({ text: p, score: scoreParagraph(p), idx })).sort((a, b) => b.score - a.score);
+    // Отбираем топ-N абзацев по score, потом восстанавливаем исходный порядок текста
+    const scored = paragraphs
+        .map((p, idx) => ({ text: p, score: scoreParagraph(p), idx }))
+        .sort((a, b) => b.score - a.score);
 
-    let excerpt = "", wordCount = 0;
-    for (const para of sorted) {
-        excerpt += para.text + " ";
-        wordCount += para.text.split(/\s+/).length;
-        if (wordCount >= targetWords) break;
+    const selected = [];
+    let wc = 0;
+    for (const para of scored) {
+        selected.push(para);
+        wc += para.text.split(/\s+/).length;
+        if (wc >= targetWords) break;
     }
-    return excerpt.trim().substring(0, targetWords * 2);
+    selected.sort((a, b) => a.idx - b.idx);
+
+    // Склеиваем и обрезаем ПО ГРАНИЦАМ ПРЕДЛОЖЕНИЙ, а не по символам
+    const fullText = selected.map(p => p.text).join(" ");
+    const sentences = fullText.match(/[^.!?]+[.!?]+(?:\s+|$)/g) || [fullText];
+
+    let out = "";
+    let outWords = 0;
+    for (const s of sentences) {
+        const sWords = s.split(/\s+/).length;
+        // +15% допуск — чтобы захватить целое последнее предложение
+        if (outWords > 0 && outWords + sWords > targetWords * 1.15) break;
+        out += s;
+        outWords += sWords;
+        if (outWords >= targetWords) break;
+    }
+
+    // Fallback: если предложения не нашлись (текст без точек), режем по последнему пробелу
+    if (!out.trim()) {
+        const cap = targetWords * 2;
+        const cut = fullText.slice(0, cap);
+        const lastSpace = cut.lastIndexOf(" ");
+        out = lastSpace > 0 ? cut.slice(0, lastSpace) : cut;
+    }
+
+    return out.trim();
 }
 
 

@@ -218,8 +218,7 @@ export const ClassicStoriesView = ({
   // Load custom stories and daily feeds from backend
   const loadCustomStoriesAndFeeds = async () => {
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 10000);   // 10 сек
-
+    const timeoutId = setTimeout(() => controller.abort(), 25000);   // 25 сек — cold-start на Render free tier + генерация
     try {
       const res = await fetch(
         `/api/stories/custom-list?targetLanguage=${encodeURIComponent(targetLanguage)}&userId=default-user&mediatorLanguage=${encodeURIComponent(mediatorLanguage)}`,
