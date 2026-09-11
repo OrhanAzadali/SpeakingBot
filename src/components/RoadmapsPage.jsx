@@ -354,7 +354,7 @@ export const RoadmapsPage = ({
                   {
                     /* Tokenized Interactive Sentence */
                   }
-                  < div >
+                  <div>
                     <div className="flex items-center justify-between mb-1.5">
                       <span className="text-[11px] font-bold text-slate-400">
                         {t("interactiveLesson")}
@@ -367,8 +367,8 @@ export const RoadmapsPage = ({
                       tokens={m.tokens || []}
                       onSelectToken={onSelectToken}
                     />
-                  </>
-                </>)}
+                  </div>
+                </div>)}
               </div>
             </div>
 
