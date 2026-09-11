@@ -1,5 +1,3 @@
-
-
 // SERVER2 - YOUR VERSION TO BE FIXED BASED ON THE COMPARISON WITH MINE TO DEFINE WHAT CORE FUNCTIONALITY YOUR VERSION STILL LACKS AND BREAKS
 // =====================================================
 // SPEAKBOT SERVER — COMPLETE UNIFIED VERSION
@@ -21,8 +19,154 @@ import FALLBACK_WORDS_MAP from "./src/data/fallbackWords.js";
 import { GAMES_VOCABULARY } from './src/data/gamesVocabularyData.js';
 import { createClient } from '@supabase/supabase-js';
 import Redis from 'ioredis';
+// ═══════════════════════════════════════════════════════════════
+// TTS ENDPOINT — MSEdge + Browser fallback
+// ═══════════════════════════════════════════════════════════════
+
+import { MsEdgeTTS, OUTPUT_FORMAT } from "msedge-tts";
+import { exec } from "child_process";
+import ffmpegPath from "ffmpeg-static";
+import os from "os";
+import crypto from "crypto";
+// ═══════════════════════════════════════════════════════════════
+// ГЛОБАЛЬНЫЕ ОБРАБОТЧИКИ ОШИБОК — ловят silent crashes
+// ═══════════════════════════════════════════════════════════════
+
+process.on("uncaughtException", (err) => {
+    console.error("═══════════════════════════════════════");
+    console.error("[FATAL] uncaughtException:", err);
+    console.error("Stack:", err.stack);
+    console.error("═══════════════════════════════════════");
+    // Не выходим — оставляем процесс живым для диагностики
+});
+
+process.on("unhandledRejection", (reason, promise) => {
+    console.error("═══════════════════════════════════════");
+    console.error("[FATAL] unhandledRejection:", reason);
+    console.error("Promise:", promise);
+    console.error("═══════════════════════════════════════");
+});
+
+process.on("exit", (code) => {
+    console.error(`[FATAL] Процесс завершается с кодом: ${code}`);
+});
+
+process.on("SIGINT", () => {
+    console.error("[FATAL] Получен SIGINT (Ctrl+C)");
+    process.exit(0);
+});
+
 
 dotenv.config();
+
+// Master key из env — ЭТО НИКОГДА НЕ МЕНЯТЬ после первого запуска,
+// иначе все сохранённые пользовательские ключи станут нечитаемыми
+const MASTER_ENCRYPTION_KEY = process.env.ENCRYPTION_MASTER_KEY;
+
+if (!MASTER_ENCRYPTION_KEY || MASTER_ENCRYPTION_KEY.length < 32) {
+    console.warn("[BYOK] ENCRYPTION_MASTER_KEY отсутствует или короткий — BYOK-функция отключена");
+}
+
+function encryptKey(plaintext) {
+    if (!MASTER_ENCRYPTION_KEY) return null;
+    const iv = crypto.randomBytes(12);
+    const cipher = crypto.createCipheriv(
+        "aes-256-gcm",
+        Buffer.from(MASTER_ENCRYPTION_KEY, "hex"),
+        iv
+    );
+    const encrypted = Buffer.concat([cipher.update(plaintext, "utf8"), cipher.final()]);
+    const tag = cipher.getAuthTag();
+    // Формат: enc:<iv>:<tag>:<encrypted>  (все в base64)
+    return `enc:${iv.toString("base64")}:${tag.toString("base64")}:${encrypted.toString("base64")}`;
+}
+
+function decryptKey(encryptedString) {
+    if (!MASTER_ENCRYPTION_KEY || !encryptedString?.startsWith("enc:")) return null;
+    try {
+        const [, ivB64, tagB64, dataB64] = encryptedString.split(":");
+        const iv = Buffer.from(ivB64, "base64");
+        const tag = Buffer.from(tagB64, "base64");
+        const data = Buffer.from(dataB64, "base64");
+        const decipher = crypto.createDecipheriv(
+            "aes-256-gcm",
+            Buffer.from(MASTER_ENCRYPTION_KEY, "hex"),
+            iv
+        );
+        decipher.setAuthTag(tag);
+        return Buffer.concat([decipher.update(data), decipher.final()]).toString("utf8");
+    } catch (e) {
+        console.warn("[BYOK] Decrypt failed:", e.message);
+        return null;
+    }
+}
+
+function maskKey(plaintext) {
+    if (!plaintext || plaintext.length < 8) return "***";
+    return `${plaintext.slice(0, 4)}...${plaintext.slice(-4)}`;
+}
+// ── Кэш расшифрованных ключей (5 минут) — избегаем расшифровки на каждом запросе ──
+const userKeyCache = new Map();
+const USER_KEY_CACHE_TTL_MS = 5 * 60 * 1000;
+
+/**
+ * Возвращает расшифрованный ключ пользователя для провайдера.
+ * Возвращает null, если у пользователя нет ключа или произошла ошибка.
+ */
+async function getUserKey(userId, provider) {
+    if (!userId || !provider) return null;
+    if (!MASTER_ENCRYPTION_KEY || !supabase) return null;
+
+    const cacheKey = `${userId}:${provider}`;
+    const cached = userKeyCache.get(cacheKey);
+    if (cached && Date.now() - cached.at < USER_KEY_CACHE_TTL_MS) {
+        return cached.key;
+    }
+
+    try {
+        const { data } = await supabase
+            .from("user_api_keys")
+            .select("encrypted_keys")
+            .eq("user_id", userId)
+            .maybeSingle();
+
+        const encrypted = data?.encrypted_keys?.[provider];
+        if (!encrypted) {
+            userKeyCache.set(cacheKey, { key: null, at: Date.now() });
+            return null;
+        }
+
+        const decrypted = decryptKey(encrypted);
+        if (decrypted) {
+            userKeyCache.set(cacheKey, { key: decrypted, at: Date.now() });
+            console.log(`[BYOK] Используем пользовательский ключ ${provider} для ${userId} (${maskKey(decrypted)})`);
+            return decrypted;
+        }
+        return null;
+    } catch (e) {
+        console.warn(`[BYOK] getUserKey(${provider}) failed:`, e.message);
+        return null;
+    }
+}
+
+// ── Кэш Gemini-клиентов по хешу ключа — создаём клиент один раз на ключ ──
+const geminiClientCache = new Map();
+
+function getGeminiClientForApiKey(apiKey) {
+    if (!apiKey) return getGeminiClient();
+
+    const hash = crypto.createHash("sha256").update(apiKey).digest("hex").slice(0, 16);
+    if (geminiClientCache.has(hash)) {
+        return geminiClientCache.get(hash);
+    }
+
+    const client = new GoogleGenAI({
+        apiKey,
+        httpOptions: { headers: { "User-Agent": "aistudio-build" } }
+    });
+    geminiClientCache.set(hash, client);
+    return client;
+}
 
 // =====================================================
 // CONFIG
@@ -33,6 +177,106 @@ const currentDirname = typeof __dirname !== "undefined" ? __dirname : path.dirna
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+// Голоса для каждого языка (MSEdge Neural)
+const MSEdge_VOICES = {
+    "English": "en-US-AriaNeural",
+    "German": "de-DE-KatjaNeural",
+    "Spanish": "es-ES-ElviraNeural",
+    "French": "fr-FR-DeniseNeural",
+    "Italian": "it-IT-ElsaNeural",
+    "Russian": "ru-RU-SvetlanaNeural",
+    "Turkish": "tr-TR-EmelNeural",
+    "az": "az-AZ-BabekNeural",  // если доступен
+};
+
+// Кэш сгенерированных файлов (не удаляем сразу — браузер может запросить повторно)
+const ttsFileCache = new Map();  // key: hash, value: { path, createdAt }
+
+function cleanTtsCache() {
+    const now = Date.now();
+    const MAX_AGE = 30 * 60 * 1000;  // 30 минут
+    for (const [key, value] of ttsFileCache.entries()) {
+        if (now - value.createdAt > MAX_AGE) {
+            try { fs.unlinkSync(value.path); } catch { /* ignore */ }
+            ttsFileCache.delete(key);
+        }
+    }
+}
+setInterval(cleanTtsCache, 5 * 60 * 1000);  // каждые 5 минут
+// Голоса для каждого языка (MSEdge Neural)
+
+app.get("/api/debug/test-encryption", (req, res) => {
+    const sample = "test-api-key-12345";
+    const encrypted = encryptKey(sample);
+    const decrypted = decryptKey(encrypted);
+    const masked = maskKey(sample);
+    res.json({
+        original: sample,
+        encrypted: encrypted ? encrypted.slice(0, 40) + "..." : null,
+        decrypted: decrypted,
+        masked: masked,
+        roundtripOK: decrypted === sample,
+    });
+});
+
+app.post("/api/tts/synthesize", async (req, res) => {
+    try {
+        const { text, language = "English" } = req.body;
+
+        if (!text || typeof text !== "string" || text.trim().length === 0) {
+            return res.status(400).json({ success: false, error: "text обязателен" });
+        }
+
+        if (text.length > 2000) {
+            return res.status(400).json({ success: false, error: "text слишком длинный (макс 2000 символов)" });
+        }
+
+        const voice = MSEdge_VOICES[language] || MSEdge_VOICES["English"];
+        const textHash = crypto.createHash("sha256").update(`${voice}:${text}`).digest("hex").slice(0, 16);
+
+        // Проверяем кэш
+        if (ttsFileCache.has(textHash)) {
+            const cached = ttsFileCache.get(textHash);
+            if (fs.existsSync(cached.path)) {
+                console.log(`[TTS] ✅ Cache hit для ${textHash}`);
+                res.setHeader("Content-Type", "audio/ogg");
+                return res.sendFile(cached.path);
+            }
+            ttsFileCache.delete(textHash);
+        }
+
+        console.log(`[TTS] Генерация для "${text.slice(0, 40)}..." (voice: ${voice})`);
+
+        // Генерируем через MSEdge TTS
+        const tts = new MsEdgeTTS();
+        await tts.setMetadata(voice, OUTPUT_FORMAT.WEBM_24KHZ_16BIT_MONO_OPUS);
+
+        const tempDir = os.tmpdir();
+        const rawWebmPath = path.join(tempDir, `tts-${textHash}-${Date.now()}.webm`);
+        const oggPath = rawWebmPath.replace(".webm", ".ogg");
+
+        await tts.toFile(rawWebmPath, text);
+
+        // Конвертация в OGG (браузеры хорошо поддерживают)
+        await new Promise((resolve, reject) => {
+            exec(`"${ffmpegPath}" -y -i "${rawWebmPath}" -c:a libopus -b:a 64k "${oggPath}"`,
+                (err) => err ? reject(err) : resolve());
+        });
+
+        // Удаляем промежуточный WebM
+        try { fs.unlinkSync(rawWebmPath); } catch { /* ignore */ }
+
+        // Кэшируем готовый OGG
+        ttsFileCache.set(textHash, { path: oggPath, createdAt: Date.now() });
+
+        res.setHeader("Content-Type", "audio/ogg");
+        res.setHeader("Cache-Control", "public, max-age=1800");
+        res.sendFile(oggPath);
+    } catch (err) {
+        console.error("[TTS] Ошибка:", err.message);
+        res.status(500).json({ success: false, error: err.message });
+    }
+});
 // =====================================================
 // SUPABASE (NEW SECRET KEY)
 // =====================================================
@@ -250,123 +494,645 @@ function getGeminiClient() {
     return geminiClient;
 }
 
-async function callGeminiWithResilience(
-    prompt,
-    preferredModel = null,          // ← было "gemini-2.5-flash"
-    fallbackModels = [],             // ← было ["gemini-2.0-flash"]
-    isJson = true
-) {
-    const apiKey = process.env.GEMINI_API_KEY;
-    if (!apiKey) return null;
+// ═══════════════════════════════════════════════════════════════
+// AI GATEWAY — ЯДРО GEMINI
+// ═══════════════════════════════════════════════════════════════
+// ── Кэш списка доступных моделей ──
+let availableGeminiModelsCache = null;
+let availableGeminiModelsCacheExpiry = 0;
+let geminiModelsDiscoveryPromise = null;
+async function discoverAvailableGeminiModels(forceRefresh = false) {
+    if (!forceRefresh && availableGeminiModelsCache && Date.now() < availableGeminiModelsCacheExpiry) {
+        return availableGeminiModelsCache;
+    }
+    // Защита от параллельных запросов
+    if (geminiModelsDiscoveryPromise) {
+        return geminiModelsDiscoveryPromise;
+    }
+    geminiModelsDiscoveryPromise = (async () => {
+        try {
+            // Кэш на 1 час — не дёргаем API при каждом вызове
+            if (!forceRefresh && availableGeminiModelsCache && Date.now() < availableGeminiModelsCacheExpiry) {
+                return availableGeminiModelsCache;
+            }
+            const apiKey = process.env.GEMINI_API_KEY;
+            if (!apiKey) return [];
 
-    const ai = getGeminiClient();
+            try {
+                const res = await fetch(
+                    `https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`,
+                    { signal: AbortSignal.timeout(10000) }
+                );
+                if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                const data = await res.json();
 
-    // Если модель не передана явно — берём из обнаруженного списка
+                // Оставляем только генеративные модели, сортируем по актуальности
+                const models = (data.models || [])
+                    .filter(m => m.supportedGenerationMethods?.includes("generateContent"))
+                    .map(m => m.name.replace(/^models\//, ""))
+                    .filter(name => name.includes("flash"))
+                    .sort((a, b) => {
+                        const aLite = a.includes("lite") ? 1 : 0;
+                        const bLite = b.includes("lite") ? 1 : 0;
+                        // Lite-модели первыми (больше ёмкости у Google)
+                        if (aLite !== bLite) return bLite - aLite;
+                        // Внутри группы — по убыванию версии
+                        const verA = parseFloat(a.match(/\d+\.\d+/)?.[0] || "0");
+                        const verB = parseFloat(b.match(/\d+\.\d+/)?.[0] || "0");
+                        return verB - verA;
+                    });
+                console.log(`[AI Engine] Обнаружено ${models.length} доступных Gemini моделей:`, models.slice(0, 5));
+                availableGeminiModelsCache = models;
+                availableGeminiModelsCacheExpiry = Date.now() + 3600 * 1000;  // 1 час
+                return models;
+            } catch (e) {
+                console.warn("[AI Engine] Не удалось получить список моделей:", e.message);
+                return [];
+            }
+        } finally {
+            geminiModelsDiscoveryPromise = null;
+        }
+    })();
+    return geminiModelsDiscoveryPromise;
+}
+
+
+
+async function _callGeminiCore(prompt, preferredModel = null, fallbackModels = [], isJson = true, userApiKey = null) {
+    // Приоритет: пользовательский ключ → системный
+    const apiKey = userApiKey || process.env.GEMINI_API_KEY;
+    if (!apiKey) {
+        console.warn("[AI Core] Ни пользовательского, ни системного GEMINI_API_KEY");
+        return null;
+    }
+    const ai = getGeminiClientForApiKey(apiKey);
     let candidateModels = [];
+
     if (preferredModel) {
-        candidateModels.push(preferredModel, ...fallbackModels);
+        // Явно указанные модели (обратная совместимость)
+        candidateModels = [preferredModel, ...fallbackModels];
     } else {
+        // Автодискавери — до 10 живых моделей
         const discovered = await discoverAvailableGeminiModels();
         if (discovered.length > 0) {
-            candidateModels = discovered.slice(0, 10);  // ← было 3, стало 10
+            candidateModels = discovered.slice(0, 10);
         } else {
-            // Жёсткий fallback, если discovery не сработал
+            // Абсолютный резерв, если discovery не сработал
             candidateModels = ["gemini-3.5-flash-lite", "gemini-3.5-flash", "gemini-3.6-flash"];
         }
     }
-    for (const model of candidateModels) {
+
+    for (let i = 0; i < candidateModels.length; i++) {
+        const model = candidateModels[i];
+
         for (let attempt = 0; attempt < 2; attempt++) {
             try {
-                console.log(`[AI Engine] ${model} (attempt ${attempt + 1})`);
+                console.log(`[AI Core] ${model} (attempt ${attempt + 1}/${candidateModels.length})`);
+
                 const generatePromise = ai.models.generateContent({
-                    model, contents: prompt,
+                    model,
+                    contents: prompt,
                     config: isJson ? { responseMimeType: "application/json" } : {}
                 });
+
                 const timeoutPromise = new Promise((_, reject) =>
                     setTimeout(() => reject(new Error("TIMEOUT_SPIKE")), 50000)
                 );
+
                 const response = await Promise.race([generatePromise, timeoutPromise]);
-                if (response && response.text) return response.text;
+                if (response && response.text) {
+                    console.log(`[AI Core] ✅ ${model} ответил`);
+                    return response.text;
+                }
             } catch (err) {
                 const msg = err?.message || String(err);
-                // 404 = модель недоступна → пропускаем без retry
+
+                // 404 = модель недоступна — пропускаем сразу, без второй попытки
                 if (msg.includes("404") || msg.includes("not found")) {
-                    console.warn(`[AI Engine] ${model} недоступна (404), пропускаем`);
-                    break;   // не делаем вторую попытку на этой модели
+                    console.warn(`[AI Core] ${model} недоступна (404), пропускаем`);
+                    break;   // выход из внутреннего for, к следующей модели
                 }
-                console.warn(`[AI Engine] ${model} attempt ${attempt + 1} failed: ${msg.slice(0, 100)}`);
-                if (attempt === 0) await new Promise(r => setTimeout(r, 1200));
+
+                console.warn(`[AI Core] ${model} attempt ${attempt + 1} failed: ${msg.slice(0, 100)}`);
+
+                if (attempt === 0) {
+                    await new Promise(r => setTimeout(r, 1200));
+                }
             }
         }
-        // Небольшая пауза перед следующей моделью — снижает шанс повторного 503
+
+        // Небольшая пауза перед следующей моделью — снижает риск повторного 503
         if (i < candidateModels.length - 1) {
             await new Promise(r => setTimeout(r, 300));
         }
     }
+
+    console.warn("[AI Core] Все модели Gemini недоступны");
     return null;
 }
 
-// ── Кэш списка доступных моделей ──
-let availableGeminiModelsCache = null;
-let availableGeminiModelsCacheExpiry = 0;
+// ═══════════════════════════════════════════════════════════════
+// CIRCUIT BREAKER ДЛЯ GEMINI
+// ═══════════════════════════════════════════════════════════════
 
-async function discoverAvailableGeminiModels(forceRefresh = false) {
-    // Кэш на 1 час — не дёргаем API при каждом вызове
-    if (!forceRefresh && availableGeminiModelsCache && Date.now() < availableGeminiModelsCacheExpiry) {
-        return availableGeminiModelsCache;
-    }
-    const apiKey = process.env.GEMINI_API_KEY;
-    if (!apiKey) return [];
+let geminiFailureCount = 0;
+let geminiCircuitOpenUntil = 0;
+const GEMINI_FAILURE_THRESHOLD = 5;
+const GEMINI_CIRCUIT_COOLDOWN_MS = 5 * 60 * 1000; // 5 минут
 
-    try {
-        const res = await fetch(
-            `https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`,
-            { signal: AbortSignal.timeout(10000) }
-        );
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const data = await res.json();
+function isGeminiCircuitOpen() {
+    return Date.now() < geminiCircuitOpenUntil;
+}
 
-        // Оставляем только генеративные модели, сортируем по актуальности
-        const models = (data.models || [])
-            .filter(m => m.supportedGenerationMethods?.includes("generateContent"))
-            .map(m => m.name.replace(/^models\//, ""))
-            .filter(name => name.includes("flash"))
-            .sort((a, b) => {
-                const aLite = a.includes("lite") ? 1 : 0;
-                const bLite = b.includes("lite") ? 1 : 0;
-                // Lite-модели первыми (больше ёмкости у Google)
-                if (aLite !== bLite) return bLite - aLite;
-                // Внутри группы — по убыванию версии
-                const verA = parseFloat(a.match(/\d+\.\d+/)?.[0] || "0");
-                const verB = parseFloat(b.match(/\d+\.\d+/)?.[0] || "0");
-                return verB - verA;
-            });
-        console.log(`[AI Engine] Обнаружено ${models.length} доступных Gemini моделей:`, models.slice(0, 5));
-        availableGeminiModelsCache = models;
-        availableGeminiModelsCacheExpiry = Date.now() + 3600 * 1000;  // 1 час
-        return models;
-    } catch (e) {
-        console.warn("[AI Engine] Не удалось получить список моделей:", e.message);
-        return [];
+function recordGeminiFailure() {
+    geminiFailureCount++;
+    if (geminiFailureCount >= GEMINI_FAILURE_THRESHOLD) {
+        geminiCircuitOpenUntil = Date.now() + GEMINI_CIRCUIT_COOLDOWN_MS;
+        console.warn(`[Circuit Breaker] Gemini отключён на 5 минут после ${geminiFailureCount} ошибок`);
     }
 }
 
-async function callOpenRouter(prompt, model = "meta-llama/llama-3.3-70b-instruct:free") {
-    const apiKey = process.env.OPENROUTER_API_KEY;
-    if (!apiKey) return null;
+function recordGeminiSuccess() {
+    geminiFailureCount = 0;
+    geminiCircuitOpenUntil = 0;
+}
+
+
+// ═══════════════════════════════════════════════════════════════
+// GROQ DISCOVERY — динамический список моделей
+// ═══════════════════════════════════════════════════════════════
+
+let availableGroqModelsCache = null;
+let availableGroqModelsCacheExpiry = 0;
+
+async function discoverAvailableGroqModels(forceRefresh = false) {
+    if (!forceRefresh && availableGroqModelsCache && Date.now() < availableGroqModelsCacheExpiry) {
+        return availableGroqModelsCache;
+    }
+    const apiKey = process.env.GROQ_API_KEY;
+    if (!apiKey) return [];
+
     try {
-        const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-            method: "POST",
-            headers: { "Authorization": `Bearer ${apiKey}`, "Content-Type": "application/json" },
-            body: JSON.stringify({ model, messages: [{ role: "user", content: prompt }] })
+        const res = await fetch("https://api.groq.com/openai/v1/models", {
+            headers: { "Authorization": `Bearer ${apiKey}` },
+            signal: AbortSignal.timeout(10000)
         });
-        if (!response.ok) throw new Error(`OpenRouter: ${response.statusText}`);
-        const data = await response.json();
-        return JSON.parse(data.choices[0].message.content);
-    } catch (err) {
-        console.warn("[AI Engine] OpenRouter failed:", err.message);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
+        if (!Array.isArray(data.data)) throw new Error("Неверный формат");
+
+        // Приоритет: сначала большие (70B), потом средние, потом маленькие
+        const priority = [
+            "llama-3.3-70b-versatile",
+            "llama-3.1-70b-versatile",
+            "qwen/qwen3-32b",
+            "qwen/qwen3.6-27b",
+            "meta-llama/llama-4-scout-17b-16e-instruct",
+            "llama-3.1-8b-instant",
+            "gemma2-9b-it",
+        ];
+
+        const available = new Set(data.data.map(m => m.id));
+        const curated = priority.filter(id => available.has(id));
+
+        // Добавим остальные, если приоритетных мало
+        if (curated.length < 3) {
+            data.data.forEach(m => {
+                if (!curated.includes(m.id) && m.id.length > 0) {
+                    curated.push(m.id);
+                }
+            });
+        }
+
+        console.log(`[Groq Discovery] Отобрано ${curated.length} моделей:`, curated.slice(0, 5));
+        availableGroqModelsCache = curated;
+        availableGroqModelsCacheExpiry = Date.now() + 24 * 3600 * 1000;
+        return curated;
+    } catch (e) {
+        console.warn("[Groq Discovery] Ошибка:", e.message);
+        return [];
+    }
+}
+// ── Discovery моделей OpenRouter с фильтрацией ──
+let availableOpenRouterModelsCache = null;
+let availableOpenRouterModelsCacheExpiry = 0;
+
+async function discoverAvailableOpenRouterModels(forceRefresh = false) {
+    if (!forceRefresh && availableOpenRouterModelsCache && Date.now() < availableOpenRouterModelsCacheExpiry) {
+        return availableOpenRouterModelsCache;
+    }
+    const apiKey = process.env.OPENROUTER_API_KEY;
+    if (!apiKey) return [];
+
+    try {
+        const res = await fetch("https://openrouter.ai/api/v1/models", {
+            headers: { "Authorization": `Bearer ${apiKey}` },
+            signal: AbortSignal.timeout(15000)
+        });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
+        if (!Array.isArray(data.data)) throw new Error("Неверный формат ответа");
+
+        // ── Фильтрация ──
+        const filtered = data.data
+            .filter(m => m.id && m.id.endsWith(":free"))
+            .filter(m => {
+                const modality = m.architecture?.modality || "";
+                return modality.includes("text->text");
+            })
+            .filter(m => (m.context_length || 0) >= 8000)
+            .filter(m => {
+                // Исключаем заведомо плохие для JSON
+                const id = m.id.toLowerCase();
+                return !id.includes("vision")
+                    && !id.includes("image")
+                    && !id.includes("audio")
+                    && !id.includes("embed");
+            });
+
+        // ── Диверсификация: не более 2 моделей от одного провайдера ──
+        const byProvider = {};
+        for (const m of filtered) {
+            const provider = m.id.split("/")[0];  // "meta-llama", "mistralai", "nvidia" и т.д.
+            if (!byProvider[provider]) byProvider[provider] = [];
+            if (byProvider[provider].length < 2) {
+                byProvider[provider].push(m.id);
+            }
+        }
+
+        // ── Разворачиваем в плоский список, отсортированный по размеру контекста ──
+        const curated = [];
+        for (const provider of Object.keys(byProvider)) {
+            curated.push(...byProvider[provider]);
+        }
+
+        console.log(`[OpenRouter Discovery] Отобрано ${curated.length} моделей от ${Object.keys(byProvider).length} провайдеров:`);
+        curated.slice(0, 8).forEach(m => console.log(`  • ${m}`));
+
+        availableOpenRouterModelsCache = curated;
+        availableOpenRouterModelsCacheExpiry = Date.now() + 24 * 3600 * 1000;
+        return curated;
+    } catch (e) {
+        console.warn("[OpenRouter Discovery] Ошибка:", e.message);
+        return [];
+    }
+}
+// ═══════════════════════════════════════════════════════════════
+// OPENROUTER — СТРАХОВКА #2
+// ═══════════════════════════════════════════════════════════════
+
+async function callOpenRouter(prompt, model = null, userApiKey = null) {
+    const apiKey = userApiKey || process.env.OPENROUTER_API_KEY;
+    if (!apiKey) {
+        console.warn("[OpenRouter] Ни пользовательского, ни системного OPENROUTER_API_KEY");
         return null;
     }
+    // Динамический список моделей вместо хардкода
+    const modelsToTry = model
+        ? [model]
+        : await discoverAvailableOpenRouterModels();
+
+    if (modelsToTry.length === 0) {
+        console.warn("[OpenRouter] Нет доступных моделей");
+        return null;
+    }
+
+    for (let i = 0; i < modelsToTry.length; i++) {
+        const m = modelsToTry[i];
+        try {
+            console.log(`[OpenRouter] ${m} (${i + 1}/${modelsToTry.length})`);
+            const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+                method: "POST",
+                headers: {
+                    "Authorization": `Bearer ${apiKey}`,
+                    "Content-Type": "application/json",
+                    "HTTP-Referer": "https://speakbot.onrender.com",
+                    "X-Title": "SpeakBot"
+                },
+                body: JSON.stringify({
+                    model: m,
+                    messages: [{ role: "user", content: prompt }]
+                }),
+                signal: AbortSignal.timeout(45000)
+            });
+
+            if (!response.ok) {
+                console.warn(`[OpenRouter] ${m} HTTP ${response.status}`);
+                continue;
+            }
+
+            const data = await response.json();
+            const content = data?.choices?.[0]?.message?.content;
+            if (content && typeof content === "string" && content.length > 0) {
+                console.log(`[OpenRouter] ✅ ${m} ответил`);
+                return content;
+            }
+        } catch (err) {
+            console.warn(`[OpenRouter] ${m} ошибка: ${err.message.slice(0, 100)}`);
+        }
+    }
+
+    console.warn("[OpenRouter] Все модели недоступны");
+    return null;
+}
+
+// ═══════════════════════════════════════════════════════════════
+// GROQ — СТРАХОВКА #3 (самый быстрый)
+// ═══════════════════════════════════════════════════════════════
+
+async function callGroq(prompt, model = null, userApiKey = null) {
+    const apiKey = userApiKey || process.env.GROQ_API_KEY;
+    if (!apiKey) {
+        console.warn("[Groq] Ни пользовательского, ни системного GROQ_API_KEY");
+        return null;
+    }
+
+    const modelsToTry = model ? [model] : await discoverAvailableGroqModels();
+    if (modelsToTry.length === 0) {
+        console.warn("[Groq] Нет доступных моделей");
+        return null;
+    }
+
+    for (let i = 0; i < modelsToTry.length; i++) {
+        const m = modelsToTry[i];
+        try {
+            console.log(`[Groq] ${m} (${i + 1}/${modelsToTry.length})`);
+            const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+                method: "POST",
+                headers: {
+                    "Authorization": `Bearer ${apiKey}`,
+                    "Content-Type": "application/json"
+                },
+                body: JSON.stringify({
+                    model: m,
+                    messages: [{ role: "user", content: prompt }],
+                    temperature: 0.7
+                }),
+                signal: AbortSignal.timeout(30000)
+            });
+
+            if (!response.ok) {
+                console.warn(`[Groq] ${m} HTTP ${response.status}`);
+                continue;
+            }
+
+            const data = await response.json();
+            const content = data?.choices?.[0]?.message?.content;
+            if (content && typeof content === "string" && content.length > 0) {
+                console.log(`[Groq] ✅ ${m} ответил`);
+                return content;
+            }
+        } catch (err) {
+            console.warn(`[Groq] ${m} ошибка: ${err.message.slice(0, 100)}`);
+        }
+    }
+
+    console.warn("[Groq] Все модели недоступны");
+    return null;
+}
+
+// ═══════════════════════════════════════════════════════════════
+// DEEPSEEK — СТРАХОВКА #4
+// ═══════════════════════════════════════════════════════════════
+
+async function callDeepSeek(prompt, model = "deepseek-chat", userApiKey = null) {
+    const apiKey = userApiKey || process.env.DEEPSEEK_API_KEY;
+    if (!apiKey) {
+        return null;
+    }
+    const modelsToTry = [model];
+    // Если явно передан reasoner — пробуем его первым, потом chat
+    if (model === "deepseek-reasoner") {
+        modelsToTry.push("deepseek-chat");
+    }
+
+    for (const m of modelsToTry) {
+        try {
+            console.log(`[DeepSeek] ${m}`);
+            const response = await fetch("https://api.deepseek.com/chat/completions", {
+                method: "POST",
+                headers: {
+                    "Authorization": `Bearer ${apiKey}`,
+                    "Content-Type": "application/json"
+                },
+                body: JSON.stringify({
+                    model: m,
+                    messages: [{ role: "user", content: prompt }],
+                    temperature: 0.7,
+                    stream: false
+                }),
+                signal: AbortSignal.timeout(60000)
+            });
+
+            if (!response.ok) {
+                console.warn(`[DeepSeek] ${m} HTTP ${response.status}`);
+                continue;
+            }
+
+            const data = await response.json();
+            const content = data?.choices?.[0]?.message?.content;
+            if (content && typeof content === "string" && content.length > 0) {
+                console.log(`[DeepSeek] ✅ ${m} ответил`);
+                return content;
+            }
+        } catch (err) {
+            console.warn(`[DeepSeek] ${m} ошибка: ${err.message.slice(0, 100)}`);
+        }
+    }
+
+    return null;
+}
+
+// ═══════════════════════════════════════════════════════════════
+// OPENAI — СТРАХОВКА #5
+// ═══════════════════════════════════════════════════════════════
+
+const OPENAI_MODELS = [
+    "gpt-4o-mini",       // самая дешёвая, быстрая
+    "gpt-4o",            // сильнее, дороже
+    "gpt-3.5-turbo",     // легаси, но рабочий
+];
+
+async function callOpenAI(prompt, model = null, userApiKey = null) {
+    const apiKey = userApiKey || process.env.OPENAI_API_KEY;
+    if (!apiKey) return null;
+
+    const modelsToTry = model ? [model] : OPENAI_MODELS;
+
+    for (const m of modelsToTry) {
+        try {
+            console.log(`[OpenAI] ${m}`);
+            const response = await fetch("https://api.openai.com/v1/chat/completions", {
+                method: "POST",
+                headers: {
+                    "Authorization": `Bearer ${apiKey}`,
+                    "Content-Type": "application/json"
+                },
+                body: JSON.stringify({
+                    model: m,
+                    messages: [{ role: "user", content: prompt }],
+                    temperature: 0.7,
+                }),
+                signal: AbortSignal.timeout(60000)
+            });
+
+            if (!response.ok) {
+                console.warn(`[OpenAI] ${m} HTTP ${response.status}`);
+                // 404 = модели нет, 401 = ключ невалиден — на 401 не имеет смысла продолжать
+                if (response.status === 401) break;
+                continue;
+            }
+
+            const data = await response.json();
+            const content = data?.choices?.[0]?.message?.content;
+            if (content && typeof content === "string" && content.length > 0) {
+                console.log(`[OpenAI] ✅ ${m} ответил`);
+                return content;
+            }
+        } catch (err) {
+            console.warn(`[OpenAI] ${m} ошибка: ${err.message.slice(0, 100)}`);
+        }
+    }
+
+    console.warn("[OpenAI] Все модели недоступны");
+    return null;
+}
+
+// ═══════════════════════════════════════════════════════════════
+// ANTHROPIC (CLAUDE) — СТРАХОВКА #6
+// Формат отличается от OpenAI: system отдельно, content — массив блоков
+// ═══════════════════════════════════════════════════════════════
+
+const ANTHROPIC_MODELS = [
+    "claude-3-5-haiku-latest",    // быстрая, дешёвая
+    "claude-3-5-sonnet-latest",   // умнее, дороже
+];
+
+async function callAnthropic(prompt, model = null, userApiKey = null) {
+    const apiKey = userApiKey || process.env.ANTHROPIC_API_KEY;
+    if (!apiKey) return null;
+
+    const modelsToTry = model ? [model] : ANTHROPIC_MODELS;
+
+    for (const m of modelsToTry) {
+        try {
+            console.log(`[Anthropic] ${m}`);
+            const response = await fetch("https://api.anthropic.com/v1/messages", {
+                method: "POST",
+                headers: {
+                    "x-api-key": apiKey,
+                    "anthropic-version": "2023-06-01",
+                    "Content-Type": "application/json"
+                },
+                body: JSON.stringify({
+                    model: m,
+                    max_tokens: 8192,
+                    messages: [{ role: "user", content: prompt }]
+                }),
+                signal: AbortSignal.timeout(60000)
+            });
+
+            if (!response.ok) {
+                console.warn(`[Anthropic] ${m} HTTP ${response.status}`);
+                if (response.status === 401 || response.status === 403) break;
+                continue;
+            }
+
+            const data = await response.json();
+            // Anthropic возвращает content как массив блоков
+            const textBlock = data?.content?.find(b => b.type === "text");
+            const content = textBlock?.text;
+            if (content && typeof content === "string" && content.length > 0) {
+                console.log(`[Anthropic] ✅ ${m} ответил`);
+                return content;
+            }
+        } catch (err) {
+            console.warn(`[Anthropic] ${m} ошибка: ${err.message.slice(0, 100)}`);
+        }
+    }
+
+    console.warn("[Anthropic] Все модели недоступны");
+    return null;
+}
+// ═══════════════════════════════════════════════════════════════
+// ГЛАВНЫЙ AI-ШЛЮЗ: Gemini → OpenRouter → Groq
+// ═══════════════════════════════════════════════════════════════
+
+async function callGeminiWithResilience(
+    prompt,
+    preferredModel = null,
+    fallbackModels = [],
+    isJson = true,
+    userId = null
+) {
+    // ── Резолвим все пользовательские ключи один раз ──
+    let userGeminiKey = null;
+    let userOpenRouterKey = null;
+    let userGroqKey = null;
+    let userDeepSeekKey = null;
+    let userOpenAIKey = null;
+    let userAnthropicKey = null;
+
+    if (userId) {
+        [userGeminiKey, userOpenRouterKey, userGroqKey, userDeepSeekKey, userOpenAIKey, userAnthropicKey] = await Promise.all([
+            getUserKey(userId, "gemini"),
+            getUserKey(userId, "openrouter"),
+            getUserKey(userId, "groq"),
+            getUserKey(userId, "deepseek"),
+            getUserKey(userId, "openai"),
+            getUserKey(userId, "anthropic"),
+        ]);
+    }
+
+    // ── Слой 1: Gemini ──
+    const hasGeminiAccess = !!(userGeminiKey || process.env.GEMINI_API_KEY);
+    if (!isGeminiCircuitOpen() && hasGeminiAccess) {
+        const r = await _callGeminiCore(prompt, preferredModel, fallbackModels, isJson, userGeminiKey);
+        if (r) { recordGeminiSuccess(); return r; }
+        recordGeminiFailure();
+    } else if (!hasGeminiAccess) {
+        console.warn("[AI Gateway] Gemini пропущен — нет ключа");
+    } else {
+        console.warn("[AI Gateway] Circuit breaker открыт");
+    }
+
+    // ── Слой 2: OpenRouter ──
+    if (userOpenRouterKey || process.env.OPENROUTER_API_KEY) {
+        console.warn("[AI Gateway] Пробуем OpenRouter...");
+        const r = await callOpenRouter(prompt, null, userOpenRouterKey);
+        if (r) { console.log("[AI Gateway] ✅ Ответ от OpenRouter"); return r; }
+    }
+
+    // ── Слой 3: Groq ──
+    if (userGroqKey || process.env.GROQ_API_KEY) {
+        console.warn("[AI Gateway] Пробуем Groq...");
+        const r = await callGroq(prompt, null, userGroqKey);
+        if (r) { console.log("[AI Gateway] ✅ Ответ от Groq"); return r; }
+    }
+
+    // ── Слой 4: DeepSeek ──
+    if (userDeepSeekKey || process.env.DEEPSEEK_API_KEY) {
+        console.warn("[AI Gateway] Пробуем DeepSeek...");
+        const r = await callDeepSeek(prompt, "deepseek-chat", userDeepSeekKey);
+        if (r) { console.log("[AI Gateway] ✅ Ответ от DeepSeek"); return r; }
+    }
+
+    // ── Слой 5: OpenAI ──  ← НОВЫЙ
+    if (userOpenAIKey || process.env.OPENAI_API_KEY) {
+        console.warn("[AI Gateway] Пробуем OpenAI...");
+        const r = await callOpenAI(prompt, null, userOpenAIKey);
+        if (r) { console.log("[AI Gateway] ✅ Ответ от OpenAI"); return r; }
+    }
+
+    // ── Слой 6: Anthropic ──  ← НОВЫЙ
+    if (userAnthropicKey || process.env.ANTHROPIC_API_KEY) {
+        console.warn("[AI Gateway] Пробуем Anthropic...");
+        const r = await callAnthropic(prompt, null, userAnthropicKey);
+        if (r) { console.log("[AI Gateway] ✅ Ответ от Anthropic"); return r; }
+    }
+
+    console.error("[AI Gateway] ❌ Все 6 AI-провайдеров исчерпаны");
+    return null;
 }
 
 // =====================================================
@@ -457,6 +1223,192 @@ const GRAMMAR_GUIDES_FILE = path.join(process.cwd(), "data", "grammar_guides.jso
 const STORAGE_FILE = path.join(process.cwd(), "data", "stories.json");
 const DATA_DIR = path.dirname(STORAGE_FILE);
 
+// ── Защита от race condition при генерации daily feeds ──
+let dailyFeedsGenerationLock = null;
+
+// ── Защита от race condition при перегенерации stories при смене mediator ──
+const mediatorRegenerationInFlight = new Set();
+let storiesHydrated = false;
+let hydrationInFlight = null;
+async function regenerateStoryForNewMediator(story, newMediatorLanguage, userId) {
+    const storyKey = `${userId}:${story.id}`;
+    if (mediatorRegenerationInFlight.has(storyKey)) return;
+    if (story.generatedWithMediator === newMediatorLanguage) return;
+
+    // ── Ограничение попыток: сдаёмся после 3 неудач ──
+    story.regenerationAttempts = (story.regenerationAttempts || 0) + 1;
+    if (story.regenerationAttempts > 3) {
+        console.warn(`[Mediator Regen] Сдаёмся после ${story.regenerationAttempts} попыток для "${story.title}"`);
+        story.generatedWithMediator = newMediatorLanguage;   // помечаем "попытки исчерпаны"
+        saveStoriesToDisk();
+        return;
+    }
+
+    mediatorRegenerationInFlight.add(storyKey);
+
+    try {
+        console.log(`[Mediator Regen] "${story.title}" → ${newMediatorLanguage} (попытка ${story.regenerationAttempts}/3)`);
+
+        const targetLangName = {
+            az: "Azerbaijani (Azərbaycan dili)",
+            ru: "Russian (Русский)",
+            tr: "Turkish (Türkçe)",
+            es: "Spanish (Español)",
+            de: "German (Deutsch)",
+            en: "English",
+        }[newMediatorLanguage] || newMediatorLanguage;
+
+        // ⚠️ Передаём ТОЛЬКО оригинальные английские тексты — никаких существующих переводов
+        // Иначе AI копирует уже переведённое и возвращает как есть
+        const originalSentencesText = (story.sentences || []).map((s) => s.text || "");
+        const originalExcerpt = originalSentencesText.join(" ").slice(0, 2500);
+
+        const translatePrompt = `You are a professional literary translator and critic.
+
+BOOK: "${story.title}" by ${story.author}
+
+TASK: Produce the following fields FRESHLY in ${targetLangName} (${newMediatorLanguage}).
+Do NOT copy any pre-existing translations — the input below is the ORIGINAL ENGLISH text only.
+
+ORIGINAL ENGLISH EXCERPT:
+"""
+${originalExcerpt}
+"""
+
+SENTENCES to translate (in this exact order, count = ${originalSentencesText.length}):
+${JSON.stringify(originalSentencesText, null, 2)}
+
+SOCRATIC DIALOGUE questions (write a pedagogical feedback for each):
+${JSON.stringify((story.conversations || []).map((c) => c.prompt || c.dialoguePrompt || ""), null, 2)}
+
+EXERCISE questions (write an explanation for each):
+${JSON.stringify((story.exercises || []).map((e) => e.question || ""), null, 2)}
+
+VOCABULARY words (give the meaning of each English word in ${targetLangName}):
+${JSON.stringify((story.keyVocabulary || []).map((v) => v.word || ""), null, 2)}
+
+Return ONLY valid JSON in ${targetLangName}:
+{
+  "culturalLinguisticContext": "2 sentences in ${targetLangName}",
+  "sentences": [{ "translation": "...", "literaryNote": "..." }],
+  "conversations": [{ "botFeedback": "..." }],
+  "exercises": [{ "explanation": "..." }],
+  "keyVocabulary": [{ "translation": "..." }]
+}`;
+        const raw = await callGeminiWithResilience(translatePrompt);
+        if (!raw) {
+            console.warn(`[Mediator Regen] AI null для "${story.title}" — попыток осталось ${3 - story.regenerationAttempts}`);
+            saveStoriesToDisk();
+            return;   // НЕ проставляем generatedWithMediator — попробуем позже
+        }
+
+        const translated = repairJson(raw);
+        if (!translated) {
+            console.warn(`[Mediator Regen] JSON parse failed для "${story.title}"`);
+            saveStoriesToDisk();
+            return;
+        }
+
+        // ── Применяем обновления ──
+        let updatedFields = 0;
+
+        if (translated.culturalLinguisticContext && translated.culturalLinguisticContext.trim().length > 10) {
+            story.culturalLinguisticContext = translated.culturalLinguisticContext;
+            updatedFields++;
+        }
+
+        if (Array.isArray(translated.sentences) && Array.isArray(story.sentences)) {
+            story.sentences = story.sentences.map((s, i) => {
+                const tr = translated.sentences[i] || {};
+                return {
+                    ...s,
+                    translation: tr.translation || s.translation,
+                    literaryNote: tr.literaryNote || s.literaryNote,
+                };
+            });
+            updatedFields++;
+        }
+
+        if (Array.isArray(translated.conversations) && Array.isArray(story.conversations)) {
+            story.conversations = story.conversations.map((c, i) => ({
+                ...c,
+                botFeedback: translated.conversations[i]?.botFeedback || c.botFeedback,
+            }));
+            updatedFields++;
+        }
+
+        if (Array.isArray(translated.exercises) && Array.isArray(story.exercises)) {
+            story.exercises = story.exercises.map((e, i) => ({
+                ...e,
+                explanation: translated.exercises[i]?.explanation || e.explanation,
+            }));
+            updatedFields++;
+        }
+
+        if (Array.isArray(translated.keyVocabulary) && Array.isArray(story.keyVocabulary)) {
+            story.keyVocabulary = story.keyVocabulary.map((v, i) => ({
+                ...v,
+                translation: translated.keyVocabulary[i]?.translation || v.translation,
+            }));
+            updatedFields++;
+        }
+
+        // ── Только теперь помечаем "готово" ──
+        story.generatedWithMediator = newMediatorLanguage;
+        story.regeneratedAt = new Date().toISOString();
+        story.regenerationAttempts = 0;
+
+        console.log(`[Mediator Regen] ✅ "${story.title}" → ${newMediatorLanguage} (обновлено полей: ${updatedFields}/5)`);
+
+        saveStoriesToDisk();
+        if (typeof saveStoriesToSupabase === "function") {
+            await saveStoriesToSupabase().catch(() => { });
+        }
+
+        // Инвалидация Redis cache
+        if (redis) {
+            try {
+                const keys = await redis.keys("spk:daily_feeds:*");
+                if (keys.length > 0) {
+                    await redis.del(...keys);
+                }
+            } catch (e) {
+                console.warn("[Mediator Regen] Cache invalidation failed:", e.message);
+            }
+        }
+    } catch (e) {
+        console.warn(`[Mediator Regen] Ошибка для "${story.title}":`, e.message);
+    } finally {
+        mediatorRegenerationInFlight.delete(storyKey);
+    }
+}
+
+// ── Глобальная очередь для последовательной регенерации ──
+let regenerationQueue = Promise.resolve();
+
+function scheduleMediatorRegenerationIfNeeded(stories, currentMediator, userId) {
+    if (!currentMediator) return;
+
+    const toRegenerate = stories.filter((story) => {
+        if (story.generatedWithMediator === currentMediator) return false;
+        const key = `${userId}:${story.id}`;
+        if (mediatorRegenerationInFlight.has(key)) return false;
+        if ((story.regenerationAttempts || 0) > 3) return false;   // сдавшиеся не трогаем
+        return true;
+    });
+
+    if (toRegenerate.length === 0) return;
+
+    console.log(`[Mediator Regen Queue] В очередь: ${toRegenerate.length} stories`);
+
+    // Строим цепочку последовательных вызовов
+    for (const story of toRegenerate) {
+        regenerationQueue = regenerationQueue
+            .then(() => regenerateStoryForNewMediator(story, currentMediator, userId))
+            .catch((e) => console.warn(`[Mediator Regen Queue] ${story.title}:`, e.message));
+    }
+}
+
 if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
 
 
@@ -469,18 +1421,29 @@ function loadUsersFromDisk() {
     catch { return {}; }
 }
 async function saveStoriesToSupabase() {
-    if (!supabase) return;  // fall back to memory
+    if (!supabase) return;
+
+    const hasData =
+        Object.keys(userCustomStories || {}).length > 0 ||
+        (autoFetchedStories || []).length > 0;
+
+    if (!hasData) {
+        console.log("[Supabase] Skip save — nothing to persist");
+        return;
+    }
+
     try {
         const { error } = await supabase
-            .from('user_stories')
+            .from("user_stories")
             .upsert({
-                id: 'global',
+                id: "global",
                 payload: { userCustomStories, autoFetchedStories },
-                updated_at: new Date().toISOString()
+                updated_at: new Date().toISOString(),
             });
         if (error) throw error;
+        console.log(`[Supabase] Persisted ${Object.keys(userCustomStories || {}).length} users`);
     } catch (err) {
-        console.warn('[Supabase] story persist failed:', err.message);
+        console.warn("[Supabase] story persist failed:", err.message);
     }
 }
 
@@ -500,6 +1463,100 @@ async function loadStoriesFromSupabase() {
     }
 }
 
+// ═══════════════════════════════════════════════════════════════
+// STORY NORMALIZATION — приводит story к структуре, ожидаемой UI
+// ═══════════════════════════════════════════════════════════════
+
+function normalizeStoryForUi(story) {
+    if (!story || typeof story !== "object") return story;
+
+    // ── Нормализация conversations (Socratic chat) ──
+    if (Array.isArray(story.conversations)) {
+        story.conversations = story.conversations.map((c, idx) => {
+            const options = Array.isArray(c.options) && c.options.length >= 2
+                ? c.options
+                : ["A thoughtful interpretation", "A surface-level reading", "An unrelated claim"];
+
+            return {
+                ...c,
+                id: c.id || `socratic-${idx + 1}`,
+                stepNumber: c.stepNumber || idx + 1,
+                persona: c.persona || "SpeakBot Socratic Mentor",
+                topic: c.topic || `Socratic Inquiry ${idx + 1}`,
+                prompt: c.prompt || c.question || `What is your interpretation of passage ${idx + 1}?`,
+                options,
+                correctIndex: typeof c.correctIndex === "number"
+                    ? Math.max(0, Math.min(c.correctIndex, options.length - 1))
+                    : 0,
+                botFeedback: c.botFeedback || "Consider the literary context and character motives.",
+                points: c.points || 25,
+            };
+        });
+    }
+
+    // ── Нормализация exercises (Tasks & Exercises) ──
+    if (Array.isArray(story.exercises)) {
+        story.exercises = story.exercises.map((e, idx) => {
+            let options = Array.isArray(e.options)
+                ? e.options.filter((o) => typeof o === "string" && o.trim().length > 0)
+                : [];
+
+            // Дополняем до 4 вариантов, чтобы UI всегда показывал A/B/C/D
+            if (options.length === 0) {
+                options = [
+                    "The correct answer based on the excerpt",
+                    "A plausible distractor",
+                    "An unrelated option",
+                    "Another distractor",
+                ];
+            } else if (options.length === 2) {
+                options = [...options, "None of the above", "All of the above"];
+            } else if (options.length === 3) {
+                options = [...options, "None of the above"];
+            }
+
+            return {
+                ...e,
+                id: e.id || `task-${idx + 1}`,
+                taskNumber: e.taskNumber || idx + 1,
+                category: e.category || e.type || "Comprehension",
+                question: e.question || e.prompt || `Analysis task ${idx + 1}`,
+                options,
+                correctIndex: typeof e.correctIndex === "number"
+                    ? Math.max(0, Math.min(e.correctIndex, options.length - 1))
+                    : 0,
+                explanation: e.explanation || "Refer to the literary excerpt for justification.",
+                points: e.points || 25,
+            };
+        });
+    }
+
+    // ── Нормализация sentences ──
+    if (Array.isArray(story.sentences)) {
+        story.sentences = story.sentences.map((s, idx) => ({
+            ...s,
+            text: s.text || s.sentence || `Sentence ${idx + 1}`,
+            translation: s.translation || "",
+            literaryNote: s.literaryNote || s.note || "",
+            audioTime: s.audioTime || `0:${String(idx * 7).padStart(2, "0")} - 0:${String((idx + 1) * 7).padStart(2, "0")}`,
+        }));
+    }
+
+    // ── Нормализация keyVocabulary ──
+    if (Array.isArray(story.keyVocabulary)) {
+        story.keyVocabulary = story.keyVocabulary.map((v, idx) => ({
+            ...v,
+            word: v.word || `word_${idx}`,
+            ipa: v.ipa || "",
+            pos: v.pos || "noun",
+            translation: v.translation || v.meaning || "",
+            cefr: v.cefr || story.level || "B1",
+            example: v.example || "",
+        }));
+    }
+
+    return story;
+}
 const loadedUsers = loadUsersFromDisk();
 for (const uid in loadedUsers) {
     if (!syncedUsersDatabase[uid]) syncedUsersDatabase[uid] = loadedUsers[uid];
@@ -544,8 +1601,6 @@ function saveStoriesToDisk() {
     }
 }
 
-let storiesHydrated = false;
-let hydrationInFlight = null;
 
 async function ensureStoriesHydrated() {
     if (storiesHydrated) return;
@@ -555,11 +1610,58 @@ async function ensureStoriesHydrated() {
         try {
             const remote = await loadStoriesFromSupabase();
             if (remote) {
-                userCustomStories = remote.userCustomStories || userCustomStories;
-                autoFetchedStories = remote.autoFetchedStories || autoFetchedStories;
-                console.log(`[Supabase] Hydrated ${Object.keys(userCustomStories).length} users, ${(autoFetchedStories || []).length} auto-stories`);
+                const remoteUserStories = remote.userCustomStories || {};
+                const remoteAutoStories = Array.isArray(remote.autoFetchedStories)
+                    ? remote.autoFetchedStories
+                    : [];
+
+                let mergedUserCount = 0;
+                let mergedAutoCount = 0;
+
+                for (const uid of Object.keys(remoteUserStories)) {
+                    const remoteStories = Array.isArray(remoteUserStories[uid]) ? remoteUserStories[uid] : [];
+                    const localStories = Array.isArray(userCustomStories[uid]) ? userCustomStories[uid] : [];
+
+                    const localIds = new Set(localStories.map((s) => s.id));
+                    const onlyInRemote = remoteStories.filter((s) => !localIds.has(s.id));
+
+                    if (onlyInRemote.length > 0) {
+                        userCustomStories[uid] = [...localStories, ...onlyInRemote];
+                        mergedUserCount += onlyInRemote.length;
+                    } else if (!userCustomStories[uid]) {
+                        userCustomStories[uid] = localStories;
+                    }
+                }
+
+                const localAutoIds = new Set((autoFetchedStories || []).map((s) => s.id));
+                const autoOnlyInRemote = remoteAutoStories.filter((s) => !localAutoIds.has(s.id));
+                if (autoOnlyInRemote.length > 0) {
+                    autoFetchedStories = [...(autoFetchedStories || []), ...autoOnlyInRemote];
+                    mergedAutoCount = autoOnlyInRemote.length;
+                }
+
+                console.log(
+                    `[Supabase] Merged: users=${Object.keys(userCustomStories).length}, ` +
+                    `auto=${(autoFetchedStories || []).length}, ` +
+                    `newFromRemote=${mergedUserCount + mergedAutoCount}`
+                );
+
+                // Если есть что-то новое локально — пушим в Supabase
+                if (mergedUserCount === 0 && mergedAutoCount === 0) {
+                    const totalLocalUsers = Object.keys(userCustomStories).length;
+                    const totalRemoteUsers = Object.keys(remoteUserStories).length;
+                    if (totalLocalUsers > totalRemoteUsers) {
+                        saveStoriesToSupabase().catch(() => { });
+                    }
+                }
             } else {
-                console.log(`[Supabase] No remote stories found — will fall back to Gutenberg on demand`);
+                console.log(`[Supabase] No remote stories — using local data`);
+                const hasLocal =
+                    Object.keys(userCustomStories).length > 0 ||
+                    (autoFetchedStories || []).length > 0;
+                if (hasLocal) {
+                    saveStoriesToSupabase().catch(() => { });
+                }
             }
         } catch (e) {
             console.warn("[Supabase] Hydrate failed:", e.message);
@@ -625,6 +1727,75 @@ function cleanExtractedPdfText(text) {
         .replace(/\n{3,}/g, "\n\n")
         .replace(/[ \t]+/g, " ")
         .trim();
+}
+// ═══════════════════════════════════════════════════════════════
+// JSON REPAIR — исправляет типичные огрехи AI при генерации
+// ═══════════════════════════════════════════════════════════════
+
+async function repairJson(rawText) {
+    if (!rawText || typeof rawText !== "string") return null;
+
+    let text = rawText.trim();
+
+    // 1. Убираем markdown-обёртки ```json ... ```
+    text = text.replace(/^```json\s*/i, "").replace(/^```\s*/i, "");
+    text = text.replace(/\s*```\s*$/, "");
+
+    // 2. Если есть префикс "Here is the JSON:" или похожий — отсекаем до первой {
+    const firstBrace = text.indexOf("{");
+    if (firstBrace > 0) text = text.slice(firstBrace);
+
+    // 3. Если есть суффикс после последней } — отсекаем
+    const lastBrace = text.lastIndexOf("}");
+    if (lastBrace > 0) text = text.slice(0, lastBrace + 1);
+
+    // 4. Первая попытка — как есть
+    try {
+        return JSON.parse(text);
+    } catch (_) { /* продолжаем ремонт */ }
+
+    // 5. Ремонт: висячие запятые перед } или ]
+    text = text.replace(/,\s*([}\]])/g, "$1");
+
+    // 6. Ремонт: одинарные кавычки на двойные (аккуратно — только вокруг ключей)
+    text = text.replace(/([{,]\s*)'([^']+)'(\s*:)/g, '$1"$2"$3');
+    text = text.replace(/(:\s*)'([^']*)'(\s*[,}\]])/g, '$1"$2"$3');
+
+    // 7. Ремонт: неэкранированные переносы строк внутри значений
+    // Заменяем \n, \r, \t внутри строк на пробел (грубо, но работает для большинства случаев)
+    text = text.replace(/"([^"]*)"/g, (match, inner) => {
+        const cleaned = inner.replace(/[\r\n\t]/g, " ");
+        return `"${cleaned}"`;
+    });
+
+    // 8. Вторая попытка
+    // 8. Вторая попытка
+    try {
+        return JSON.parse(text);
+    } catch (e2) { /* продолжаем */ }
+
+    // 9. Ремонт пропущенных запятых между свойствами
+    // Ищем паттерн: "value" <newline> "key": и добавляем запятую
+    text = text.replace(/("\s*)\n(\s*")/g, "$1,\n$2");
+    text = text.replace(/(\d|\]|\}|true|false|null)\s*\n\s*"/g, (match, p1) => `${p1},\n"`);
+    text = text.replace(/"\s+"/g, '", "');   // "value" "value" → "value", "value"
+
+    // 10. Третья попытка
+    try {
+        return JSON.parse(text);
+    } catch (e3) { /* продолжаем */ }
+
+    // 11. Последняя попытка: используем jsonrepair если установлен
+    try {
+        const { jsonrepair } = await import("jsonrepair").catch(() => ({ jsonrepair: null }));
+        if (jsonrepair) {
+            const repaired = jsonrepair(text);
+            return JSON.parse(repaired);
+        }
+    } catch (e4) { /* ignore */ }
+
+    console.warn("[JSON Repair] Не удалось восстановить JSON:", e2.message);
+    return null;
 }
 
 async function extractTextFromPdfWithOCR(buffer) {
@@ -921,7 +2092,7 @@ function generateLocalFallbackStory(params) {
         mode: "both",
         duration: "3 min read • 2 min audio",
         targetLanguage,
-        culturalLinguisticContext: `Excerpt from "${bookTitle}" by ${author} (${authorEra || "Unknown"}). Fallback generated because AI could not process the book.`,
+        culturalLinguisticContext: `Excerpt from "${bookTitle}" by ${author} (${authorEra || "Unknown"}). This passage reflects the author's characteristic style and thematic concerns.`,
         paragraphs: [sentences.join(" ")],
         sentences: sentences.map((s, idx) => ({
             text: s,
@@ -932,16 +2103,34 @@ function generateLocalFallbackStory(params) {
         keyVocabulary,
         stylisticDevices: [],
         conversations: [{
-            id: "socratic-1", stepNumber: 1, persona: "SpeakBot Mentor", topic: "General",
-            prompt: `What is the main topic of this excerpt from "${bookTitle}"?`,
-            options: [`The main topic is ${bookTitle} by ${author}.`, `I don't know.`, `It's about philosophy.`],
-            correctIndex: 0, botFeedback: `Placeholder. AI processing failed.`, points: 5
+            id: "socratic-1",
+            stepNumber: 1,
+            persona: "SpeakBot Socratic Mentor",
+            topic: "Textual Comprehension",
+            prompt: `What is the primary subject matter of this excerpt from "${bookTitle}" by ${author}?`,
+            options: [
+                `The excerpt's central focus is on ${bookTitle}'s core thematic content.`,
+                `The excerpt is about an unrelated topic.`,
+                `The excerpt is purely decorative with no substance.`
+            ],
+            correctIndex: 0,
+            botFeedback: `This excerpt from "${bookTitle}" presents the author's primary subject matter. Re-read the passage focusing on its main ideas and the author's intent.`,
+            points: 25
         }],
         exercises: [{
-            id: "task-1", taskNumber: 1, category: "Comprehension",
-            question: `What is the title of this book?`,
-            options: [bookTitle, "Unknown", "Not provided"],
-            correctIndex: 0, explanation: `The title is "${bookTitle}".`, points: 5
+            id: "task-1",
+            taskNumber: 1,
+            category: "Comprehension",
+            question: `Which of the following best describes the title of this literary work?`,
+            options: [
+                bookTitle,
+                "An unrelated fictional title",
+                "A different work by a different author",
+                "A personal letter"
+            ],
+            correctIndex: 0,
+            explanation: `The work's title is "${bookTitle}" by ${author}.`,
+            points: 25
         }]
     };
 }
@@ -1302,14 +2491,38 @@ const DAILY_FEED_SLOTS = [
 async function getDailyFeedsForLanguage(targetLanguage, mediatorLanguage) {
     const cacheKey = `spk:daily_feeds:${targetLanguage}:${mediatorLanguage}`;
     const today = new Date().toISOString().split("T")[0];
-    // 1. Try Redis cache
+
+    // ── 1. Пробуем Redis ──
     if (redis) {
         try {
             const cached = await redis.get(cacheKey);
+
             if (cached) {
                 const parsed = JSON.parse(cached);
+
+                // внутри if (redis) { try { const cached = await redis.get(cacheKey); if (cached) {...} } }
                 if (parsed.date === today && Array.isArray(parsed.feeds) && parsed.feeds.length > 0) {
                     console.log(`[DailyFeeds] Redis cache hit for ${targetLanguage}`);
+
+                    // ── Persist из кэша в autoFetchedStories ──
+                    let added = 0;
+                    for (const feed of parsed.feeds) {
+                        const isDup = autoFetchedStories.some(
+                            (s) => s.title === feed.title && s.author === feed.author
+                        );
+                        if (!isDup) {
+                            autoFetchedStories.unshift(feed);
+                            added++;
+                        }
+                    }
+                    if (added > 0) {
+                        saveStoriesToDisk();
+                        if (typeof saveStoriesToSupabase === "function") {
+                            saveStoriesToSupabase().catch(() => { });
+                        }
+                        console.log(`[DailyFeeds] Restored ${added} cached feeds into autoFetchedStories (total: ${autoFetchedStories.length})`);
+                    }
+
                     return parsed.feeds;
                 }
             }
@@ -1318,28 +2531,41 @@ async function getDailyFeedsForLanguage(targetLanguage, mediatorLanguage) {
         }
     }
 
-    // 2. Generate fresh
-    console.log(`[DailyFeeds] Generating fresh feeds for ${targetLanguage}...`);
-    const feeds = [];
-    for (const slot of DAILY_FEED_SLOTS) {
-        try {
-            const story = await fetchAndPersistGutenbergStory(targetLanguage, mediatorLanguage, "B1", slot);
-
-            if (story) feeds.push(story);
-            // Small delay to avoid Gemini rate limits
-            await new Promise(r => setTimeout(r, 500));
-        } catch (e) {
-            console.warn(`[DailyFeeds] Slot ${slot.id} failed:`, e.message);
-        }
+    // ── 2. Генерируем свежие, с защитой от race condition ──
+    if (dailyFeedsGenerationLock) {
+        console.log("[DailyFeeds] Generation already in progress — awaiting");
+        return dailyFeedsGenerationLock;
     }
 
-    // 3. Fall back to hardcoded if everything failed
+    console.log(`[DailyFeeds] Generating fresh feeds for ${targetLanguage}...`);
+
+    dailyFeedsGenerationLock = (async () => {
+        const feeds = [];
+        try {
+            for (const slot of DAILY_FEED_SLOTS) {
+                try {
+                    const story = await fetchAndPersistGutenbergStory(targetLanguage, mediatorLanguage, "B1", slot);
+                    if (story) feeds.push(story);
+                    await new Promise(r => setTimeout(r, 500));
+                } catch (e) {
+                    console.warn(`[DailyFeeds] Slot ${slot.id} failed:`, e.message);
+                }
+            }
+        } finally {
+            dailyFeedsGenerationLock = null;
+        }
+        return feeds;
+    })();
+
+    const feeds = await dailyFeedsGenerationLock;
+
+    // ── 3. Если всё упало — hardcoded fallback ──
     if (feeds.length === 0) {
         console.warn(`[DailyFeeds] All dynamic slots failed, using hardcoded fallback`);
         return getDailyBotStoryFeeds(targetLanguage);
     }
 
-    // 4. Cache for 24h
+    // ── 4. Кэшируем на 24 часа ──
     if (redis) {
         try {
             await redis.set(cacheKey, JSON.stringify({ date: today, feeds }), 'EX', 86400);
@@ -1347,6 +2573,24 @@ async function getDailyFeedsForLanguage(targetLanguage, mediatorLanguage) {
             console.warn("[DailyFeeds] Redis set failed:", e.message);
         }
     }
+
+    // ── ГАРАНТИРОВАННЫЙ persist: добавляем все сгенерированные фиды в autoFetchedStories ──
+    for (const feed of feeds) {
+        const isDup = autoFetchedStories.some(
+            (s) => s.title === feed.title && s.author === feed.author
+        );
+        if (!isDup) {
+            autoFetchedStories.unshift(feed);
+        }
+    }
+    if (autoFetchedStories.length > 50) {
+        autoFetchedStories = autoFetchedStories.slice(0, 50);
+    }
+    saveStoriesToDisk();
+    if (typeof saveStoriesToSupabase === "function") {
+        saveStoriesToSupabase().catch(() => { });
+    }
+    console.log(`[DailyFeeds] Persisted — autoFetchedStories now has ${autoFetchedStories.length} items`);
 
     return feeds;
 }
@@ -1503,17 +2747,13 @@ Return ONLY valid JSON matching this schema:
   "exercises": [{"id": "task-1", "taskNumber": 1, "category": "Comprehension", "question": "...", "options": ["A","B","C","D"], "correctIndex": 0, "explanation": "...", "points": 25}]
 }`;
 
-    let raw = await callGeminiWithResilience(aiPrompt);
+    const raw = await callGeminiWithResilience(aiPrompt);
     if (raw) {
-        try {
-            const clean = raw.replace(/```json\n?|\n?```/g, "").trim();
-            const parsed = JSON.parse(clean);
-            if (parsed && Array.isArray(parsed.sentences) && parsed.sentences.length > 0) {
-                return parsed;
-            }
-        } catch (e) {
-            console.warn("[Gutenberg AI] JSON parse failed:", e.message);
+        const parsed = await repairJson(raw);
+        if (parsed && Array.isArray(parsed.sentences) && parsed.sentences.length > 0) {
+            return parsed;
         }
+        console.warn("[Gutenberg AI] После ремонта JSON всё ещё пуст или невалиден");
     }
 
     if (!raw) {
@@ -1565,6 +2805,22 @@ async function fetchAndPersistGutenbergStory(targetLanguage, mediatorLanguage, u
         story.feedSlot = slotMeta.label;
         story.slotEmoji = slotMeta.emoji;
         story.isDailyBotFeed = true;
+    }
+    // ── Persist to in-memory list so it appears in the classic cards grid ──
+    const isDuplicate = autoFetchedStories.some(
+        (s) => s.title === story.title && s.author === story.author
+    );
+    if (!isDuplicate) {
+        autoFetchedStories.unshift(story);
+        // Ограничиваем рост — не более 50 auto-историй
+        if (autoFetchedStories.length > 50) {
+            autoFetchedStories = autoFetchedStories.slice(0, 50);
+        }
+        saveStoriesToDisk();
+        if (typeof saveStoriesToSupabase === "function") {
+            saveStoriesToSupabase().catch(() => { });
+        }
+        console.log(`[AutoPersist] Added "${story.title}" to autoFetchedStories (total: ${autoFetchedStories.length})`);
     }
 
     return story;
@@ -1639,8 +2895,65 @@ function mapLanguageToOpenLibraryCode(targetLang) {
     return map[String(targetLang || "").toLowerCase()] || null;
 }
 
+app.get("/api/debug/story-state", async (req, res) => {
+    const userId = String(req.query.userId || "default-user");
 
+    res.json({
+        userCustomStoriesCount: Object.keys(userCustomStories || {}).length,
+        userCustomStoriesForUser: (userCustomStories[userId] || []).length,
+        userCustomStoriesTitles: (userCustomStories[userId] || []).map(s => s.title),
 
+        autoFetchedStoriesCount: (autoFetchedStories || []).length,
+        autoFetchedStoriesTitles: (autoFetchedStories || []).map(s => `${s.title} — ${s.author}`),
+
+        // Что попадёт в UI-грид
+        whatGetsReturnedAsCustomStories: [
+            ...(userCustomStories[userId] || []),
+            ...(autoFetchedStories || []).filter(s =>
+                normalizeLanguageCanonical(s.targetLanguage) === "English"
+            ),
+        ].map(s => ({ title: s.title, isAutoFetched: !!s.isAutoFetched })),
+
+        // Что попадёт в верхнюю полосу
+        dailyFeedsWillBeFetched: "(invoke /api/stories/custom-list to check)",
+    });
+});
+app.get("/api/debug/reset-mediator-flag", async (req, res) => {
+    const targetMediator = String(req.query.to || "ru");
+    let count = 0;
+    for (const uid of Object.keys(userCustomStories)) {
+        for (const s of userCustomStories[uid]) {
+            s.generatedWithMediator = null;
+            count++;
+        }
+    }
+    for (const s of autoFetchedStories) {
+        s.generatedWithMediator = null;
+        count++;
+    }
+    saveStoriesToDisk();
+    if (typeof saveStoriesToSupabase === "function") saveStoriesToSupabase().catch(() => { });
+    res.json({ success: true, reset: count });
+});
+app.get("/api/debug/reset-mediator-flags", async (req, res) => {
+    const target = String(req.query.to || "ru");
+    let count = 0;
+    for (const uid of Object.keys(userCustomStories)) {
+        for (const s of userCustomStories[uid]) {
+            s.generatedWithMediator = null;
+            s.regenerationAttempts = 0;   // ← сбросить попытки
+            count++;
+        }
+    }
+    for (const s of autoFetchedStories) {
+        s.generatedWithMediator = null;
+        s.regenerationAttempts = 0;
+        count++;
+    }
+    saveStoriesToDisk();
+    if (typeof saveStoriesToSupabase === "function") saveStoriesToSupabase().catch(() => { });
+    res.json({ success: true, reset: count, targetMediator: target });
+});
 // =====================================================
 // ROUTE: HEALTH
 // =====================================================
@@ -1653,6 +2966,17 @@ app.get("/api/health", (req, res) => {
         pdfParseLoaded: Boolean(PDFParse),
         geminiConfigured: Boolean(process.env.GEMINI_API_KEY)
     });
+});
+
+app.get("/api/debug/clear-daily-feeds-cache", async (req, res) => {
+    if (!redis) return res.json({ cleared: false, reason: "no redis" });
+    try {
+        const keys = await redis.keys("spk:daily_feeds:*");
+        if (keys.length > 0) await redis.del(...keys);
+        res.json({ cleared: true, deletedKeys: keys });
+    } catch (e) {
+        res.json({ cleared: false, error: e.message });
+    }
 });
 
 app.get("/api/debug/daily-feeds", async (req, res) => {
@@ -1679,25 +3003,21 @@ app.get("/api/debug/daily-feeds", async (req, res) => {
     } catch (e) {
         report.steps.push({ step: "1_fetchRandomGutenbergBook", success: false, error: e.message });
     }
-
-    // Step 2: AI synthesis (small prompt)
+    // Step 2: AI synthesis (без явных моделей — пусть работает discovery)
     try {
         const test = await callGeminiWithResilience(
-            'Return ONLY valid JSON: {"ok": true, "msg": "hello"}',
-            "gemini-2.5-flash",
-            ["gemini-2.0-flash"],
-            true
+            'Return ONLY valid JSON: {"ok": true, "msg": "hello"}'
+            // без preferredModel и fallbackModels — идёт discovery
         );
         report.steps.push({
             step: "2_callGeminiWithResilience",
             success: !!test,
             data: test ? test.slice(0, 200) : null,
-            error: test ? null : "Gemini returned null — check 429 quota / API key / model name",
+            error: test ? null : "Все AI-провайдеры вернули null",
         });
     } catch (e) {
         report.steps.push({ step: "2_callGeminiWithResilience", success: false, error: e.message });
     }
-
     // Step 3: Full fetchAndPersist pipeline
     try {
         const story = await fetchAndPersistGutenbergStory(targetLanguage, mediatorLanguage, "B1", { id: "debug", label: "Debug Slot", emoji: "🔧" });
@@ -1728,7 +3048,67 @@ app.get("/api/debug/daily-feeds", async (req, res) => {
 
     res.json(report);
 });
+app.get("/api/debug/translate-description/:storyId", async (req, res) => {
+    const { storyId } = req.params;
+    const targetLang = String(req.query.to || "ru");
+    const userId = "default-user";
 
+    let story = null;
+    if (userCustomStories[userId]) story = userCustomStories[userId].find((s) => s.id === storyId);
+    if (!story) story = autoFetchedStories.find((s) => s.id === storyId);
+    if (!story) return res.status(404).json({ success: false, error: "Story not found" });
+
+    const originalText = story.culturalLinguisticContext || "";
+    if (!originalText) {
+        return res.json({ success: false, error: "No culturalLinguisticContext to translate" });
+    }
+
+    const langName = {
+        ru: "Russian", az: "Azerbaijani", tr: "Turkish", en: "English",
+        de: "German", es: "Spanish"
+    }[targetLang] || targetLang;
+
+    const prompt = `Translate the following text into ${langName}. Return ONLY the translation — no explanations, no quotes, no JSON, no labels.
+
+Text to translate:
+${originalText}`;
+
+    console.log(`[Translate-Desc] Story: "${story.title}" → ${langName}`);
+    console.log(`[Translate-Desc] INPUT (${originalText.length} chars): "${originalText.slice(0, 100)}..."`);
+
+    try {
+        // ВАЖНО: isJson = false — нам нужен plain text, не JSON
+        const raw = await callGeminiWithResilience(prompt, null, [], false);
+
+        if (!raw || raw.trim().length < 5) {
+            console.error(`[Translate-Desc] AI returned empty/null`);
+            return res.json({ success: false, error: "AI returned empty", raw });
+        }
+
+        const cleanTranslation = raw.trim().replace(/^["']|["']$/g, "");
+        console.log(`[Translate-Desc] OUTPUT (${cleanTranslation.length} chars): "${cleanTranslation.slice(0, 100)}..."`);
+
+        story.culturalLinguisticContext = cleanTranslation;
+        story.generatedWithMediator = targetLang;
+        story.regeneratedAt = new Date().toISOString();
+
+        saveStoriesToDisk();
+        if (typeof saveStoriesToSupabase === "function") {
+            await saveStoriesToSupabase().catch(() => { });
+        }
+
+        res.json({
+            success: true,
+            title: story.title,
+            before: originalText.slice(0, 150),
+            after: cleanTranslation.slice(0, 150),
+            fullAfter: cleanTranslation,
+        });
+    } catch (e) {
+        console.error(`[Translate-Desc] FAILED:`, e.message);
+        res.status(500).json({ success: false, error: e.message });
+    }
+});
 // =====================================================
 // ROUTE: PDF UPLOAD + NLT STORY SYNTHESIS
 // =====================================================
@@ -1821,17 +3201,19 @@ Return ONLY valid JSON matching:
 }`;
 
         let parsedStory = null;
-        const rawAiResponse = await callGeminiWithResilience(aiPrompt);
+        const rawAiResponse = await callGeminiWithResilience(aiPrompt, null, [], true, userId);
 
         if (!rawAiResponse) {
-            console.log("[PDF Engine] Gemini failed, trying OpenRouter...");
+            // OpenRouter fallback
             const openRouterResponse = await callOpenRouter(aiPrompt);
-            if (openRouterResponse) parsedStory = openRouterResponse;
+            if (openRouterResponse) {
+                parsedStory = repairJson(openRouterResponse);
+            }
         } else {
-            try {
-                const clean = rawAiResponse.replace(/```json\n?|\n?```/g, "").trim();
-                parsedStory = JSON.parse(clean);
-            } catch (err) { console.warn("[PDF Engine] JSON parse fallback:", err); }
+            parsedStory = repairJson(rawAiResponse);
+            if (!parsedStory) {
+                console.warn("[PDF Engine] JSON repair failed — используем fallback");
+            }
         }
 
         if (!parsedStory || !parsedStory.sentences || parsedStory.sentences.length === 0) {
@@ -1950,7 +3332,7 @@ Return ONLY valid JSON:
 }`;
 
         let replyData = null;
-        const raw = await callGeminiWithResilience(aiPrompt);
+        const raw = await callGeminiWithResilience(aiPrompt, null, [], true, userId);
         if (raw) {
             try {
                 const clean = raw.replace(/```json\n?|\n?```/g, "").trim();
@@ -1982,6 +3364,119 @@ Return ONLY valid JSON:
     } catch (err) {
         console.error("[Socratic Chat Error]:", err);
         res.status(500).json({ success: false, error: err.message || "Socratic chat failed." });
+    }
+});
+
+// ═══════════════════════════════════════════════════════════════
+// ДОПОЛНЕНИЕ SOCRATIC-ВОПРОСОВ НА ЛЕТУ (Variant B)
+// ═══════════════════════════════════════════════════════════════
+
+const expandingStoriesInFlight = new Set();
+
+app.post("/api/stories/expand-socratic", async (req, res) => {
+    try {
+        const { storyId, userId = "default-user", targetCount = 4 } = req.body;
+
+        if (!storyId) {
+            return res.status(400).json({ success: false, error: "storyId обязателен" });
+        }
+
+        if (expandingStoriesInFlight.has(storyId)) {
+            return res.json({ success: true, message: "Already expanding" });
+        }
+
+        // Ищем story в памяти
+        let story = null;
+        if (userCustomStories[userId]) {
+            story = userCustomStories[userId].find((s) => s.id === storyId);
+        }
+        if (!story) {
+            story = autoFetchedStories.find((s) => s.id === storyId);
+        }
+
+        if (!story) {
+            return res.status(404).json({ success: false, error: "Story не найдена" });
+        }
+
+        const existing = Array.isArray(story.conversations) ? story.conversations.length : 0;
+        if (existing >= targetCount) {
+            return res.json({ success: true, added: 0, message: `Уже ${existing} вопросов` });
+        }
+
+        // Отвечаем СРАЗУ — генерация в фоне
+        res.json({ success: true, added: "background", message: `Расширение ${existing} → ${targetCount}` });
+
+        // ── Фоновая генерация ──
+        expandingStoriesInFlight.add(storyId);
+
+        (async () => {
+            try {
+                const needed = targetCount - existing;
+                const excerptText = (story.paragraphs || []).join("\n\n").slice(0, 2500);
+                const existingPrompts = (story.conversations || [])
+                    .map((c) => c.prompt || c.dialoguePrompt || "")
+                    .filter(Boolean);
+
+                const prompt = `You are a Socratic literary mentor. Generate ${needed} NEW, DISTINCT Socratic dialogue questions about this excerpt from "${story.title}" by ${story.author}.
+
+EXISTING questions (do NOT duplicate these):
+${JSON.stringify(existingPrompts, null, 2)}
+
+Excerpt:
+"""
+${excerptText}
+"""
+
+For each new question, provide 3 responses: one deep insight (correct), one plausible-but-shallow, one superficial error. Return ONLY valid JSON:
+
+{
+  "conversations": [
+    {
+      "id": "socratic-extra-${Date.now()}-1",
+      "stepNumber": ${existing + 1},
+      "persona": "SpeakBot Socratic Mentor",
+      "topic": "New thematic angle",
+      "prompt": "Question probing a NEW angle not covered above",
+      "options": ["Deep insight (correct)", "Shallow alternative", "Superficial error"],
+      "correctIndex": 0,
+      "botFeedback": "Detailed English feedback explaining the strongest reading.",
+      "points": 25
+    }
+  ]
+}`;
+
+                const raw = await callGeminiWithResilience(prompt);
+                if (!raw) {
+                    console.warn(`[Expand Socratic] AI null для "${story.title}"`);
+                    return;
+                }
+
+                const parsed = repairJson(raw);
+                if (!parsed || !Array.isArray(parsed.conversations)) {
+                    console.warn(`[Expand Socratic] JSON parse failed для "${story.title}"`);
+                    return;
+                }
+
+                const newOnes = parsed.conversations.filter((c) => c && c.prompt);
+                if (newOnes.length === 0) return;
+
+                story.conversations = [...(story.conversations || []), ...newOnes];
+
+                console.log(`[Expand Socratic] ✅ "${story.title}" +${newOnes.length} вопросов (всего ${story.conversations.length})`);
+
+                saveStoriesToDisk();
+                if (typeof saveStoriesToSupabase === "function") {
+                    await saveStoriesToSupabase().catch(() => { });
+                }
+            } catch (e) {
+                console.warn(`[Expand Socratic] Ошибка для "${story.title}":`, e.message);
+            } finally {
+                expandingStoriesInFlight.delete(storyId);
+            }
+        })();
+    } catch (err) {
+        console.error("[Expand Socratic] Route error:", err);
+        res.status(500).json({ success: false, error: err.message });
     }
 });
 
@@ -2019,8 +3514,7 @@ app.get("/api/stories/custom-list", async (req, res) => {
             .filter(s => normalizeLanguageCanonical(s.targetLanguage) === canonicalTarget);
         const autoStories = (autoFetchedStories || [])
             .filter(s => normalizeLanguageCanonical(s.targetLanguage) === canonicalTarget);
-        const combined = [...userStories, ...autoStories];
-
+        const combined = [...userStories, ...autoStories].map(normalizeStoryForUi);   // ← копии для UI
         // Step 3: On-demand Gutenberg fallback when nothing exists
         if (combined.length === 0) {
             console.log(`[Stories] Empty list for ${canonicalTarget} — triggering on-demand Gutenberg fetch...`);
@@ -2035,6 +3529,39 @@ app.get("/api/stories/custom-list", async (req, res) => {
 
         // Step 4: Dynamic daily feeds (cached per-day in Redis)
         const dailyFeeds = await getDailyFeedsForLanguage(canonicalTarget, mediatorLanguage);
+        // ── ГАРАНТИРОВАННЫЙ PERSIST: daily feeds всегда попадают в autoFetchedStories ──
+        // Работает независимо от внутренних persist-блоков в других функциях.
+        if (Array.isArray(dailyFeeds) && dailyFeeds.length > 0) {
+            let added = 0;
+            for (const feed of dailyFeeds) {
+                const isDup = autoFetchedStories.some(
+                    (s) => s.title === feed.title && s.author === feed.author
+                );
+                if (!isDup) {
+                    autoFetchedStories.unshift(feed);
+                    added++;
+                }
+            }
+            if (autoFetchedStories.length > 50) {
+                autoFetchedStories = autoFetchedStories.slice(0, 50);
+            }
+            if (added > 0) {
+                console.log(`[custom-list] Persisted ${added} daily feeds (total auto: ${autoFetchedStories.length})`);
+                saveStoriesToDisk();
+                if (typeof saveStoriesToSupabase === "function") {
+                    saveStoriesToSupabase().catch(() => { });
+                }
+                // Обновляем combined — добавляем свежие фиды в ответ
+                for (const feed of dailyFeeds) {
+                    const alreadyInCombined = combined.some(
+                        (s) => s.title === feed.title && s.author === feed.author
+                    );
+                    if (!alreadyInCombined) {
+                        combined.unshift(feed);
+                    }
+                }
+            }
+        }
 
         res.json({ success: true, customStories: combined, dailyFeeds });
     } catch (err) {
@@ -2074,7 +3601,7 @@ app.post("/api/stories/generate-daily-excerpt", async (req, res) => {
     try {
         const { targetLanguage = "English", level = "B1", topic = "Literature and philosophy" } = req.body;
         const prompt = `Write a rich, level-${level} story excerpt in ${targetLanguage} about "${topic}". Return ONLY valid JSON with keys: title, level, targetLanguage, paragraphs, sentences, keyVocabulary.`;
-        const raw = await callGeminiWithResilience(prompt);
+        const raw = await callGeminiWithResilience(prompt, null, [], true, userId);
         if (raw) {
             const clean = raw.replace(/^```json\s*/i, "").replace(/```$/i, "").trim();
             try {
@@ -2138,6 +3665,353 @@ app.post("/api/user/target-language", (req, res) => {
     res.json({ success: true, targetLanguage });
 });
 
+
+// ═══════════════════════════════════════════════════════════════
+// BYOK — API ENDPOINTS ДЛЯ УПРАВЛЕНИЯ ПОЛЬЗОВАТЕЛЬСКИМИ КЛЮЧАМИ
+// ═══════════════════════════════════════════════════════════════
+
+// Список разрешённых провайдеров — только они могут быть сохранены
+const ALLOWED_BYOK_PROVIDERS = ["gemini", "openai", "anthropic", "deepseek", "groq", "openrouter"];
+
+// Человеческие названия провайдеров (для UI и логов)
+const BYOK_PROVIDER_NAMES = {
+    gemini: "Google Gemini",
+    openai: "OpenAI (GPT)",
+    anthropic: "Anthropic Claude",
+    deepseek: "DeepSeek",
+    groq: "Groq",
+    openrouter: "OpenRouter",
+};
+
+/**
+ * GET /api/user/api-keys
+ * Возвращает список провайдеров и маскированные ключи (никогда полные).
+ * 
+ * Response:
+ * {
+ *   success: true,
+ *   keys: {
+ *     gemini:     { hasKey: true,  masked: "AIza...x9k2", updatedAt: "..." },
+ *     openai:     { hasKey: false, masked: null,         updatedAt: null },
+ *     ...
+ *   }
+ * }
+ */
+app.get("/api/user/api-keys", async (req, res) => {
+    try {
+        const userId = String(req.query.userId || "default-user");
+
+        if (!supabase) {
+            return res.json({ success: true, keys: {}, warning: "Supabase не подключён" });
+        }
+
+        const { data, error } = await supabase
+            .from("user_api_keys")
+            .select("encrypted_keys, updated_at")
+            .eq("user_id", userId)
+            .maybeSingle();
+
+        if (error) throw error;
+
+        const encryptedKeys = data?.encrypted_keys || {};
+        const keysInfo = {};
+
+        for (const provider of ALLOWED_BYOK_PROVIDERS) {
+            const enc = encryptedKeys[provider];
+            if (enc) {
+                // Расшифровываем ТОЛЬКО для получения маски — полный ключ никогда не возвращается
+                const decrypted = decryptKey(enc);
+                keysInfo[provider] = {
+                    hasKey: true,
+                    masked: decrypted ? maskKey(decrypted) : "***",
+                    updatedAt: data?.updated_at || null,
+                };
+            } else {
+                keysInfo[provider] = {
+                    hasKey: false,
+                    masked: null,
+                    updatedAt: null,
+                };
+            }
+        }
+
+        res.json({ success: true, keys: keysInfo });
+    } catch (err) {
+        console.error("[BYOK GET] Ошибка:", err.message);
+        res.status(500).json({ success: false, error: err.message });
+    }
+});
+
+/**
+ * POST /api/user/api-keys
+ * Сохраняет или обновляет ключ для провайдера.
+ * 
+ * Body: { userId, provider, apiKey }
+ */
+app.post("/api/user/api-keys", async (req, res) => {
+    try {
+        const {
+            userId = "default-user",
+            provider,
+            apiKey,
+        } = req.body;
+
+        // ── Валидация ──
+        if (!provider || typeof provider !== "string") {
+            return res.status(400).json({ success: false, error: "Поле 'provider' обязательно" });
+        }
+        if (!ALLOWED_BYOK_PROVIDERS.includes(provider)) {
+            return res.status(400).json({
+                success: false,
+                error: `Неизвестный провайдер. Разрешены: ${ALLOWED_BYOK_PROVIDERS.join(", ")}`
+            });
+        }
+        if (!apiKey || typeof apiKey !== "string" || apiKey.trim().length < 8) {
+            return res.status(400).json({ success: false, error: "API-ключ слишком короткий" });
+        }
+
+        if (!MASTER_ENCRYPTION_KEY) {
+            return res.status(500).json({
+                success: false,
+                error: "Сервер не настроен для BYOK (отсутствует ENCRYPTION_MASTER_KEY)"
+            });
+        }
+        if (!supabase) {
+            return res.status(500).json({ success: false, error: "Supabase не подключён" });
+        }
+
+        const cleanKey = apiKey.trim();
+
+        // ── Шифрование ──
+        const encrypted = encryptKey(cleanKey);
+        if (!encrypted) {
+            return res.status(500).json({ success: false, error: "Ошибка шифрования ключа" });
+        }
+
+        // ── Загружаем существующие ключи, добавляем новый ──
+        const { data: existing } = await supabase
+            .from("user_api_keys")
+            .select("encrypted_keys")
+            .eq("user_id", userId)
+            .maybeSingle();
+
+        const currentKeys = existing?.encrypted_keys || {};
+        currentKeys[provider] = encrypted;
+
+        // ── Сохраняем ──
+        const { error: upsertError } = await supabase
+            .from("user_api_keys")
+            .upsert({
+                user_id: userId,
+                encrypted_keys: currentKeys,
+                updated_at: new Date().toISOString(),
+            });
+
+        if (upsertError) throw upsertError;
+        // ── Сбрасываем кэш расшифрованных ключей для этого пользователя ──
+        if (typeof userKeyCache !== "undefined" && userKeyCache) {
+            userKeyCache.delete(`${userId}:${provider}`);
+        }
+
+        console.log(`[BYOK] ${BYOK_PROVIDER_NAMES[provider]} ключ сохранён для ${userId} (${maskKey(cleanKey)})`);
+
+        res.json({
+            success: true,
+            provider,
+            providerName: BYOK_PROVIDER_NAMES[provider],
+            maskedKey: maskKey(cleanKey),
+            message: `Ключ ${BYOK_PROVIDER_NAMES[provider]} успешно сохранён`,
+        });
+    } catch (err) {
+        console.error("[BYOK POST] Ошибка:", err.message);
+        res.status(500).json({ success: false, error: err.message });
+    }
+});
+
+/**
+ * DELETE /api/user/api-keys/:provider
+ * Удаляет ключ провайдера. После удаления система переходит на системный ключ.
+ */
+app.delete("/api/user/api-keys/:provider", async (req, res) => {
+    try {
+        const userId = String(req.query.userId || "default-user");
+        const { provider } = req.params;
+
+        if (!ALLOWED_BYOK_PROVIDERS.includes(provider)) {
+            return res.status(400).json({ success: false, error: "Неизвестный провайдер" });
+        }
+        if (!supabase) {
+            return res.status(500).json({ success: false, error: "Supabase не подключён" });
+        }
+
+        // ── Загружаем существующие ключи ──
+        const { data: existing, error: fetchErr } = await supabase
+            .from("user_api_keys")
+            .select("encrypted_keys")
+            .eq("user_id", userId)
+            .maybeSingle();
+
+        if (fetchErr) throw fetchErr;
+        if (!existing) {
+            return res.json({ success: true, message: "Нечего удалять" });
+        }
+
+        const currentKeys = existing.encrypted_keys || {};
+        if (!currentKeys[provider]) {
+            return res.json({ success: true, message: "Ключ не был установлен" });
+        }
+
+        delete currentKeys[provider];
+
+        // ── Сохраняем обновлённый набор ──
+        const { error: updateErr } = await supabase
+            .from("user_api_keys")
+            .update({
+                encrypted_keys: currentKeys,
+                updated_at: new Date().toISOString(),
+            })
+            .eq("user_id", userId);
+
+        if (updateErr) throw updateErr;
+
+        // ── Сбрасываем кэш ──
+        if (typeof userKeyCache !== "undefined" && userKeyCache) {
+            userKeyCache.delete(`${userId}:${provider}`);
+        }
+
+        console.log(`[BYOK] ${BYOK_PROVIDER_NAMES[provider]} ключ удалён для ${userId}`);
+
+        res.json({
+            success: true,
+            provider,
+            message: `Ключ ${BYOK_PROVIDER_NAMES[provider]} удалён`,
+        });
+    } catch (err) {
+        console.error("[BYOK DELETE] Ошибка:", err.message);
+        res.status(500).json({ success: false, error: err.message });
+    }
+});
+
+/**
+ * POST /api/user/api-keys/test
+ * Проверяет ключ реальным запросом к API провайдера ПЕРЕД сохранением.
+ * Не сохраняет ключ — только валидирует.
+ * 
+ * Body: { provider, apiKey }
+ */
+app.post("/api/user/api-keys/test", async (req, res) => {
+    try {
+        const { provider, apiKey } = req.body;
+
+        if (!provider || !apiKey) {
+            return res.status(400).json({ success: false, error: "provider и apiKey обязательны" });
+        }
+        if (!ALLOWED_BYOK_PROVIDERS.includes(provider)) {
+            return res.status(400).json({ success: false, error: "Неизвестный провайдер" });
+        }
+
+        const cleanKey = String(apiKey).trim();
+        let testPassed = false;
+        let message = "";
+
+        try {
+            if (provider === "gemini") {
+                const r = await fetch(
+                    `https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(cleanKey)}`,
+                    { signal: AbortSignal.timeout(10000) }
+                );
+                testPassed = r.ok;
+                if (r.ok) {
+                    const data = await r.json();
+                    message = `Gemini ключ валиден. Доступно моделей: ${data.models?.length || 0}`;
+                } else {
+                    message = `Gemini HTTP ${r.status}: ${r.status === 400 ? "неверный ключ" : "ошибка"}`;
+                }
+
+            } else if (provider === "openai") {
+                const r = await fetch("https://api.openai.com/v1/models", {
+                    headers: { "Authorization": `Bearer ${cleanKey}` },
+                    signal: AbortSignal.timeout(10000)
+                });
+                testPassed = r.ok;
+                message = r.ok ? "OpenAI ключ валиден" : `OpenAI HTTP ${r.status}`;
+
+            } else if (provider === "anthropic") {
+                // Anthropic не имеет публичного /models — используем /messages с минимальным запросом
+                const r = await fetch("https://api.anthropic.com/v1/messages", {
+                    method: "POST",
+                    headers: {
+                        "x-api-key": cleanKey,
+                        "anthropic-version": "2023-06-01",
+                        "Content-Type": "application/json"
+                    },
+                    body: JSON.stringify({
+                        model: "claude-3-5-haiku-latest",
+                        max_tokens: 1,
+                        messages: [{ role: "user", content: "test" }]
+                    }),
+                    signal: AbortSignal.timeout(10000)
+                });
+                // 200 = успех, 400 (bad request из-за max_tokens) = ключ валиден, 401/403 = невалидный
+                testPassed = r.ok || r.status === 400;
+                message = r.ok
+                    ? "Anthropic ключ валиден"
+                    : r.status === 400
+                        ? "Anthropic ключ валиден (получен 400 от API — ключ принят)"
+                        : `Anthropic HTTP ${r.status}`;
+
+            } else if (provider === "deepseek") {
+                const r = await fetch("https://api.deepseek.com/models", {
+                    headers: { "Authorization": `Bearer ${cleanKey}` },
+                    signal: AbortSignal.timeout(10000)
+                });
+                testPassed = r.ok;
+                message = r.ok ? "DeepSeek ключ валиден" : `DeepSeek HTTP ${r.status}`;
+
+            } else if (provider === "groq") {
+                const r = await fetch("https://api.groq.com/openai/v1/models", {
+                    headers: { "Authorization": `Bearer ${cleanKey}` },
+                    signal: AbortSignal.timeout(10000)
+                });
+                testPassed = r.ok;
+                if (r.ok) {
+                    const data = await r.json();
+                    message = `Groq ключ валиден. Доступно моделей: ${data.data?.length || 0}`;
+                } else {
+                    message = `Groq HTTP ${r.status}`;
+                }
+
+            } else if (provider === "openrouter") {
+                const r = await fetch("https://openrouter.ai/api/v1/models", {
+                    headers: { "Authorization": `Bearer ${cleanKey}` },
+                    signal: AbortSignal.timeout(10000)
+                });
+                testPassed = r.ok;
+                if (r.ok) {
+                    const data = await r.json();
+                    message = `OpenRouter ключ валиден. Доступно моделей: ${data.data?.length || 0}`;
+                } else {
+                    message = `OpenRouter HTTP ${r.status}`;
+                }
+            }
+        } catch (fetchErr) {
+            testPassed = false;
+            message = `Сетевая ошибка: ${fetchErr.message.slice(0, 100)}`;
+        }
+
+        console.log(`[BYOK Test] ${provider} — ${testPassed ? "✅ OK" : "❌ FAIL"} (${message})`);
+
+        res.json({
+            success: testPassed,
+            provider,
+            providerName: BYOK_PROVIDER_NAMES[provider],
+            message,
+        });
+    } catch (err) {
+        console.error("[BYOK Test] Ошибка:", err.message);
+        res.status(500).json({ success: false, error: err.message });
+    }
+});
 // =====================================================
 // ROUTE: VOCABULARY
 // =====================================================
@@ -2356,7 +4230,7 @@ Return ONLY valid JSON:
 }`;
 
         let roadmap = null;
-        const raw = await callGeminiWithResilience(prompt);
+        const raw = await callGeminiWithResilience(prompt, null, [], true, userId);
         if (raw) {
             try {
                 const clean = raw.replace(/^```json\s*/i, "").replace(/```$/i, "").trim();
@@ -2444,7 +4318,8 @@ Return ONLY valid JSON:
 }`;
 
         let guide = null;
-        const raw = await callGeminiWithResilience(prompt);
+
+        const raw = await callGeminiWithResilience(prompt, null, [], true, userId);
         if (raw) {
             try {
                 const clean = raw.replace(/```json\n?|\n?```/g, "").trim();
@@ -2702,7 +4577,7 @@ app.get("/api/cubeword/generate-special-word", async (req, res) => {
         const targetLang = req.query.targetLanguage || "English";
         const level = req.query.level || "B2";
         const prompt = `Provide one elegant vocabulary word in ${targetLang} at CEFR ${level}. Return JSON: { "word": "WORD", "clue": "Definition", "translation": "Translation in ${mediatorLanguage}", "cefr": "${level}" }`;
-        const raw = await callGeminiWithResilience(prompt);
+        const raw = await callGeminiWithResilience(prompt, null, [], true, userId);
         if (raw) {
             const clean = raw.replace(/^```json\s*/i, "").replace(/```$/i, "").trim();
             const parsed = JSON.parse(clean);
@@ -2811,7 +4686,7 @@ async function verifyWordInDictionary(word, language = "English") {
 
     try {
         const prompt = `Is "${cleanWord}" a legitimate dictionary word in ${language}? Answer strictly in JSON: {"valid": true} or {"valid": false}`;
-        const raw = await callGeminiWithResilience(prompt, "gemini-2.5-flash", ["gemini-2.0-flash"], true);
+        const raw = await callGeminiWithResilience(prompt);
         if (raw) {
             const clean = raw.replace(/```json\n?|\n?```/g, "").trim();
             const parsed = JSON.parse(clean);
@@ -2883,7 +4758,7 @@ app.post("/api/games/generate-words", async (req, res) => {
     const { targetLanguage = "English", userLevel = "B1", count = 6, wordType = "noun" } = req.body || {};
     try {
         const prompt = `Generate exactly ${count} common ${wordType} words in ${targetLanguage} for CEFR ${userLevel}. Return ONLY a JSON array of strings.`;
-        const raw = await callGeminiWithResilience(prompt);
+        const raw = await callGeminiWithResilience(prompt, null, [], true, userId);
         if (raw) {
             const clean = raw.replace(/```json\n?|\n?```/g, "").trim();
             const words = JSON.parse(clean);
@@ -2899,7 +4774,7 @@ app.post("/api/games/generate-vocabulary", async (req, res) => {
     const { targetLanguage = "English", userLevel = "B1", count = 8 } = req.body || {};
     try {
         const prompt = `Generate ${count} vocabulary items for CEFR ${userLevel} in ${targetLanguage}. Provide word, translation, ipa, pos, level, example. Return ONLY JSON array.`;
-        const raw = await callGeminiWithResilience(prompt);
+        const raw = await callGeminiWithResilience(prompt, null, [], true, userId);
         if (raw) {
             const clean = raw.replace(/```json\n?|\n?```/g, "").trim();
             const items = JSON.parse(clean);
@@ -2962,11 +4837,17 @@ async function startServer() {
             res.sendFile(path.join(distPath, "index.html"));
         });
     }
+    const server = app.listen(PORT, () => {
+        const addr = server.address();
+        console.log(`[SpeakBot Server] Bound to:`, JSON.stringify(addr));
+        console.log(`[SpeakBot Server] Running on http://localhost:${PORT}`);
+    });
 
-    app.listen(PORT, "0.0.0.0", () => {
-        console.log(`[SpeakBot Server] Running on http://0.0.0.0:${PORT}`);
-        console.log(`[SpeakBot] Supabase: ${supabase ? '✅ Connected' : '❌ Not configured'}`);
-        console.log(`[SpeakBot] Redis: ${redis ? '✅ Connected' : '❌ Not configured'}`);
+    server.on("error", (err) => {
+        console.error(`[SpeakBot Server] LISTEN ERROR:`, err.code, err.message);
+        if (err.code === "EADDRINUSE") {
+            console.error(`Порт ${PORT} занят другим процессом`);
+        }
     });
 }
 

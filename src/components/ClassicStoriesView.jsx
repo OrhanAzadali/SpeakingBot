@@ -28,14 +28,126 @@ import {
   Moon,
   RefreshCw,
   AlertCircle,
+  XCircle,
   BookMarked,
   Send
 } from "lucide-react";
 import { SaveToVocabButton } from "./SaveToVocabButton";
+import { VoiceMessagePlayer } from "./VoiceMessagePlayer";
 
+/**
+ * Приводит story к структуре, которую ожидает UI.
+ * Особенно важно для CLASSIC_STORIES из локальных файлов,
+ * где некоторые stories могут иметь неполный набор полей.
+ */
+function normalizeStoryShape(story) {
+  if (!story || typeof story !== "object") return story;
+
+  const normalized = { ...story };
+
+  // ── Normalize exercises ──
+  if (Array.isArray(normalized.exercises)) {
+    normalized.exercises = normalized.exercises.map((ex, idx) => {
+      let options = Array.isArray(ex.options)
+        ? ex.options.filter((o) => typeof o === "string" && o.trim().length > 0)
+        : [];
+
+      if (options.length === 0) {
+        options = [
+          "The strongest interpretation supported by the passage",
+          "A common misreading of the text",
+          "An interpretation based on outside context",
+          "An unrelated distractor",
+        ];
+      } else if (options.length === 2) {
+        options = [...options, "None of the above", "All of the above"];
+      } else if (options.length === 3) {
+        options = [...options, "None of the above"];
+      }
+
+      return {
+        ...ex,
+        id: ex.id || `task-${idx + 1}`,
+        type: ex.type || ex.category || "comprehension",
+        question:
+          ex.question ||
+          ex.prompt ||
+          `Analysis task ${idx + 1}: Evaluate the author's rhetorical choices in this passage.`,
+        options,
+        correctIndex:
+          typeof ex.correctIndex === "number"
+            ? Math.max(0, Math.min(ex.correctIndex, options.length - 1))
+            : 0,
+        explanation: ex.explanation || "Refer to the excerpt for textual evidence.",
+      };
+    });
+  }
+
+  // ── Normalize conversations (Socratic chat) ──
+  if (Array.isArray(normalized.conversations)) {
+    normalized.conversations = normalized.conversations.map((c, idx) => {
+      const hasUserResponses =
+        Array.isArray(c.userResponses) && c.userResponses.length > 0;
+
+      // Если у story есть userResponses — конвертируем их в options-формат,
+      // чтобы UI всегда шёл единой веткой
+      let finalOptions;
+      let finalCorrectIndex;
+
+      if (hasUserResponses) {
+        finalOptions = c.userResponses.map((r) => r.text);
+        const correctIdx = c.userResponses.findIndex((r) => r.isDeepInsight);
+        finalCorrectIndex = correctIdx >= 0 ? correctIdx : 0;
+
+        // Дополняем до 4 для единообразия UI, если было 2 или 3
+        if (finalOptions.length === 2) {
+          finalOptions = [...finalOptions, "None of the above", "All of the above"];
+        } else if (finalOptions.length === 3) {
+          finalOptions = [...finalOptions, "None of the above"];
+        }
+      } else if (Array.isArray(c.options) && c.options.length >= 2) {
+        finalOptions = c.options;
+        finalCorrectIndex =
+          typeof c.correctIndex === "number" ? c.correctIndex : 0;
+      } else {
+        finalOptions = [
+          "A thoughtful response",
+          "A surface-level response",
+          "An unrelated claim",
+        ];
+        finalCorrectIndex = 0;
+      }
+
+      return {
+        ...c,
+        id: c.id || `socratic-${idx + 1}`,
+        stepNumber: c.stepNumber || idx + 1,
+        persona: c.persona || c.speakerPersona || "Socratic Mentor",
+        topic: c.topic || `Inquiry ${idx + 1}`,
+        // Сшиваем все возможные поля промпта
+        prompt:
+          c.prompt ||
+          c.dialoguePrompt ||
+          c.question ||
+          "Consider how the author shapes the reader's perception in this passage.",
+        options: finalOptions,
+        correctIndex: finalCorrectIndex,
+        botFeedback:
+          c.botFeedback ||
+          "Consider the passage's linguistic and thematic layers.",
+        points: c.points || 25,
+        // Обнуляем userResponses — UI всегда идёт через options
+        userResponses: undefined,
+      };
+    });
+  }
+
+  return normalized;
+}
 export const ClassicStoriesView = ({
   userLevel = "B1",
   targetLanguage = "English",
+  mediatorLanguage = "en",
   onSelectToken,
   onStoryCompleted,
   onSaveToVocabulary,
@@ -44,12 +156,10 @@ export const ClassicStoriesView = ({
   initialSelectedStoryId,
   initialMode = "all"
 }) => {
-  const { mediatorLanguage } = useTranslation();
   const [selectedLevel, setSelectedLevel] = useState("ALL");
   const [filterMode, setFilterMode] = useState(initialMode);
   const [customStories, setCustomStories] = useState([]);
   const [dailyFeeds, setDailyFeeds] = useState([]);
-  const [isLoadingFeeds, setIsLoadingFeeds] = useState(false);
 
   // PDF Upload Modal State
   const [isPdfModalOpen, setIsPdfModalOpen] = useState(false);
@@ -66,12 +176,11 @@ export const ClassicStoriesView = ({
     if (initialSelectedStoryId) {
       const found = CLASSIC_STORIES.find((s) => s.id === initialSelectedStoryId);
       if (found && (found.targetLanguage || "").toLowerCase() === (targetLanguage || "English").toLowerCase()) {
-        return found;
+        return normalizeStoryShape(found);
       }
     }
     return null;
   });
-
   const [storyStage, setStoryStage] = useState("story");
   const [currentMode, setCurrentMode] = useState("reading");
   const [fontSize, setFontSize] = useState("normal");
@@ -95,31 +204,51 @@ export const ClassicStoriesView = ({
   const [liveChatMessages, setLiveChatMessages] = useState([]);
   const [chatInput, setChatInput] = useState("");
   const [isSendingChat, setIsSendingChat] = useState(false);
+  // Combined stories pool
+  const allAvailableStories = [...customStories, ...CLASSIC_STORIES];
+
+  const filteredStories = allAvailableStories.filter((story) => {
+    const matchesTarget = (story.targetLanguage || "English").toLowerCase() === (targetLanguage || "English").toLowerCase();
+    const matchesMode = filterMode === "all" || story.mode === "both" || story.mode === filterMode;
+    const matchesLevel = selectedLevel === "ALL" || story.level === selectedLevel;
+    return matchesTarget && matchesMode && matchesLevel;
+  });
+
 
   // Load custom stories and daily feeds from backend
   const loadCustomStoriesAndFeeds = async () => {
     setIsLoadingFeeds(true);
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 10000);   // 10 сек
+
     try {
       const res = await fetch(
-        `/api/stories/custom-list?targetLanguage=${encodeURIComponent(targetLanguage)}&userId=default-user`
+        `/api/stories/custom-list?targetLanguage=${encodeURIComponent(targetLanguage)}&userId=default-user&mediatorLanguage=${encodeURIComponent(mediatorLanguage)}`,
+        { signal: controller.signal }
       );
+
       if (res.ok) {
         const data = await res.json();
         if (data.success) {
           setCustomStories(data.customStories || []);
-          setDailyFeeds(data.dailyFeeds || []);
+          setDailyFeeds((prev) => {
+            const incoming = Array.isArray(data.dailyFeeds) ? data.dailyFeeds : [];
+            if (incoming.length > 0) return incoming;
+            if (prev.length > 0) return prev;
+            return [];
+          });
         }
       }
     } catch (err) {
       console.warn("Could not load custom stories/feeds:", err);
     } finally {
-      setIsLoadingFeeds(false);
+      clearTimeout(timeoutId);
     }
   };
 
   useEffect(() => {
     loadCustomStoriesAndFeeds();
-  }, [targetLanguage]);
+  }, [targetLanguage, mediatorLanguage]);
 
   // Auto-switch active story when targetLanguage changes
   useEffect(() => {
@@ -136,15 +265,7 @@ export const ClassicStoriesView = ({
     }
   }, [targetLanguage, activeStory, customStories]);
 
-  // Combined stories pool
-  const allAvailableStories = [...customStories, ...CLASSIC_STORIES];
 
-  const filteredStories = allAvailableStories.filter((story) => {
-    const matchesTarget = (story.targetLanguage || "English").toLowerCase() === (targetLanguage || "English").toLowerCase();
-    const matchesMode = filterMode === "all" || story.mode === "both" || story.mode === filterMode;
-    const matchesLevel = selectedLevel === "ALL" || story.level === selectedLevel;
-    return matchesTarget && matchesMode && matchesLevel;
-  });
 
   // Ambient sound synthesizer
   useEffect(() => {
@@ -266,7 +387,7 @@ export const ClassicStoriesView = ({
 
   const handleSelectStory = (story, mode = "reading") => {
     stopAudio();
-    setActiveStory(story);
+    setActiveStory(normalizeStoryShape(story));
     setCurrentMode(mode);
     setStoryStage("story");
     setActiveSentenceIndex(0);
@@ -277,8 +398,7 @@ export const ClassicStoriesView = ({
     setFinalScore(0);
     setSyncSuccessMessage(null);
     setLiveChatMessages([]);
-  };
-
+  }
   const handleCloseStory = () => {
     stopAudio();
     setActiveStory(null);
@@ -541,6 +661,7 @@ export const ClassicStoriesView = ({
   };
 
   if (activeStory) {
+    console.log("[RENDER] activeStory:", activeStory.id, "| exercises:", activeStory.exercises?.length, "| conversations:", activeStory.conversations?.length, "| first ex question:", activeStory.exercises?.[0]?.question);
     return (
       <div className="space-y-6 pb-12">
         {/* Navigation Breadcrumb & Top Bar */}
@@ -1094,17 +1215,51 @@ export const ClassicStoriesView = ({
                         })}
                     </div>
 
-                    {isAnswered && (
-                      <div className="mt-4 p-4 rounded-2xl border bg-emerald-950/40 border-emerald-600/60 text-emerald-200 text-xs sm:text-sm space-y-1.5">
-                        <div className="flex items-center gap-1.5 font-bold">
-                          <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-                          <span>Socratic Insight Analysis</span>
+                    {isAnswered && (() => {
+                      let wasCorrect = false;
+                      let feedbackText = "";
+
+                      if (hasComplexResponses && conv.userResponses) {
+                        const found = conv.userResponses.find(r => r.id === selectedRespId);
+                        wasCorrect = Boolean(found?.isDeepInsight);
+
+                        if (wasCorrect) {
+                          // Правильный — можно показать AI-анализ
+                          feedbackText = found?.analysis || conv.botFeedback || "Correct — well-reasoned interpretation.";
+                        } else {
+                          // Неправильный — НИКОГДА не показываем AI-текст (может быть на чужом языке)
+                          const correctResp = conv.userResponses.find(r => r.isDeepInsight);
+                          feedbackText = correctResp?.text
+                            ? `This interpretation misses a key nuance. The strongest reading is: "${correctResp.text}". Re-examine the narrator's tone and word choice.`
+                            : `This interpretation misses the passage's central emphasis. Re-read the excerpt focusing on the author's rhetorical choices.`;
+                        }
+                      } else if (conv.options) {
+                        wasCorrect = selectedRespId === conv.correctIndex;
+                        if (wasCorrect) {
+                          feedbackText = conv.botFeedback || "Correct — well-reasoned interpretation.";
+                        } else {
+                          const correctOpt = conv.options[conv.correctIndex] || "";
+                          feedbackText = `This interpretation misses the passage's central emphasis. The strongest reading is: "${correctOpt}". Re-examine the narrator's tone and choice of words.`;
+                        }
+                      }
+
+                      return (
+                        <div className={`mt-4 p-4 rounded-2xl border text-xs sm:text-sm space-y-1.5 ${wasCorrect
+                          ? "bg-emerald-950/40 border-emerald-600/60 text-emerald-200"
+                          : "bg-amber-950/40 border-amber-600/60 text-amber-200"
+                          }`}>
+                          <div className="flex items-center gap-1.5 font-bold">
+                            {wasCorrect ? (
+                              <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                            ) : (
+                              <AlertCircle className="w-4 h-4 text-amber-400" />
+                            )}
+                            <span>{wasCorrect ? "Correct Insight" : "Reconsider This Interpretation"}</span>
+                          </div>
+                          <p className="leading-relaxed">{feedbackText}</p>
                         </div>
-                        <p className="leading-relaxed">
-                          {conv.botFeedback || "Thoughtful deduction unraveling the text's psychological core."}
-                        </p>
-                      </div>
-                    )}
+                      );
+                    })()}
                   </div>
                 );
               })}
@@ -1129,30 +1284,39 @@ export const ClassicStoriesView = ({
 
               {/* Chat Thread */}
               <div className="min-h-[140px] max-h-72 overflow-y-auto space-y-3 p-2">
-                {liveChatMessages.length === 0 ? (
-                  <div className="text-center py-6 text-xs text-slate-500">
-                    Type a message below or ask about any motif in "{activeStory.title}".
-                  </div>
-                ) : (
-                  liveChatMessages.map((msg, mIdx) => (
+                {liveChatMessages.map((msg, mIdx) => {
+                  const isUser = msg.role === "user";
+                  return (
                     <div
                       key={mIdx}
-                      className={`flex flex-col ${msg.role === "user" ? "items-end" : "items-start"}`}
+                      className={`flex flex-col ${isUser ? "items-end" : "items-start"}`}
                     >
                       <div
-                        className={`max-w-[85%] p-3.5 rounded-2xl text-xs sm:text-sm leading-relaxed ${msg.role === "user"
+                        className={`max-w-[85%] p-3.5 rounded-2xl text-xs sm:text-sm leading-relaxed ${isUser
                           ? "bg-sky-600 text-white rounded-br-none"
                           : "bg-slate-800 text-slate-200 border border-slate-700 rounded-bl-none"
                           }`}
                       >
                         {msg.text}
                       </div>
+
+                      {/* Кнопка озвучки — только для сообщений ассистента */}
+                      {!isUser && (
+                        <div className="mt-1.5">
+                          <VoiceMessagePlayer
+                            text={msg.text}
+                            language={activeStory?.targetLanguage || targetLanguage}
+                            mediatorLanguage={mediatorLanguage}
+                          />
+                        </div>
+                      )}
+
                       <span className="text-[10px] text-slate-500 mt-1 font-mono px-1">
                         {msg.timestamp}
                       </span>
                     </div>
-                  ))
-                )}
+                  );
+                })}
                 {isSendingChat && (
                   <div className="flex items-center gap-2 text-xs text-slate-400 p-2">
                     <RefreshCw className="w-3.5 h-3.5 animate-spin text-sky-400" />
@@ -1279,10 +1443,32 @@ export const ClassicStoriesView = ({
                     </div>
 
                     {isSubmitted && (
-                      <div className="mt-4 p-4 rounded-2xl bg-slate-800/90 border border-slate-700 text-xs sm:text-sm space-y-2">
-                        <div className="text-slate-300">
-                          <span className="font-bold text-white">Explanation: </span>
-                          {ex.explanation}
+                      <div className={`mt-4 p-4 rounded-2xl border text-xs sm:text-sm space-y-2 ${isCorrect
+                        ? "bg-emerald-950/40 border-emerald-600/60"
+                        : "bg-rose-950/40 border-rose-600/60"
+                        }`}>
+                        <div className="flex items-center gap-1.5 font-bold">
+                          {isCorrect ? (
+                            <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                          ) : (
+                            <XCircle className="w-4 h-4 text-rose-400" />
+                          )}
+                          <span className={isCorrect ? "text-emerald-300" : "text-rose-300"}>
+                            {isCorrect ? "Correct" : "Needs Revision"}
+                          </span>
+                        </div>
+                        <div className={isCorrect ? "text-emerald-100" : "text-rose-100"}>
+                          {isCorrect ? (
+                            <>
+                              <span className="font-bold">Explanation: </span>
+                              {ex.explanation}
+                            </>
+                          ) : (
+                            <>
+                              <span className="font-bold">Correct answer: </span>
+                              {ex.options[ex.correctIndex]}
+                            </>
+                          )}
                         </div>
                       </div>
                     )}
@@ -1617,9 +1803,7 @@ export const ClassicStoriesView = ({
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {filteredStories.map((story) => (
-            <div
-              key={story.id}
-              className="bg-slate-900 border border-slate-800 hover:border-slate-700 rounded-3xl p-6 flex flex-col justify-between space-y-4 shadow-xl hover:shadow-2xl transition group relative overflow-hidden"
+            <div className={"bg-slate-900 border border-slate-800 hover:border-slate-700 rounded-3xl p-6 flex flex-col justify-between space-y-4 shadow-xl hover:shadow-2xl group relative overflow-hidden"}
             >
               <div className="space-y-3">
                 <div className="flex items-center justify-between">

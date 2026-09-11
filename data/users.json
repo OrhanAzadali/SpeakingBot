@@ -11,7 +11,7 @@
     "overallScore": 68,
     "testHistory": [
       {
-        "date": "2026-09-07T10:46:10.214Z",
+        "date": "2026-09-08T02:03:39.362Z",
         "testType": "Initial Diagnostic /start",
         "level": "B1",
         "score": 68,
@@ -22,27 +22,27 @@
       "grammar": {
         "level": "B1",
         "score": 65,
-        "lastTested": "2026-09-08T10:46:10.214Z"
+        "lastTested": "2026-09-09T02:03:39.363Z"
       },
       "vocabulary": {
         "level": "B2",
         "score": 72,
-        "lastTested": "2026-09-08T10:46:10.214Z"
+        "lastTested": "2026-09-09T02:03:39.363Z"
       },
       "listening": {
         "level": "B1",
         "score": 68,
-        "lastTested": "2026-09-07T10:46:10.214Z"
+        "lastTested": "2026-09-08T02:03:39.363Z"
       },
       "reading": {
         "level": "B2",
         "score": 75,
-        "lastTested": "2026-09-06T10:46:10.214Z"
+        "lastTested": "2026-09-07T02:03:39.363Z"
       },
       "speaking": {
         "level": "B1",
         "score": 60,
-        "lastTested": "2026-09-09T10:46:10.214Z"
+        "lastTested": "2026-09-10T02:03:39.363Z"
       }
     },
     "skillScores": {
@@ -55,42 +55,6 @@
     "vocabularyByLanguage": {
       "English": [
         {
-          "id": "custom-word-1789038047054",
-          "word": "inclined",
-          "translation": "meyilli, həvəsli",
-          "cefr": "B1",
-          "ipa": "/ɪnˈklaɪnd/",
-          "pos": "adjective",
-          "addedAt": "2026-09-10T11:00:47.054Z"
-        },
-        {
-          "id": "custom-word-1789038047040",
-          "word": "blundering",
-          "translation": "səhv edən, yöndəmsiz, bəsirətsiz",
-          "cefr": "B1",
-          "ipa": "/ˈblʌndərɪŋ/",
-          "pos": "adjective",
-          "addedAt": "2026-09-10T11:00:47.040Z"
-        },
-        {
-          "id": "custom-word-1789038047030",
-          "word": "time out of mind",
-          "translation": "çox qədim zamanlardan bəri",
-          "cefr": "B1",
-          "ipa": "/taɪm aʊt əv maɪnd/",
-          "pos": "phrase",
-          "addedAt": "2026-09-10T11:00:47.030Z"
-        },
-        {
-          "id": "custom-word-1789038047027",
-          "word": "well-to-do",
-          "translation": "imkanlı, varlı",
-          "cefr": "B1",
-          "ipa": "/ˌwel tə ˈduː/",
-          "pos": "adjective",
-          "addedAt": "2026-09-10T11:00:47.027Z"
-        },
-        {
           "id": "vocab-en-1",
           "word": "synthesize",
           "translation": "birləşdirmək, sintez etmək",
@@ -98,7 +62,7 @@
           "pos": "verb",
           "ipa": "/ˈsɪnθəsaɪz/",
           "example": "Researchers synthesize novel linguistic data models.",
-          "savedAt": "2026-09-10T10:46:10.214Z"
+          "savedAt": "2026-09-11T02:03:39.363Z"
         },
         {
           "id": "vocab-en-2",
@@ -108,7 +72,7 @@
           "pos": "adjective",
           "ipa": "/məˈtɪkjələs/",
           "example": "He maintained meticulous grammatical accuracy.",
-          "savedAt": "2026-09-10T10:46:10.214Z"
+          "savedAt": "2026-09-11T02:03:39.363Z"
         }
       ],
       "German": [
@@ -120,47 +84,11 @@
           "pos": "noun",
           "ipa": "/ˈnaːxhaltɪçkaɪt/",
           "example": "Nachhaltigkeit ist ein zentrales Prinzip moderner Sprachförderung.",
-          "savedAt": "2026-09-10T10:46:10.214Z"
+          "savedAt": "2026-09-11T02:03:39.363Z"
         }
       ]
     },
     "savedVocabulary": [
-      {
-        "id": "custom-word-1789038047054",
-        "word": "inclined",
-        "translation": "meyilli, həvəsli",
-        "cefr": "B1",
-        "ipa": "/ɪnˈklaɪnd/",
-        "pos": "adjective",
-        "addedAt": "2026-09-10T11:00:47.054Z"
-      },
-      {
-        "id": "custom-word-1789038047040",
-        "word": "blundering",
-        "translation": "səhv edən, yöndəmsiz, bəsirətsiz",
-        "cefr": "B1",
-        "ipa": "/ˈblʌndərɪŋ/",
-        "pos": "adjective",
-        "addedAt": "2026-09-10T11:00:47.040Z"
-      },
-      {
-        "id": "custom-word-1789038047030",
-        "word": "time out of mind",
-        "translation": "çox qədim zamanlardan bəri",
-        "cefr": "B1",
-        "ipa": "/taɪm aʊt əv maɪnd/",
-        "pos": "phrase",
-        "addedAt": "2026-09-10T11:00:47.030Z"
-      },
-      {
-        "id": "custom-word-1789038047027",
-        "word": "well-to-do",
-        "translation": "imkanlı, varlı",
-        "cefr": "B1",
-        "ipa": "/ˌwel tə ˈduː/",
-        "pos": "adjective",
-        "addedAt": "2026-09-10T11:00:47.027Z"
-      },
       {
         "id": "vocab-en-1",
         "word": "synthesize",
@@ -169,7 +97,7 @@
         "pos": "verb",
         "ipa": "/ˈsɪnθəsaɪz/",
         "example": "Researchers synthesize novel linguistic data models.",
-        "savedAt": "2026-09-10T10:46:10.214Z"
+        "savedAt": "2026-09-11T02:03:39.363Z"
       },
       {
         "id": "vocab-en-2",
@@ -179,13 +107,9 @@
         "pos": "adjective",
         "ipa": "/məˈtɪkjələs/",
         "example": "He maintained meticulous grammatical accuracy.",
-        "savedAt": "2026-09-10T10:46:10.214Z"
+        "savedAt": "2026-09-11T02:03:39.363Z"
       }
     ],
-    "lastSyncedAt": "2026-09-10T10:46:10.214Z",
-    "xp": 285,
-    "completedStories": [
-      "story-custom-pdf-1789037371839"
-    ]
+    "lastSyncedAt": "2026-09-11T02:03:39.363Z"
   }
 }

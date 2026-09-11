@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useTransition, useMemo } from "react";
 import { TranslationProvider, useTranslation } from "./i18n/useTranslation";
 import { Header } from "./components/Header";
 import { HomePage } from "./components/HomePage";
@@ -23,8 +23,16 @@ import {
   DIAGNOSTIC_PLACEMENT_QUESTIONS,
   getDiagnosticQuestionsByLanguage
 } from "./data/initialData";
+
 function MainApp() {
 
+  const [isTabPending, startTabTransition] = useTransition();
+
+  const handleTabSwitch = (tab) => {
+    startTabTransition(() => {
+      setActiveTab(tab);
+    });
+  };
   // Dynamic Color Harmonizer State
   const [themeId, setThemeId] = useState(() => {
     try {
@@ -45,8 +53,15 @@ function MainApp() {
     return () => clearInterval(interval);
   }, [autoCycle]);
 
-  const activeTheme = getSafeThemeRuleset(themeId, rotationIndex);
-  const themeColors = activeTheme?.colors || {};
+  const activeTheme = useMemo(
+    () => getSafeThemeRuleset(themeId, rotationIndex),
+    [themeId, rotationIndex]
+  );
+
+  const themeColors = useMemo(
+    () => activeTheme?.colors || {},
+    [activeTheme]
+  );
 
   // Persist theme selection and sync with ruleset cache
   useEffect(() => {
@@ -460,7 +475,7 @@ function MainApp() {
         onUpdateTargetLanguage={handleUpdateTargetLanguage}
         onOpenPlacementTest={() => setShowTestModal(true)}
         activeTab={activeTab}
-        setActiveTab={setActiveTab}
+        setActiveTab={handleTabSwitch}
         isMiniAppMode={isMiniAppMode}
         setIsMiniAppMode={setIsMiniAppMode}
         isSyncing={isSyncing}
@@ -551,6 +566,7 @@ function MainApp() {
           <ClassicStoriesView
             userLevel={userProfile.currentLevel}
             targetLanguage={userProfile.targetLanguage}
+            mediatorLanguage={userProfile.mediatorLanguage}
             savedVocabulary={savedVocabulary}
             allVocabularies={allVocabularies}
             onSelectToken={(token) => setInspectedToken(token)}
