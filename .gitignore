@@ -8,3 +8,5 @@ coverage/
 !.env.example
 src/pages
 server2
+src/utils/fonts/ttf/*.ttf
+src/utils/fonts/*.zip

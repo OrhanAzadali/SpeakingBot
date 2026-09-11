@@ -1,5 +1,13 @@
-import { jsPDF } from 'jspdf';
+﻿import { jsPDF } from 'jspdf';
+import DejaVuSansBase64 from "./fonts/ttf/DejaVuSans.base64.js";
+import DejaVuSansBoldBase64 from "./fonts/ttf/DejaVuSans-Bold.base64.js";
 
+function registerUnicodeFonts(doc) {
+  doc.addFileToVFS("DejaVuSans.ttf", DejaVuSansBase64);
+  doc.addFileToVFS("DejaVuSans-Bold.ttf", DejaVuSansBoldBase64);
+  doc.addFont("DejaVuSans.ttf", "DejaVu", "normal");
+  doc.addFont("DejaVuSans-Bold.ttf", "DejaVu", "bold");
+}
 // Helper function to safely add a new page with header reset
 function checkPageBreak(doc, currentY, requiredSpace = 30) {
   if (currentY + requiredSpace > 275) {
@@ -15,7 +23,7 @@ function drawSectionHeader(doc, title, y, iconChar = '■') {
   doc.setFillColor(241, 245, 249); // slate-100
   doc.roundedRect(14, y, 182, 8, 1.5, 1.5, 'F');
   doc.setFontSize(10.5);
-  doc.setFont('helvetica', 'bold');
+  doc.setFont("DejaVu", 'bold');
   doc.setTextColor(15, 23, 42); // slate-900
   doc.text(`${iconChar}  ${title.toUpperCase()}`, 18, y + 5.6);
   return y + 13;
@@ -30,6 +38,8 @@ export function exportRoadmapToPdf(roadmap) {
     unit: 'mm',
     format: 'a4',
   });
+  registerUnicodeFonts(doc);
+
 
   // Top Dark Header Banner
   doc.setFillColor(15, 23, 42); // slate-900
@@ -37,11 +47,11 @@ export function exportRoadmapToPdf(roadmap) {
 
   doc.setTextColor(255, 255, 255);
   doc.setFontSize(17);
-  doc.setFont('helvetica', 'bold');
+  doc.setFont("DejaVu", 'bold');
   doc.text('SpeakBot Linguistic Roadmap & Study Blueprint', 14, 16);
 
   doc.setFontSize(9.5);
-  doc.setFont('helvetica', 'normal');
+  doc.setFont("DejaVu", 'normal');
   doc.setTextColor(148, 163, 184); // slate-400
   doc.text(
     `CEFR Level: ${roadmap.level || 'B1'}  •  Category: ${roadmap.category || 'Grammar'}  •  Estimated Duration: ${roadmap.estimatedDuration || '2-3 Weeks'}`,
@@ -60,7 +70,7 @@ export function exportRoadmapToPdf(roadmap) {
   // Title
   doc.setTextColor(15, 23, 42);
   doc.setFontSize(14);
-  doc.setFont('helvetica', 'bold');
+  doc.setFont("DejaVu", 'bold');
   const titleLines = doc.splitTextToSize(roadmap.title || 'Curriculum Roadmap', 182);
   doc.text(titleLines, 14, y);
   y += titleLines.length * 6 + 2;
@@ -71,7 +81,7 @@ export function exportRoadmapToPdf(roadmap) {
     doc.setDrawColor(56, 189, 248);
     doc.roundedRect(14, y, 182, 11, 2, 2, 'FD');
     doc.setFontSize(8.5);
-    doc.setFont('helvetica', 'bold');
+    doc.setFont("DejaVu", 'bold');
     doc.setTextColor(3, 105, 161);
     doc.text(
       `PERSONALIZED TEST RECOVERY BLUEPRINT  •  Diagnostic Score: ${roadmap.personalizedGrammarMeta.grammarScore || 70}%  •  Target: ${roadmap.personalizedGrammarMeta.targetSkillDelta || '+30% Boost'}`,
@@ -82,16 +92,16 @@ export function exportRoadmapToPdf(roadmap) {
   }
 
   // Section: Overview / Summary
-  y = drawSectionHeader(doc, 'Curriculum Overview & Educational Objective', y, '◆');
+  y = drawSectionHeader(doc, 'Curriculum Overview & Educational Objective', y, '*');
   doc.setFontSize(9.5);
-  doc.setFont('helvetica', 'normal');
+  doc.setFont("DejaVu", 'normal');
   doc.setTextColor(51, 65, 85);
   const summaryLines = doc.splitTextToSize(roadmap.summary || '', 180);
   doc.text(summaryLines, 16, y);
   y += summaryLines.length * 5 + 8;
 
   // Section: Milestones Progression
-  y = drawSectionHeader(doc, `Curriculum Milestones (${roadmap.milestones?.length || 0} Progression Steps)`, y, '❖');
+  y = drawSectionHeader(doc, `Curriculum Milestones (${roadmap.milestones?.length || 0} Progression Steps)`, y, '-');
 
   (roadmap.milestones || []).forEach((m, mIdx) => {
     // Calculate required space dynamically
@@ -112,13 +122,13 @@ export function exportRoadmapToPdf(roadmap) {
     doc.setFillColor(14, 165, 233);
     doc.circle(20, y + 4.5, 3.2, 'F');
     doc.setFontSize(8);
-    doc.setFont('helvetica', 'bold');
+    doc.setFont("DejaVu", 'bold');
     doc.setTextColor(255, 255, 255);
     doc.text(String(m.step || mIdx + 1), 18.9, y + 5.7);
 
     // Milestone Title
     doc.setFontSize(10);
-    doc.setFont('helvetica', 'bold');
+    doc.setFont("DejaVu", 'bold');
     doc.setTextColor(15, 23, 42);
     doc.text(`Step ${m.step || mIdx + 1}: ${m.title}`, 26, y + 6);
     y += 13;
@@ -126,7 +136,7 @@ export function exportRoadmapToPdf(roadmap) {
     // Description
     if (descLines.length > 0) {
       doc.setFontSize(8.5);
-      doc.setFont('helvetica', 'normal');
+      doc.setFont("DejaVu", 'normal');
       doc.setTextColor(71, 85, 105);
       doc.text(descLines, 16, y);
       y += descLines.length * 4.5 + 3;
@@ -140,10 +150,10 @@ export function exportRoadmapToPdf(roadmap) {
       doc.setDrawColor(186, 230, 253);
       doc.roundedRect(16, y, 178, boxHeight, 1, 1, 'FD');
       doc.setFontSize(8);
-      doc.setFont('helvetica', 'bold');
+      doc.setFont("DejaVu", 'bold');
       doc.setTextColor(2, 132, 199);
       doc.text('Syntactic Rule:', 20, y + 5.5);
-      doc.setFont('helvetica', 'normal');
+      doc.setFont("DejaVu", 'normal');
       doc.setTextColor(15, 23, 42);
       doc.text(ruleLines, 48, y + 5.5);
       y += boxHeight + 4;
@@ -153,10 +163,10 @@ export function exportRoadmapToPdf(roadmap) {
     if (sampleLines.length > 0) {
       y = checkPageBreak(doc, y, sampleLines.length * 4.5 + 6);
       doc.setFontSize(8.5);
-      doc.setFont('helvetica', 'bold');
+      doc.setFont("DejaVu", 'bold');
       doc.setTextColor(30, 41, 59);
       doc.text('Target Exemplar:', 16, y);
-      doc.setFont('helvetica', 'italic');
+      doc.setFont("DejaVu", 'normal');
       doc.setTextColor(15, 23, 42);
       doc.text(sampleLines, 46, y);
       y += sampleLines.length * 4.5 + 4;
@@ -166,7 +176,7 @@ export function exportRoadmapToPdf(roadmap) {
     if (m.tokens && m.tokens.length > 0) {
       y = checkPageBreak(doc, y, 18);
       doc.setFontSize(8);
-      doc.setFont('helvetica', 'bold');
+      doc.setFont("DejaVu", 'bold');
       doc.setTextColor(100, 116, 139);
       doc.text('Linguistic Token Breakdown:', 16, y);
       y += 4;
@@ -175,7 +185,7 @@ export function exportRoadmapToPdf(roadmap) {
       doc.setFillColor(226, 232, 240);
       doc.rect(16, y, 178, 6, 'F');
       doc.setFontSize(7.5);
-      doc.setFont('helvetica', 'bold');
+      doc.setFont("DejaVu", 'bold');
       doc.setTextColor(51, 65, 85);
       doc.text('Token', 18, y + 4.2);
       doc.text('Lemma', 50, y + 4.2);
@@ -193,22 +203,22 @@ export function exportRoadmapToPdf(roadmap) {
           doc.rect(16, y, 178, 6, 'F');
         }
         doc.setFontSize(7.5);
-        doc.setFont('helvetica', 'bold');
+        doc.setFont("DejaVu", 'bold');
         doc.setTextColor(15, 23, 42);
         doc.text(tok.text || '', 18, y + 4.2);
 
-        doc.setFont('helvetica', 'normal');
+        doc.setFont("DejaVu", 'normal');
         doc.setTextColor(71, 85, 105);
         doc.text(tok.lemma || tok.text || '', 50, y + 4.2);
         doc.text(tok.pos || 'NOUN', 78, y + 4.2);
         doc.text(tok.syntaxRole || 'Constituent', 98, y + 4.2);
 
         // CEFR Badge
-        doc.setFont('helvetica', 'bold');
+        doc.setFont("DejaVu", 'bold');
         doc.setTextColor(14, 165, 233);
         doc.text(tok.cefrLevel || 'B1', 132, y + 4.2);
 
-        doc.setFont('helvetica', 'normal');
+        doc.setFont("DejaVu", 'normal');
         doc.setTextColor(51, 65, 85);
         const transLines = doc.splitTextToSize(tok.mediatorTranslation || tok.definition || '', 42);
         doc.text(transLines[0] || '', 148, y + 4.2);
@@ -223,7 +233,7 @@ export function exportRoadmapToPdf(roadmap) {
 
   // Section: Checkpoint Quiz Questions
   if (roadmap.checkpointQuestions && roadmap.checkpointQuestions.length > 0) {
-    y = drawSectionHeader(doc, `Checkpoint Diagnostic Assessment (${roadmap.checkpointQuestions.length} Questions)`, y, '★');
+    y = drawSectionHeader(doc, `Checkpoint Diagnostic Assessment (${roadmap.checkpointQuestions.length} Questions)`, y, '+');
 
     roadmap.checkpointQuestions.forEach((q, qIdx) => {
       const qLines = doc.splitTextToSize(`Question ${qIdx + 1}: ${q.question}`, 174);
@@ -239,7 +249,7 @@ export function exportRoadmapToPdf(roadmap) {
       doc.roundedRect(14, y, 182, headerBoxHeight, 1, 1, 'FD');
 
       doc.setFontSize(8.5);
-      doc.setFont('helvetica', 'bold');
+      doc.setFont("DejaVu", 'bold');
       doc.setTextColor(15, 23, 42);
       doc.text(qLines, 17, y + 5);
       y += headerBoxHeight + 4;
@@ -257,16 +267,16 @@ export function exportRoadmapToPdf(roadmap) {
           doc.setDrawColor(52, 211, 153);
           doc.roundedRect(18, y, 174, optBoxHeight, 1, 1, 'FD');
           doc.setFontSize(8);
-          doc.setFont('helvetica', 'bold');
+          doc.setFont("DejaVu", 'bold');
           doc.setTextColor(5, 150, 105);
-          doc.text(`[✓] (${letter})`, 22, y + 4.5);
+          doc.text(`[OK] (${letter})`, 22, y + 4.5);
           doc.text(optLines, 34, y + 4.5);
         } else {
           doc.setFillColor(255, 255, 255);
           doc.setDrawColor(226, 232, 240);
           doc.roundedRect(18, y, 174, optBoxHeight, 1, 1, 'FD');
           doc.setFontSize(8);
-          doc.setFont('helvetica', 'normal');
+          doc.setFont("DejaVu", 'normal');
           doc.setTextColor(100, 116, 139);
           doc.text(`( ${letter} )`, 22, y + 4.5);
           doc.text(optLines, 34, y + 4.5);
@@ -282,10 +292,10 @@ export function exportRoadmapToPdf(roadmap) {
         doc.setDrawColor(187, 247, 208);
         doc.roundedRect(18, y, 174, expBoxHeight, 1, 1, 'FD');
         doc.setFontSize(8);
-        doc.setFont('helvetica', 'bold');
+        doc.setFont("DejaVu", 'bold');
         doc.setTextColor(22, 101, 52);
         doc.text('Linguistic Analysis:', 22, y + 5);
-        doc.setFont('helvetica', 'normal');
+        doc.setFont("DejaVu", 'normal');
         doc.setTextColor(51, 65, 85);
         doc.text(expLines, 54, y + 5);
         y += expBoxHeight + 4;
@@ -319,6 +329,7 @@ export function exportGrammarGuideToPdf(guide) {
     unit: 'mm',
     format: 'a4',
   });
+  registerUnicodeFonts(doc);
 
   // Top Dark Header Banner
   doc.setFillColor(30, 41, 59); // slate-800
@@ -326,11 +337,11 @@ export function exportGrammarGuideToPdf(guide) {
 
   doc.setTextColor(255, 255, 255);
   doc.setFontSize(17);
-  doc.setFont('helvetica', 'bold');
+  doc.setFont("DejaVu", 'bold');
   doc.text('SpeakBot Master Grammar Study Guide', 14, 16);
 
   doc.setFontSize(9.5);
-  doc.setFont('helvetica', 'normal');
+  doc.setFont("DejaVu", 'normal');
   doc.setTextColor(148, 163, 184); // slate-400
   doc.text(
     `CEFR Level: ${guide.level || 'B2'}  •  Category: ${guide.category || 'Grammar'}  •  Total Rules: ${guide.coreRules?.length || 3}`,
@@ -349,22 +360,22 @@ export function exportGrammarGuideToPdf(guide) {
   // Title
   doc.setTextColor(15, 23, 42);
   doc.setFontSize(14);
-  doc.setFont('helvetica', 'bold');
+  doc.setFont("DejaVu", 'bold');
   const titleLines = doc.splitTextToSize(guide.title || 'Grammar Study Guide', 182);
   doc.text(titleLines, 14, y);
   y += titleLines.length * 6 + 4;
 
   // Section: Overview / Summary
-  y = drawSectionHeader(doc, 'Grammar Guide Objective & CEFR Summary', y, '◆');
+  y = drawSectionHeader(doc, 'Grammar Guide Objective & CEFR Summary', y, '*');
   doc.setFontSize(9);
-  doc.setFont('helvetica', 'normal');
+  doc.setFont("DejaVu", 'normal');
   doc.setTextColor(51, 65, 85);
   const summaryLines = doc.splitTextToSize(guide.summary || '', 180);
   doc.text(summaryLines, 16, y);
   y += summaryLines.length * 4.8 + 8;
 
   // Section: Core Rules
-  y = drawSectionHeader(doc, `Core Syntactic Rules (${guide.coreRules?.length || 0} Principles)`, y, '❖');
+  y = drawSectionHeader(doc, `Core Syntactic Rules (${guide.coreRules?.length || 0} Principles)`, y, '-');
 
   (guide.coreRules || []).forEach((rule, rIdx) => {
     const expLines = rule.explanationInMediator ? doc.splitTextToSize(rule.explanationInMediator, 134) : [];
@@ -380,7 +391,7 @@ export function exportGrammarGuideToPdf(guide) {
     doc.roundedRect(14, y, 182, 8, 1, 1, 'FD');
 
     doc.setFontSize(9.5);
-    doc.setFont('helvetica', 'bold');
+    doc.setFont("DejaVu", 'bold');
     doc.setTextColor(15, 23, 42);
     doc.text(`Rule ${rIdx + 1}: ${rule.ruleTitle}`, 18, y + 5.5);
     y += 11;
@@ -393,10 +404,10 @@ export function exportGrammarGuideToPdf(guide) {
       doc.setDrawColor(94, 234, 212); // teal-300
       doc.roundedRect(16, y, 178, expBoxHeight, 1, 1, 'FD');
       doc.setFontSize(8);
-      doc.setFont('helvetica', 'bold');
+      doc.setFont("DejaVu", 'bold');
       doc.setTextColor(13, 148, 136); // teal-600
       doc.text('Native Explanation:', 20, y + 5.2);
-      doc.setFont('helvetica', 'normal');
+      doc.setFont("DejaVu", 'normal');
       doc.setTextColor(15, 23, 42);
       doc.text(expLines, 54, y + 5.2);
       y += expBoxHeight + 3;
@@ -410,10 +421,10 @@ export function exportGrammarGuideToPdf(guide) {
       doc.setDrawColor(148, 163, 184);
       doc.roundedRect(16, y, 178, formBoxHeight, 1, 1, 'FD');
       doc.setFontSize(8);
-      doc.setFont('helvetica', 'bold');
+      doc.setFont("DejaVu", 'bold');
       doc.setTextColor(79, 70, 229); // indigo-600
       doc.text('Formula:', 20, y + 5.2);
-      doc.setFont('courier', 'bold');
+      doc.setFont("DejaVu", 'bold');
       doc.setTextColor(15, 23, 42);
       doc.text(formulaLines, 38, y + 5.2);
       y += formBoxHeight + 3;
@@ -422,11 +433,11 @@ export function exportGrammarGuideToPdf(guide) {
     // Exemplar Sentence
     if (exLines.length > 0) {
       y = checkPageBreak(doc, y, exLines.length * 4.5 + 6);
-      doc.setFont('helvetica', 'bold');
+      doc.setFont("DejaVu", 'bold');
       doc.setFontSize(8);
       doc.setTextColor(30, 41, 59);
       doc.text('Standard Example:', 16, y);
-      doc.setFont('helvetica', 'italic');
+      doc.setFont("DejaVu", 'normal');
       doc.setTextColor(15, 23, 42);
       doc.text(exLines, 48, y);
       y += exLines.length * 4.5 + 4;
@@ -435,7 +446,7 @@ export function exportGrammarGuideToPdf(guide) {
     // Tokenized breakdown for rule tokens
     if (tokenCount > 0) {
       y = checkPageBreak(doc, y, 16);
-      doc.setFont('helvetica', 'bold');
+      doc.setFont("DejaVu", 'bold');
       doc.setFontSize(7.5);
       doc.setTextColor(100, 116, 139);
       doc.text('Syntax & Token Mapping:', 16, y);
@@ -447,11 +458,11 @@ export function exportGrammarGuideToPdf(guide) {
         const tokRowHeight = Math.max(5.5, tokLines.length * 4 + 1.5);
 
         y = checkPageBreak(doc, y, tokRowHeight + 2);
-        doc.setFont('helvetica', 'bold');
+        doc.setFont("DejaVu", 'bold');
         doc.setFontSize(7.5);
         doc.setTextColor(15, 23, 42);
         doc.text(`• ${tok.text}`, 18, y + 3.8);
-        doc.setFont('helvetica', 'normal');
+        doc.setFont("DejaVu", 'normal');
         doc.setTextColor(71, 85, 105);
         doc.text(tokLines, 42, y + 3.8);
         y += tokRowHeight + 1.5;
@@ -464,7 +475,7 @@ export function exportGrammarGuideToPdf(guide) {
 
   // Section: Frequent Pitfalls & Common Mistakes
   if (guide.commonMistakes && guide.commonMistakes.length > 0) {
-    y = drawSectionHeader(doc, `Frequent Pitfalls & Native Interference (${guide.commonMistakes.length} Crucial Traps)`, y, '▲');
+    y = drawSectionHeader(doc, `Frequent Pitfalls & Native Interference (${guide.commonMistakes.length} Crucial Traps)`, y, '!');
 
     guide.commonMistakes.forEach((m) => {
       const incLines = doc.splitTextToSize(m.incorrect || '', 136);
@@ -482,28 +493,28 @@ export function exportGrammarGuideToPdf(guide) {
 
       // Incorrect
       doc.setFontSize(8);
-      doc.setFont('helvetica', 'bold');
+      doc.setFont("DejaVu", 'bold');
       doc.setTextColor(225, 29, 72); // rose-600
-      doc.text('[x] Incorrect:', 18, innerY);
-      doc.setFont('helvetica', 'normal');
+      doc.text('[X] Incorrect:', 18, innerY);
+      doc.setFont("DejaVu", 'normal');
       doc.setTextColor(15, 23, 42);
       doc.text(incLines, 42, innerY);
       innerY += incLines.length * 4.5 + 2;
 
       // Correct
-      doc.setFont('helvetica', 'bold');
+      doc.setFont("DejaVu", 'bold');
       doc.setTextColor(13, 148, 136); // teal-600
-      doc.text('[✓] Correct:', 18, innerY);
-      doc.setFont('helvetica', 'normal');
+      doc.text('[OK] Correct:', 18, innerY);
+      doc.setFont("DejaVu", 'normal');
       doc.setTextColor(15, 23, 42);
       doc.text(corLines, 42, innerY);
       innerY += corLines.length * 4.5 + 2;
 
       // Reason
-      doc.setFont('helvetica', 'bold');
+      doc.setFont("DejaVu", 'bold');
       doc.setTextColor(100, 116, 139);
       doc.text('Reason:', 18, innerY);
-      doc.setFont('helvetica', 'normal');
+      doc.setFont("DejaVu", 'normal');
       doc.setTextColor(51, 65, 85);
       doc.text(reasonLines, 42, innerY);
 
@@ -513,7 +524,7 @@ export function exportGrammarGuideToPdf(guide) {
 
   // Section: Practice Exercises
   if (guide.practiceExercises && guide.practiceExercises.length > 0) {
-    y = drawSectionHeader(doc, `Practice Exercises & Syntactic Verification (${guide.practiceExercises.length} Drills)`, y, '★');
+    y = drawSectionHeader(doc, `Practice Exercises & Syntactic Verification (${guide.practiceExercises.length} Drills)`, y, '+');
 
     guide.practiceExercises.forEach((ex, exIdx) => {
       const qLines = doc.splitTextToSize(ex.question || '', 174);
@@ -528,13 +539,13 @@ export function exportGrammarGuideToPdf(guide) {
       doc.roundedRect(14, y, 182, 8, 1, 1, 'FD');
 
       doc.setFontSize(8.5);
-      doc.setFont('helvetica', 'bold');
+      doc.setFont("DejaVu", 'bold');
       doc.setTextColor(15, 23, 42);
       doc.text(`Exercise ${exIdx + 1}: ${ex.instruction || 'Choose the grammatically accurate sentence'}`, 17, y + 5.5);
       y += 11;
 
       doc.setFontSize(8);
-      doc.setFont('helvetica', 'normal');
+      doc.setFont("DejaVu", 'normal');
       doc.setTextColor(51, 65, 85);
       doc.text(qLines, 17, y);
       y += qLines.length * 4.5 + 3;
@@ -552,16 +563,16 @@ export function exportGrammarGuideToPdf(guide) {
           doc.setDrawColor(52, 211, 153);
           doc.roundedRect(18, y, 174, optHeight, 1, 1, 'FD');
           doc.setFontSize(8);
-          doc.setFont('helvetica', 'bold');
+          doc.setFont("DejaVu", 'bold');
           doc.setTextColor(5, 150, 105);
-          doc.text(`[✓] (${letter})`, 22, y + 4.5);
+          doc.text(`[OK] (${letter})`, 22, y + 4.5);
           doc.text(optLines, 34, y + 4.5);
         } else {
           doc.setFillColor(255, 255, 255);
           doc.setDrawColor(226, 232, 240);
           doc.roundedRect(18, y, 174, optHeight, 1, 1, 'FD');
           doc.setFontSize(8);
-          doc.setFont('helvetica', 'normal');
+          doc.setFont("DejaVu", 'normal');
           doc.setTextColor(100, 116, 139);
           doc.text(`( ${letter} )`, 22, y + 4.5);
           doc.text(optLines, 34, y + 4.5);
@@ -577,10 +588,10 @@ export function exportGrammarGuideToPdf(guide) {
         doc.setDrawColor(187, 247, 208);
         doc.roundedRect(18, y, 174, expBoxHeight, 1, 1, 'FD');
         doc.setFontSize(8);
-        doc.setFont('helvetica', 'bold');
+        doc.setFont("DejaVu", 'bold');
         doc.setTextColor(22, 101, 52);
         doc.text('Key Explanation:', 22, y + 5);
-        doc.setFont('helvetica', 'normal');
+        doc.setFont("DejaVu", 'normal');
         doc.setTextColor(51, 65, 85);
         doc.text(expLines, 52, y + 5);
         y += expBoxHeight + 4;
@@ -591,14 +602,14 @@ export function exportGrammarGuideToPdf(guide) {
 
   // Section: Grammar Vocabulary & Lexicon Table (Redesigned with generous widths and word wrapping)
   if (guide.keyVocabulary && guide.keyVocabulary.length > 0) {
-    y = drawSectionHeader(doc, `Mastery Vocabulary & Lexicon (${guide.keyVocabulary.length} Target Terms)`, y, '◆');
+    y = drawSectionHeader(doc, `Mastery Vocabulary & Lexicon (${guide.keyVocabulary.length} Target Terms)`, y, '*');
 
     // Table Column Widths: Term (38mm), POS (22mm), IPA (28mm), Meaning (94mm) = 182mm Total
     y = checkPageBreak(doc, y, 12);
     doc.setFillColor(241, 245, 249);
     doc.rect(14, y, 182, 7, 'F');
     doc.setFontSize(8);
-    doc.setFont('helvetica', 'bold');
+    doc.setFont("DejaVu", 'bold');
     doc.setTextColor(30, 41, 59);
     doc.text('Term / Lemma', 18, y + 4.8);
     doc.text('Part of Speech', 56, y + 4.8);
@@ -628,11 +639,11 @@ export function exportGrammarGuideToPdf(guide) {
       doc.line(14, y + rowHeight, 196, y + rowHeight);
 
       doc.setFontSize(8);
-      doc.setFont('helvetica', 'bold');
+      doc.setFont("DejaVu", 'bold');
       doc.setTextColor(14, 116, 144);
       doc.text(termName, 18, y + 4.5);
 
-      doc.setFont('helvetica', 'normal');
+      doc.setFont("DejaVu", 'normal');
       doc.setTextColor(71, 85, 105);
       doc.text(pos, 56, y + 4.5);
       doc.text(ipa, 78, y + 4.5);
@@ -668,6 +679,7 @@ export function exportVocabularyToPdf(vocabularyList = [], targetLanguage = 'Eng
     unit: 'mm',
     format: 'a4',
   });
+  registerUnicodeFonts(doc);
 
   // Top Dark Header Banner
   doc.setFillColor(15, 23, 42); // slate-900
@@ -675,11 +687,11 @@ export function exportVocabularyToPdf(vocabularyList = [], targetLanguage = 'Eng
 
   doc.setTextColor(255, 255, 255);
   doc.setFontSize(17);
-  doc.setFont('helvetica', 'bold');
+  doc.setFont("DejaVu", 'bold');
   doc.text('SpeakBot Personal Lexicon & Vocabulary Notebook', 14, 16);
 
   doc.setFontSize(9.5);
-  doc.setFont('helvetica', 'normal');
+  doc.setFont("DejaVu", 'normal');
   doc.setTextColor(148, 163, 184); // slate-400
   doc.text(
     `Target Language: ${targetLanguage}  •  Total Saved Terms: ${vocabularyList.length}  •  Generated: ${new Date().toLocaleDateString()}`,
@@ -695,7 +707,7 @@ export function exportVocabularyToPdf(vocabularyList = [], targetLanguage = 'Eng
 
   if (!vocabularyList || vocabularyList.length === 0) {
     doc.setFontSize(11);
-    doc.setFont('helvetica', 'normal');
+    doc.setFont("DejaVu", 'normal');
     doc.setTextColor(100, 116, 139);
     doc.text('No words saved in your notebook yet. Play games or read classic stories to save terms!', 14, y);
   } else {
@@ -719,7 +731,7 @@ export function exportVocabularyToPdf(vocabularyList = [], targetLanguage = 'Eng
 
       // Word index + Term
       doc.setFontSize(10.5);
-      doc.setFont('helvetica', 'bold');
+      doc.setFont("DejaVu", 'bold');
       doc.setTextColor(15, 23, 42);
       doc.text(`${index + 1}.  ${item.word || 'Word'}`, 24, y + 7.5);
 
@@ -728,7 +740,7 @@ export function exportVocabularyToPdf(vocabularyList = [], targetLanguage = 'Eng
         doc.setFillColor(224, 231, 255);
         doc.roundedRect(80, y + 4, 18, 4.5, 1, 1, 'F');
         doc.setFontSize(7.5);
-        doc.setFont('helvetica', 'bold');
+        doc.setFont("DejaVu", 'bold');
         doc.setTextColor(67, 56, 202);
         doc.text((item.partOfSpeech || item.pos).toUpperCase(), 82, y + 7.3);
       }
@@ -736,7 +748,7 @@ export function exportVocabularyToPdf(vocabularyList = [], targetLanguage = 'Eng
       // IPA if available
       if (item.ipa) {
         doc.setFontSize(8);
-        doc.setFont('helvetica', 'normal');
+        doc.setFont("DejaVu", 'normal');
         doc.setTextColor(100, 116, 139);
         doc.text(item.ipa, 105, y + 7.5);
       }
@@ -745,7 +757,7 @@ export function exportVocabularyToPdf(vocabularyList = [], targetLanguage = 'Eng
 
       // Definition / Translation (Full multi-line)
       doc.setFontSize(8.5);
-      doc.setFont('helvetica', 'normal');
+      doc.setFont("DejaVu", 'normal');
       doc.setTextColor(51, 65, 85);
       doc.text(defLines, 18, innerY);
       innerY += defLines.length * 4.5;
@@ -753,7 +765,7 @@ export function exportVocabularyToPdf(vocabularyList = [], targetLanguage = 'Eng
       // Example sentence
       if (exLines.length > 0) {
         doc.setFontSize(7.5);
-        doc.setFont('helvetica', 'italic');
+        doc.setFont("DejaVu", 'normal');
         doc.setTextColor(100, 116, 139);
         doc.text(exLines, 18, innerY + 1.5);
       }
@@ -787,6 +799,7 @@ export function exportClassicStoryExercisePdf(story) {
     unit: 'mm',
     format: 'a4',
   });
+  registerUnicodeFonts(doc);
 
   // Top Dark Header Banner
   doc.setFillColor(15, 23, 42); // slate-900
@@ -794,11 +807,11 @@ export function exportClassicStoryExercisePdf(story) {
 
   doc.setTextColor(255, 255, 255);
   doc.setFontSize(17);
-  doc.setFont('helvetica', 'bold');
+  doc.setFont("DejaVu", 'bold');
   doc.text('SpeakBot Classical Literature & Audio Theater', 14, 16);
 
   doc.setFontSize(9.5);
-  doc.setFont('helvetica', 'normal');
+  doc.setFont("DejaVu", 'normal');
   doc.setTextColor(148, 163, 184); // slate-400
   doc.text(
     `Author: ${story.author || 'Classic Master'} (${story.authorEra || ''})  •  CEFR: ${story.level || 'B2'}  •  Lang: ${story.targetLanguage || 'English'}`,
@@ -815,29 +828,29 @@ export function exportClassicStoryExercisePdf(story) {
   // Story Title
   doc.setTextColor(15, 23, 42);
   doc.setFontSize(14);
-  doc.setFont('helvetica', 'bold');
+  doc.setFont("DejaVu", 'bold');
   const titleLines = doc.splitTextToSize(story.title || 'Classic Story Exercise', 182);
   doc.text(titleLines, 14, y);
   y += titleLines.length * 6 + 3;
 
   // Literary Summary
-  y = drawSectionHeader(doc, 'Literary Synopsis & Cultural Context', y, '◆');
+  y = drawSectionHeader(doc, 'Literary Synopsis & Cultural Context', y, '*');
   doc.setFontSize(9);
-  doc.setFont('helvetica', 'normal');
+  doc.setFont("DejaVu", 'normal');
   doc.setTextColor(51, 65, 85);
   const summaryLines = doc.splitTextToSize(story.summary || '', 180);
   doc.text(summaryLines, 16, y);
   y += summaryLines.length * 4.8 + 8;
 
   // Complete Story Text / Excerpt
-  y = drawSectionHeader(doc, 'Classic Excerpt & Linguistic Text', y, '📖');
+  y = drawSectionHeader(doc, 'Classic Excerpt & Linguistic Text', y, '[TEXT]');
   const storyParagraphs = (story.storyText || '').split(/\n+/).filter(Boolean);
 
   storyParagraphs.forEach((para) => {
     const paraLines = doc.splitTextToSize(para, 180);
     y = checkPageBreak(doc, y, paraLines.length * 5 + 4);
     doc.setFontSize(9.5);
-    doc.setFont('helvetica', 'normal');
+    doc.setFont("DejaVu", 'normal');
     doc.setTextColor(15, 23, 42);
     doc.text(paraLines, 16, y);
     y += paraLines.length * 5 + 4;
@@ -845,7 +858,7 @@ export function exportClassicStoryExercisePdf(story) {
 
   // Tokenized Sentence Highlights
   if (story.sentences && story.sentences.length > 0) {
-    y = drawSectionHeader(doc, `Annotated Sentences & Syntactic Tokens (${story.sentences.length} Highlights)`, y, '❖');
+    y = drawSectionHeader(doc, `Annotated Sentences & Syntactic Tokens (${story.sentences.length} Highlights)`, y, '-');
 
     story.sentences.forEach((sent, sIdx) => {
       const sentTextLines = doc.splitTextToSize(`"${sent.text}"`, 174);
@@ -859,20 +872,20 @@ export function exportClassicStoryExercisePdf(story) {
       doc.roundedRect(14, y, 182, 7.5, 1, 1, 'FD');
 
       doc.setFontSize(8.5);
-      doc.setFont('helvetica', 'bold');
+      doc.setFont("DejaVu", 'bold');
       doc.setTextColor(15, 23, 42);
       doc.text(`Sentence ${sIdx + 1}:`, 18, y + 5);
       y += 10;
 
       doc.setFontSize(8.5);
-      doc.setFont('helvetica', 'italic');
+      doc.setFont("DejaVu", 'normal');
       doc.setTextColor(30, 41, 59);
       doc.text(sentTextLines, 18, y);
       y += sentTextLines.length * 4.5 + 2;
 
       if (transLines.length > 0) {
         doc.setFontSize(8);
-        doc.setFont('helvetica', 'normal');
+        doc.setFont("DejaVu", 'normal');
         doc.setTextColor(13, 148, 136); // teal-600
         doc.text(transLines, 18, y);
         y += transLines.length * 4.2 + 3;
@@ -884,7 +897,7 @@ export function exportClassicStoryExercisePdf(story) {
           const tokLines = doc.splitTextToSize(tokDesc, 172);
           y = checkPageBreak(doc, y, tokLines.length * 4.2 + 2);
           doc.setFontSize(7.5);
-          doc.setFont('helvetica', 'normal');
+          doc.setFont("DejaVu", 'normal');
           doc.setTextColor(71, 85, 105);
           doc.text(tokLines, 20, y);
           y += tokLines.length * 4 + 1;
@@ -897,13 +910,13 @@ export function exportClassicStoryExercisePdf(story) {
 
   // Key Vocabulary Table
   if (story.keyVocabulary && story.keyVocabulary.length > 0) {
-    y = drawSectionHeader(doc, `Story Vocabulary & Key Lexicon (${story.keyVocabulary.length} Target Words)`, y, '◆');
+    y = drawSectionHeader(doc, `Story Vocabulary & Key Lexicon (${story.keyVocabulary.length} Target Words)`, y, '*');
 
     y = checkPageBreak(doc, y, 12);
     doc.setFillColor(241, 245, 249);
     doc.rect(14, y, 182, 7, 'F');
     doc.setFontSize(8);
-    doc.setFont('helvetica', 'bold');
+    doc.setFont("DejaVu", 'bold');
     doc.setTextColor(30, 41, 59);
     doc.text('Term / Lemma', 18, y + 4.8);
     doc.text('Part of Speech', 56, y + 4.8);
@@ -931,11 +944,11 @@ export function exportClassicStoryExercisePdf(story) {
       doc.line(14, y + rowHeight, 196, y + rowHeight);
 
       doc.setFontSize(8);
-      doc.setFont('helvetica', 'bold');
+      doc.setFont("DejaVu", 'bold');
       doc.setTextColor(14, 116, 144);
       doc.text(termName, 18, y + 4.5);
 
-      doc.setFont('helvetica', 'normal');
+      doc.setFont("DejaVu", 'normal');
       doc.setTextColor(71, 85, 105);
       doc.text(pos, 56, y + 4.5);
       doc.text(ipa, 78, y + 4.5);
@@ -948,7 +961,7 @@ export function exportClassicStoryExercisePdf(story) {
 
   // Comprehension & Syntactic Exercises
   if (story.exercises && story.exercises.length > 0) {
-    y = drawSectionHeader(doc, `Literary & Syntactic Comprehension (${story.exercises.length} Exercises)`, y, '★');
+    y = drawSectionHeader(doc, `Literary & Syntactic Comprehension (${story.exercises.length} Exercises)`, y, '+');
 
     story.exercises.forEach((ex, exIdx) => {
       const qLines = doc.splitTextToSize(ex.question || '', 174);
@@ -962,13 +975,13 @@ export function exportClassicStoryExercisePdf(story) {
       doc.roundedRect(14, y, 182, 8, 1, 1, 'FD');
 
       doc.setFontSize(8.5);
-      doc.setFont('helvetica', 'bold');
+      doc.setFont("DejaVu", 'bold');
       doc.setTextColor(15, 23, 42);
       doc.text(`Exercise ${exIdx + 1}: ${ex.type || 'Literary Comprehension'}`, 17, y + 5.5);
       y += 11;
 
       doc.setFontSize(8);
-      doc.setFont('helvetica', 'normal');
+      doc.setFont("DejaVu", 'normal');
       doc.setTextColor(51, 65, 85);
       doc.text(qLines, 17, y);
       y += qLines.length * 4.5 + 3;
@@ -985,16 +998,16 @@ export function exportClassicStoryExercisePdf(story) {
           doc.setDrawColor(52, 211, 153);
           doc.roundedRect(18, y, 174, optHeight, 1, 1, 'FD');
           doc.setFontSize(8);
-          doc.setFont('helvetica', 'bold');
+          doc.setFont("DejaVu", 'bold');
           doc.setTextColor(5, 150, 105);
-          doc.text(`[✓] (${letter})`, 22, y + 4.5);
+          doc.text(`[OK] (${letter})`, 22, y + 4.5);
           doc.text(optLines, 34, y + 4.5);
         } else {
           doc.setFillColor(255, 255, 255);
           doc.setDrawColor(226, 232, 240);
           doc.roundedRect(18, y, 174, optHeight, 1, 1, 'FD');
           doc.setFontSize(8);
-          doc.setFont('helvetica', 'normal');
+          doc.setFont("DejaVu", 'normal');
           doc.setTextColor(100, 116, 139);
           doc.text(`( ${letter} )`, 22, y + 4.5);
           doc.text(optLines, 34, y + 4.5);
@@ -1009,10 +1022,10 @@ export function exportClassicStoryExercisePdf(story) {
         doc.setDrawColor(187, 247, 208);
         doc.roundedRect(18, y, 174, expBoxHeight, 1, 1, 'FD');
         doc.setFontSize(8);
-        doc.setFont('helvetica', 'bold');
+        doc.setFont("DejaVu", 'bold');
         doc.setTextColor(22, 101, 52);
         doc.text('Key Explanation:', 22, y + 5);
-        doc.setFont('helvetica', 'normal');
+        doc.setFont("DejaVu", 'normal');
         doc.setTextColor(51, 65, 85);
         doc.text(expLines, 52, y + 5);
         y += expBoxHeight + 4;
