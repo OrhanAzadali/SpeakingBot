@@ -1797,9 +1797,79 @@ async function repairJson(rawText) {
     console.warn("[JSON Repair] Не удалось восстановить JSON:", e2.message);
     return null;
 }
+function normalizeRoadmapShape(roadmap) {
+    if (!roadmap || typeof roadmap !== "object") return roadmap;
 
-async function extractTextFromPdfWithOCR(buffer) {
-    return '';
+    if (!Array.isArray(roadmap.milestones)) roadmap.milestones = [];
+    if (!Array.isArray(roadmap.checkpointQuestions)) roadmap.checkpointQuestions = [];
+    if (!Array.isArray(roadmap.tags)) roadmap.tags = [];
+
+    roadmap.milestones = roadmap.milestones
+        .map((m, idx) => {
+            if (!m || typeof m !== "object") return null;
+            return {
+                step: m.step || idx + 1,
+                title: m.title || `Step ${idx + 1}`,
+                description: m.description || "",
+                grammarPoint: m.grammarPoint || "",
+                sampleSentence: m.sampleSentence || "",
+                tokens: Array.isArray(m.tokens) ? m.tokens : [],
+            };
+        })
+        .filter(Boolean);
+
+    roadmap.checkpointQuestions = roadmap.checkpointQuestions
+        .map((q, idx) => {
+            if (!q || typeof q !== "object") return null;
+            const options = Array.isArray(q.options) && q.options.length >= 2
+                ? q.options
+                : ["A", "B", "C", "D"];
+            return {
+                question: q.question || `Question ${idx + 1}`,
+                options,
+                correctIndex: typeof q.correctIndex === "number"
+                    ? Math.max(0, Math.min(q.correctIndex, options.length - 1))
+                    : 0,
+                explanation: q.explanation || "",
+            };
+        })
+        .filter(Boolean);
+
+    return roadmap;
+}
+
+async function extractTextFromPdfWithGeminiOCR(buffer, userId = null) {
+    const apiKey = process.env.GEMINI_API_KEY;
+    if (!apiKey) return '';
+
+    // Gemini inlineData лимит ~20 MB
+    if (buffer.length > 20 * 1024 * 1024) {
+        console.warn('[OCR] PDF >20MB, skip Gemini OCR');
+        return '';
+    }
+
+    try {
+        const ai = getGeminiClient();
+        const base64Pdf = buffer.toString('base64');
+
+        const response = await ai.models.generateContent({
+            model: 'gemini-2.0-flash',
+            contents: [{
+                role: 'user',
+                parts: [
+                    { text: 'Extract ALL visible text from this PDF exactly as it appears. Preserve paragraph breaks. Return ONLY the extracted text — no commentary, no summary, no markdown fences.' },
+                    { inlineData: { mimeType: 'application/pdf', data: base64Pdf } }
+                ]
+            }]
+        });
+
+        const text = response?.text || '';
+        console.log(`[OCR] Gemini extracted ${text.length} chars`);
+        return text;
+    } catch (e) {
+        console.warn('[OCR] Gemini OCR failed:', e.message);
+        return '';
+    }
 }
 
 function extractTextFromPdfStreams(buffer) {
@@ -3305,16 +3375,23 @@ app.post("/api/stories/upload-pdf-book", async (req, res) => {
                 });
             }
         }
-
         let extractedText = String(fileText || "").trim();
         if (!extractedText && fileBase64) {
             try {
                 const cleanBase64 = fileBase64.replace(/^data:application\/pdf;base64,/, "").replace(/^data:text\/plain;base64,/, "");
                 const buffer = Buffer.from(cleanBase64, "base64");
                 extractedText = await extractTextFromPdfBuffer(buffer);
+
+                // Fallback: если pdf-parse вернул пусто → Gemini OCR
+                if (!extractedText || extractedText.trim().length < 50) {
+                    console.log('[Upload] pdf-parse empty, trying Gemini OCR fallback...');
+                    const ocrText = await extractTextFromPdfWithGeminiOCR(buffer, userId);
+                    if (ocrText && ocrText.trim().length > 50) {
+                        extractedText = ocrText;
+                    }
+                }
             } catch (err) { console.warn("[PDF Endpoint] parse error:", err.message); }
         }
-
         const meta = parseBookMetadata(fileName, bookTitle, author, extractedText);
         const { title: resolvedTitle, author: resolvedAuthor, era: resolvedEra } = meta;
 
@@ -4387,32 +4464,49 @@ app.post("/api/gemini/generate-grammar-roadmap", async (req, res) => {
 
         const prompt = `You are a world-class language curriculum designer. Create a personalized grammar roadmap for ${targetLanguage} at CEFR ${userLevel}.
 Test score: ${testScore}%. Tested concepts: ${testedWeaknesses.join(", ")}.
-Mediator: ${mediatorLanguage}.
+Mediator language for all explanations: ${mediatorLanguage}.
 
-Return ONLY valid JSON:
+STRICT REQUIREMENTS — the roadmap is INVALID if any minimum is not met:
+- milestones: MINIMUM 3 distinct steps, each with 5-8 tokens.
+- checkpointQuestions: MINIMUM 4 questions, each testing a different sub-topic.
+- Every description, explanation, and token.mediatorTranslation MUST be in ${mediatorLanguage} — NOT English, NOT Hungarian, NOT any other language.
+
+Return ONLY valid JSON. No markdown, no code fences.
+
+Schema:
 {
   "title": "...",
   "category": "Grammar",
   "level": "${userLevel}",
   "estimatedDuration": "3 Weeks",
-  "summary": "...",
-  "milestones": [{"step": 1, "title": "...", "description": "...", "grammarPoint": "...", "sampleSentence": "...", "tokens": [{"text": "...", "lemma": "...", "pos": "NOUN", "syntaxRole": "Subject", "cefrLevel": "B1", "ipa": "/.../", "mediatorTranslation": "..."}]}],
-  "checkpointQuestions": [{"question": "...", "options": ["A", "B", "C", "D"], "correctIndex": 0, "explanation": "..."}]
+  "summary": "3-4 sentences in ${mediatorLanguage}.",
+  "milestones": [
+    { "step": 1, "title": "...", "description": "<in ${mediatorLanguage}>", "grammarPoint": "...", "sampleSentence": "...", "tokens": [{ "text": "...", "lemma": "...", "pos": "...", "syntaxRole": "...", "cefrLevel": "...", "ipa": "/.../", "mediatorTranslation": "<in ${mediatorLanguage}>" }] }
+  ],
+  "checkpointQuestions": [
+    { "question": "<in ${mediatorLanguage}>", "options": ["A","B","C","D"], "correctIndex": 0, "explanation": "<in ${mediatorLanguage}>" }
+  ]
 }`;
 
         let roadmap = null;
         const raw = await callGeminiWithResilience(prompt, null, [], true, userId);
         if (raw) {
-            try {
-                const clean = raw.replace(/^```json\s*/i, "").replace(/```$/i, "").trim();
-                roadmap = JSON.parse(clean);
-            } catch (err) { console.warn("Roadmap JSON parse:", err.message); }
+            roadmap = await repairJson(raw);
+            if (!roadmap) {
+                console.warn("[Grammar Roadmap] repairJson returned null");
+            } else if (!Array.isArray(roadmap.milestones) || roadmap.milestones.length < 3) {
+                console.warn("[Grammar Roadmap] AI roadmap has <3 milestones");
+                roadmap = null;
+            }
+        } else {
+            console.warn("[Grammar Roadmap] AI returned null");
         }
 
-        if (!roadmap || !Array.isArray(roadmap.milestones) || roadmap.milestones.length === 0) {
-            console.warn("[Grammar Roadmap] Using fallback roadmap.");
-            roadmap = getFallbackRoadmap(targetLanguage, userLevel);
+        if (!roadmap) {
+            console.warn("[Grammar Roadmap] FALLBACK activated");
+            roadmap = getFallbackRoadmap(targetLanguage, userLevel, ruleTitle || "", mediatorLanguage);
         }
+        roadmap = normalizeRoadmapShape(roadmap);
 
         if (req.query.format === 'pdf' || req.body.format === 'pdf') {
             const buffer = generateRoadmapPdfBuffer(roadmap);
@@ -4434,23 +4528,48 @@ app.post("/api/gemini/generate-roadmap", async (req, res) => {
     try {
         const { topic, level = "B1", targetLanguage = "English", mediatorLanguage = "en", customGoal = "" } = req.body;
 
-        const prompt = `Create a detailed roadmap for "${topic}" at CEFR ${level} in ${targetLanguage}.
-Mediator: ${mediatorLanguage}. Goal: ${customGoal || "General proficiency"}.
-Return JSON with title, summary, milestones, checkpointQuestions.`;
+        const prompt = `Create a detailed language learning roadmap for topic "${topic}" at CEFR ${level} in ${targetLanguage}.
+Mediator language for all explanations: ${mediatorLanguage}. Learner goal: ${customGoal || "General proficiency"}.
+
+STRICT REQUIREMENTS — INVALID if any minimum is not met:
+- milestones: MINIMUM 3 distinct steps, each with 5-8 tokens.
+- checkpointQuestions: MINIMUM 4 questions.
+- Every description, explanation, and token.mediatorTranslation MUST be in ${mediatorLanguage}.
+
+Return ONLY valid JSON. No markdown, no code fences.
+
+Schema:
+{
+  "title": "...",
+  "summary": "3-4 sentences in ${mediatorLanguage}.",
+  "milestones": [
+    { "step": 1, "title": "...", "description": "<in ${mediatorLanguage}>", "grammarPoint": "...", "sampleSentence": "...", "tokens": [{ "text": "...", "lemma": "...", "pos": "...", "syntaxRole": "...", "cefrLevel": "...", "ipa": "/.../", "mediatorTranslation": "<in ${mediatorLanguage}>" }] }
+  ],
+  "checkpointQuestions": [
+    { "question": "<in ${mediatorLanguage}>", "options": ["A","B","C","D"], "correctIndex": 0, "explanation": "<in ${mediatorLanguage}>" }
+  ]
+}`;
 
         const aiResponse = await callGeminiWithResilience(prompt);
         let roadmap = null;
         if (aiResponse) {
-            try {
-                const clean = aiResponse.replace(/```json\s*|\s*```/g, "").trim();
-                roadmap = JSON.parse(clean);
-            } catch (e) { console.error("Roadmap JSON parse:", e); }
+            roadmap = await repairJson(aiResponse);
+            if (!roadmap) {
+                console.warn("[Roadmap] repairJson returned null");
+            } else if (!Array.isArray(roadmap.milestones) || roadmap.milestones.length < 3) {
+                console.warn("[Roadmap] AI roadmap has <3 milestones");
+                roadmap = null;
+            }
+        } else {
+            console.warn("[Roadmap] AI returned null");
         }
 
-        if (!roadmap || !Array.isArray(roadmap.milestones) || roadmap.milestones.length === 0) {
-            console.warn("[Roadmap] Using fallback roadmap.");
+
+        if (!roadmap) {
+            console.warn("[Roadmap] FALLBACK activated");
             roadmap = getFallbackRoadmap(targetLanguage, level, topic, mediatorLanguage);
         }
+        roadmap = normalizeRoadmapShape(roadmap);
         res.json({ success: true, roadmap });
     } catch (error) {
         console.error("Roadmap error:", error);
@@ -4570,47 +4689,28 @@ app.post("/api/gemini/tokenize", async (req, res) => {
 // =====================================================
 // FALLBACK ROADMAP
 // =====================================================
-function getFallbackRoadmap(lang = "English", level = "B1", topic = "General", mediatorLang = "en") {
-    const langDisplay = lang.charAt(0).toUpperCase() + lang.slice(1).toLowerCase();
-    const topicDisplay = topic.charAt(0).toUpperCase() + topic.slice(1).toLowerCase();
+function getFallbackRoadmap(lang = "English", level = "B1", topic = "General", mediatorLang = "az") {
+    const langDisplay = (lang || "English").charAt(0).toUpperCase() + (lang || "English").slice(1).toLowerCase();
+    const topicDisplay = (topic || "General").charAt(0).toUpperCase() + (topic || "General").slice(1).toLowerCase();
+
+    const msg = {
+        ru: `Не удалось сгенерировать дорожную карту через AI. Попробуйте ещё раз или измените тему.`,
+        az: `AI vasitəsilə yol xəritəsi yaratmaq mümkün olmadı. Yenidən cəhd edin və ya mövzunu dəyişdirin.`,
+        tr: `AI ile yol haritası oluşturulamadı. Tekrar deneyin veya konuyu değiştirin.`,
+        en: `Could not generate roadmap via AI. Try again or rephrase the topic.`,
+        de: `Fahrplan konnte nicht über KI generiert werden. Bitte erneut versuchen.`,
+        es: `No se pudo generar la hoja de ruta mediante IA. Inténtelo de nuevo.`,
+    }[mediatorLang] || `Could not generate roadmap via AI.`;
 
     return {
-        title: `Learning Roadmap: ${topicDisplay} (${level} in ${langDisplay})`,
-        category: "Grammar", level: level || "B1",
-        estimatedDuration: "2 Weeks",
-        summary: `Structured plan to achieve ${level} proficiency in ${langDisplay} for "${topicDisplay}".`,
-        milestones: [
-            {
-                step: 1,
-                title: `Core Vocabulary & Sentence Structure for ${topicDisplay}`,
-                description: `Build foundation for ${topicDisplay}.`,
-                grammarPoint: "Subject-Verb-Object (SVO)",
-                sampleSentence: `I study ${topicDisplay} every day.`,
-                tokens: [
-                    { text: "I", lemma: "I", pos: "PRON", syntaxRole: "Subject", cefrLevel: "A1", ipa: "/aɪ/", mediatorTranslation: mediatorLang === "az" ? "mən" : mediatorLang === "ru" ? "я" : mediatorLang === "tr" ? "ben" : "I" },
-                    { text: "study", lemma: "study", pos: "VERB", syntaxRole: "Predicate", cefrLevel: "A1", ipa: "/ˈstʌdi/", mediatorTranslation: mediatorLang === "az" ? "öyrənirəm" : mediatorLang === "ru" ? "изучаю" : mediatorLang === "tr" ? "çalışıyorum" : "study" },
-                    { text: topicDisplay, lemma: topicDisplay.toLowerCase(), pos: "NOUN", syntaxRole: "Direct Object", cefrLevel: "A1", ipa: `/${topicDisplay.toLowerCase()}/`, mediatorTranslation: topicDisplay }
-                ]
-            },
-            {
-                step: 2,
-                title: `Tenses for ${topicDisplay}`,
-                description: `Understand when to use each tense.`,
-                grammarPoint: "Simple tenses (Present, Past, Future)",
-                sampleSentence: `She will explore ${topicDisplay} tomorrow.`,
-                tokens: [
-                    { text: "She", lemma: "she", pos: "PRON", syntaxRole: "Subject", cefrLevel: "A1", ipa: "/ʃiː/", mediatorTranslation: mediatorLang === "az" ? "o" : mediatorLang === "ru" ? "она" : mediatorLang === "tr" ? "o" : "she" },
-                    { text: "will", lemma: "will", pos: "AUX", syntaxRole: "Auxiliary", cefrLevel: "A1", ipa: "/wɪl/", mediatorTranslation: mediatorLang === "az" ? "—acaq" : mediatorLang === "ru" ? "будет" : mediatorLang === "tr" ? "—ecek" : "will" },
-                    { text: "explore", lemma: "explore", pos: "VERB", syntaxRole: "Main Verb", cefrLevel: "A1", ipa: "/ɪkˈsplɔːr/", mediatorTranslation: mediatorLang === "az" ? "kəşf edəcək" : mediatorLang === "ru" ? "исследует" : mediatorLang === "tr" ? "keşfedecek" : "explore" },
-                    { text: topicDisplay, lemma: topicDisplay.toLowerCase(), pos: "NOUN", syntaxRole: "Direct Object", cefrLevel: "A1", ipa: `/${topicDisplay.toLowerCase()}/`, mediatorTranslation: topicDisplay },
-                    { text: "tomorrow", lemma: "tomorrow", pos: "NOUN", syntaxRole: "Adverbial", cefrLevel: "A1", ipa: "/təˈmɒroʊ/", mediatorTranslation: mediatorLang === "az" ? "sabah" : mediatorLang === "ru" ? "завтра" : mediatorLang === "tr" ? "yarın" : "tomorrow" }
-                ]
-            }
-        ],
-        checkpointQuestions: [
-            { question: `Correct word order in English?`, options: ["SVO", "SOV", "VSO", "VOS"], correctIndex: 0, explanation: `English follows Subject-Verb-Object.` },
-            { question: `Future form?`, options: ["will + base verb", "past participle", "present continuous", "infinitive"], correctIndex: 0, explanation: "Future simple uses 'will' + base verb." }
-        ]
+        title: `${topicDisplay} (${level} • ${langDisplay})`,
+        category: "General",
+        level: level || "B1",
+        isFallback: true,
+        estimatedDuration: "—",
+        summary: msg,
+        milestones: [],
+        checkpointQuestions: []
     };
 }
 

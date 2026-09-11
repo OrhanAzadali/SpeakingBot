@@ -158,7 +158,7 @@ export const RoadmapsPage = ({
       </button>
     </div> : <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
       {filteredRoadmaps.map((roadmap, index) => {
-        const totalTokens = roadmap.milestones.reduce(
+        const totalTokens = (roadmap.milestones || []).reduce(
           (acc, m) => acc + (m.tokens?.length || 0),
           0
         );
@@ -230,7 +230,7 @@ export const RoadmapsPage = ({
                 /* Tags */
               }
               <div className="flex flex-wrap gap-1.5 mb-5">
-                {roadmap.tags.slice(0, 3).map((tag, tIdx) => <span key={tIdx} className="text-[10px] text-slate-400 bg-slate-800/40 px-2 py-0.5 rounded-md">
+                {(roadmap.tags || []).slice(0, 3).map((tag, tIdx) => <span key={tIdx} className="text-[10px] text-slate-400 bg-slate-800/40 px-2 py-0.5 rounded-md">
                   #{tag}
                 </span>)}
               </div>
@@ -259,188 +259,191 @@ export const RoadmapsPage = ({
           </div>
         </AnimatedCard>;
       })}
-    </div>}
+    </div>
+    }
 
     {
       /* Active Roadmap Detailed Inspection Modal / Drawer */
     }
-    {activeRoadmap && <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-in fade-in">
-      <div
-        className="w-full max-w-3xl max-h-[90vh] bg-slate-900 border border-slate-700 rounded-3xl shadow-2xl flex flex-col overflow-hidden"
-        onClick={(e) => e.stopPropagation()}
-      >
-        {
-          /* Modal Top Bar */
-        }
-        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-800 bg-slate-950/80">
-          <div className="flex items-center gap-3">
-            <span className={`px-2.5 py-1 rounded-lg text-xs font-black border ${getLevelBadgeClass(activeRoadmap.level)}`}>
-              {activeRoadmap.level}
-            </span>
-            <div>
-              <h2 className="text-base font-bold text-slate-100 line-clamp-1">{activeRoadmap.title}</h2>
-              <p className="text-xs text-slate-400">{activeRoadmap.category} • {activeRoadmap.estimatedDuration}</p>
+    {
+      activeRoadmap && <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-in fade-in">
+        <div
+          className="w-full max-w-3xl max-h-[90vh] bg-slate-900 border border-slate-700 rounded-3xl shadow-2xl flex flex-col overflow-hidden"
+          onClick={(e) => e.stopPropagation()}
+        >
+          {
+            /* Modal Top Bar */
+          }
+          <div className="flex items-center justify-between px-6 py-4 border-b border-slate-800 bg-slate-950/80">
+            <div className="flex items-center gap-3">
+              <span className={`px-2.5 py-1 rounded-lg text-xs font-black border ${getLevelBadgeClass(activeRoadmap.level)}`}>
+                {activeRoadmap.level}
+              </span>
+              <div>
+                <h2 className="text-base font-bold text-slate-100 line-clamp-1">{activeRoadmap.title}</h2>
+                <p className="text-xs text-slate-400">{activeRoadmap.category} • {activeRoadmap.estimatedDuration}</p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => exportRoadmapToPdf(activeRoadmap)}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs font-semibold text-slate-200 border border-slate-700 transition-colors"
+              >
+                <Download className="w-3.5 h-3.5" />
+                <span>{t("downloadPdf")}</span>
+              </button>
+              <button
+                onClick={() => setActiveRoadmap(null)}
+                className="p-1.5 rounded-xl text-slate-400 hover:text-slate-200 hover:bg-slate-800 transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
-            <button
-              onClick={() => exportRoadmapToPdf(activeRoadmap)}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs font-semibold text-slate-200 border border-slate-700 transition-colors"
-            >
-              <Download className="w-3.5 h-3.5" />
-              <span>{t("downloadPdf")}</span>
-            </button>
+          {
+            /* Modal Scrollable Content */
+          }
+          <div className="p-6 overflow-y-auto space-y-6">
+
+            {
+              /* Overview Summary */
+            }
+            <div className="p-4 rounded-2xl bg-slate-800/40 border border-slate-800 text-xs text-slate-300 leading-relaxed">
+              <p className="font-semibold text-slate-200 mb-1">Curriculum Overview:</p>
+              {activeRoadmap.summary}
+            </div>
+
+            {
+              /* Milestones Progression */
+            }
+            <div>
+              <h3 className="text-sm font-extrabold text-slate-100 mb-3 flex items-center gap-2">
+                <Layers className="w-4 h-4 text-sky-400" />
+                <span>{t("roadmapMilestones")}</span>
+              </h3>
+
+              <div className="space-y-4">
+                {(activeRoadmap.milestones || []).map((m, mIdx) => <div
+                  key={mIdx}
+                  className="p-4 rounded-2xl bg-slate-950 border border-slate-800 space-y-3"
+                >
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <span className="w-6 h-6 rounded-full bg-sky-500/20 text-sky-400 border border-sky-500/30 flex items-center justify-center text-xs font-extrabold">
+                        {m.step}
+                      </span>
+                      <h4 className="text-xs sm:text-sm font-bold text-slate-200">
+                        {m.title}
+                      </h4>
+                    </div>
+                    <span className="text-[10px] font-semibold text-emerald-400 bg-emerald-950/40 px-2 py-0.5 rounded border border-emerald-500/20 flex items-center gap-1">
+                      <CheckCircle2 className="w-3 h-3" />
+                      Core
+                    </span>
+                  </div>
+
+                  <p className="text-xs text-slate-400">{m.description}</p>
+
+                  <div className="p-2.5 rounded-xl bg-slate-900 border border-slate-800 text-xs">
+                    <span className="text-sky-400 font-semibold block mb-0.5">Grammar Rule:</span>
+                    <span className="text-slate-200">{m.grammarPoint}</span>
+                  </div>
+
+                  {
+                    /* Tokenized Interactive Sentence */
+                  }
+                  < div >
+                    <div className="flex items-center justify-between mb-1.5">
+                      <span className="text-[11px] font-bold text-slate-400">
+                        {t("interactiveLesson")}
+                      </span>
+                      <span className="text-[10px] text-sky-400">
+                        {t("clickTokenToInspect")}
+                      </span>
+                    </div>
+                    <TokenizedSentence
+                      tokens={m.tokens || []}
+                      onSelectToken={onSelectToken}
+                    />
+                  </>
+                </>)}
+              </div>
+            </div>
+
+            {
+              /* Checkpoint Quiz Questions */
+            }
+            {activeRoadmap.checkpointQuestions && activeRoadmap.checkpointQuestions.length > 0 && <div className="pt-4 border-t border-slate-800">
+              <h3 className="text-sm font-extrabold text-slate-100 mb-3 flex items-center gap-2">
+                <HelpCircle className="w-4 h-4 text-amber-400" />
+                <span>{t("takeCheckpointQuiz")}</span>
+              </h3>
+
+              <div className="space-y-3">
+                {activeRoadmap.checkpointQuestions.map((q, qIdx) => {
+                  const selectedOpt = selectedAnswers[qIdx];
+                  const isAnswered = selectedOpt !== void 0;
+                  const isCorrect = isAnswered && selectedOpt === q.correctIndex;
+                  return <div key={qIdx} className="p-4 rounded-2xl bg-slate-950/70 border border-slate-800">
+                    <p className="text-xs font-bold text-slate-200 mb-3">
+                      {qIdx + 1}. {q.question}
+                    </p>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mb-3">
+                      {q.options.map((opt, oIdx) => {
+                        let btnStyle = "bg-slate-900 border-slate-800 text-slate-300 hover:bg-slate-850";
+                        if (isAnswered) {
+                          if (oIdx === q.correctIndex) {
+                            btnStyle = "bg-emerald-950/60 border-emerald-500 text-emerald-200 font-bold";
+                          } else if (oIdx === selectedOpt) {
+                            btnStyle = "bg-rose-950/60 border-rose-500 text-rose-200";
+                          } else {
+                            btnStyle = "bg-slate-900/50 border-slate-800 text-slate-500 opacity-60";
+                          }
+                        }
+                        return <button
+                          key={oIdx}
+                          type="button"
+                          onClick={() => handleSelectOption(qIdx, oIdx)}
+                          className={`p-2.5 rounded-xl border text-xs text-left transition-all ${btnStyle}`}
+                        >
+                          {opt}
+                        </button>;
+                      })}
+                    </div>
+
+                    {showExplanation[qIdx] && <div className={`p-2.5 rounded-xl text-xs ${isCorrect ? "bg-emerald-950/40 text-emerald-300 border border-emerald-500/30" : "bg-rose-950/40 text-rose-300 border border-rose-500/30"}`}>
+                      <span className="font-bold block mb-0.5">
+                        {isCorrect ? t("correctAnswer") : t("wrongAnswer")}
+                      </span>
+                      <span className="text-slate-300">{q.explanation}</span>
+                    </div>}
+                  </div>;
+                })}
+              </div>
+            </div>}
+
+          </div>
+
+          {
+            /* Modal Bottom Bar */
+          }
+          <div className="px-6 py-4 border-t border-slate-800 bg-slate-950/80 flex items-center justify-between">
+            <span className="text-xs text-slate-400 font-mono">
+              SpeakBot Tokenized Engine • Telegram Synced
+            </span>
             <button
               onClick={() => setActiveRoadmap(null)}
-              className="p-1.5 rounded-xl text-slate-400 hover:text-slate-200 hover:bg-slate-800 transition-colors"
+              className="px-5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold transition-colors"
             >
-              <X className="w-5 h-5" />
+              {t("close")}
             </button>
           </div>
         </div>
+      </div >
+    }
 
-        {
-          /* Modal Scrollable Content */
-        }
-        <div className="p-6 overflow-y-auto space-y-6">
-
-          {
-            /* Overview Summary */
-          }
-          <div className="p-4 rounded-2xl bg-slate-800/40 border border-slate-800 text-xs text-slate-300 leading-relaxed">
-            <p className="font-semibold text-slate-200 mb-1">Curriculum Overview:</p>
-            {activeRoadmap.summary}
-          </div>
-
-          {
-            /* Milestones Progression */
-          }
-          <div>
-            <h3 className="text-sm font-extrabold text-slate-100 mb-3 flex items-center gap-2">
-              <Layers className="w-4 h-4 text-sky-400" />
-              <span>{t("roadmapMilestones")}</span>
-            </h3>
-
-            <div className="space-y-4">
-              {activeRoadmap.milestones.map((m, mIdx) => <div
-                key={mIdx}
-                className="p-4 rounded-2xl bg-slate-950 border border-slate-800 space-y-3"
-              >
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <span className="w-6 h-6 rounded-full bg-sky-500/20 text-sky-400 border border-sky-500/30 flex items-center justify-center text-xs font-extrabold">
-                      {m.step}
-                    </span>
-                    <h4 className="text-xs sm:text-sm font-bold text-slate-200">
-                      {m.title}
-                    </h4>
-                  </div>
-                  <span className="text-[10px] font-semibold text-emerald-400 bg-emerald-950/40 px-2 py-0.5 rounded border border-emerald-500/20 flex items-center gap-1">
-                    <CheckCircle2 className="w-3 h-3" />
-                    Core
-                  </span>
-                </div>
-
-                <p className="text-xs text-slate-400">{m.description}</p>
-
-                <div className="p-2.5 rounded-xl bg-slate-900 border border-slate-800 text-xs">
-                  <span className="text-sky-400 font-semibold block mb-0.5">Grammar Rule:</span>
-                  <span className="text-slate-200">{m.grammarPoint}</span>
-                </div>
-
-                {
-                  /* Tokenized Interactive Sentence */
-                }
-                <div>
-                  <div className="flex items-center justify-between mb-1.5">
-                    <span className="text-[11px] font-bold text-slate-400">
-                      {t("interactiveLesson")}
-                    </span>
-                    <span className="text-[10px] text-sky-400">
-                      {t("clickTokenToInspect")}
-                    </span>
-                  </div>
-                  <TokenizedSentence
-                    tokens={m.tokens || []}
-                    onSelectToken={onSelectToken}
-                  />
-                </div>
-              </div>)}
-            </div>
-          </div>
-
-          {
-            /* Checkpoint Quiz Questions */
-          }
-          {activeRoadmap.checkpointQuestions && activeRoadmap.checkpointQuestions.length > 0 && <div className="pt-4 border-t border-slate-800">
-            <h3 className="text-sm font-extrabold text-slate-100 mb-3 flex items-center gap-2">
-              <HelpCircle className="w-4 h-4 text-amber-400" />
-              <span>{t("takeCheckpointQuiz")}</span>
-            </h3>
-
-            <div className="space-y-3">
-              {activeRoadmap.checkpointQuestions.map((q, qIdx) => {
-                const selectedOpt = selectedAnswers[qIdx];
-                const isAnswered = selectedOpt !== void 0;
-                const isCorrect = isAnswered && selectedOpt === q.correctIndex;
-                return <div key={qIdx} className="p-4 rounded-2xl bg-slate-950/70 border border-slate-800">
-                  <p className="text-xs font-bold text-slate-200 mb-3">
-                    {qIdx + 1}. {q.question}
-                  </p>
-
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mb-3">
-                    {q.options.map((opt, oIdx) => {
-                      let btnStyle = "bg-slate-900 border-slate-800 text-slate-300 hover:bg-slate-850";
-                      if (isAnswered) {
-                        if (oIdx === q.correctIndex) {
-                          btnStyle = "bg-emerald-950/60 border-emerald-500 text-emerald-200 font-bold";
-                        } else if (oIdx === selectedOpt) {
-                          btnStyle = "bg-rose-950/60 border-rose-500 text-rose-200";
-                        } else {
-                          btnStyle = "bg-slate-900/50 border-slate-800 text-slate-500 opacity-60";
-                        }
-                      }
-                      return <button
-                        key={oIdx}
-                        type="button"
-                        onClick={() => handleSelectOption(qIdx, oIdx)}
-                        className={`p-2.5 rounded-xl border text-xs text-left transition-all ${btnStyle}`}
-                      >
-                        {opt}
-                      </button>;
-                    })}
-                  </div>
-
-                  {showExplanation[qIdx] && <div className={`p-2.5 rounded-xl text-xs ${isCorrect ? "bg-emerald-950/40 text-emerald-300 border border-emerald-500/30" : "bg-rose-950/40 text-rose-300 border border-rose-500/30"}`}>
-                    <span className="font-bold block mb-0.5">
-                      {isCorrect ? t("correctAnswer") : t("wrongAnswer")}
-                    </span>
-                    <span className="text-slate-300">{q.explanation}</span>
-                  </div>}
-                </div>;
-              })}
-            </div>
-          </div>}
-
-        </div>
-
-        {
-          /* Modal Bottom Bar */
-        }
-        <div className="px-6 py-4 border-t border-slate-800 bg-slate-950/80 flex items-center justify-between">
-          <span className="text-xs text-slate-400 font-mono">
-            SpeakBot Tokenized Engine • Telegram Synced
-          </span>
-          <button
-            onClick={() => setActiveRoadmap(null)}
-            className="px-5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold transition-colors"
-          >
-            {t("close")}
-          </button>
-        </div>
-      </div>
-    </div>}
-
-  </div>;
+  </div >;
 };

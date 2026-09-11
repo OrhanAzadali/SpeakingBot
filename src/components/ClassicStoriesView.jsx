@@ -207,12 +207,45 @@ export const ClassicStoriesView = ({
   // Combined stories pool
   const allAvailableStories = [...customStories, ...CLASSIC_STORIES];
 
-  const filteredStories = allAvailableStories.filter((story) => {
-    const matchesTarget = (story.targetLanguage || "English").toLowerCase() === (targetLanguage || "English").toLowerCase();
-    const matchesMode = filterMode === "all" || story.mode === "both" || story.mode === filterMode;
-    const matchesLevel = selectedLevel === "ALL" || story.level === selectedLevel;
-    return matchesTarget && matchesMode && matchesLevel;
-  });
+  const filteredStories = (() => {
+    // Базовый фильтр: target/mode/level
+    const base = allAvailableStories.filter((story) => {
+      const matchesTarget = (story.targetLanguage || "English").toLowerCase() === (targetLanguage || "English").toLowerCase();
+      const matchesMode = filterMode === "all" || story.mode === "both" || story.mode === filterMode;
+      const matchesLevel = selectedLevel === "ALL" || story.level === selectedLevel;
+      return matchesTarget && matchesMode && matchesLevel;
+    });
+
+    // Фильтр 1: битые PDF-fallback stories
+    const BROKEN_MARKERS = [
+      "This PDF appears to be a scanned document",
+      "AI processing was attempted but failed",
+    ];
+    const notBroken = base.filter((story) => {
+      const haystack = [
+        story.paragraphs?.[0] || "",
+        story.summary || "",
+        story.culturalLinguisticContext || "",
+      ].join(" ").toLowerCase();
+      return !BROKEN_MARKERS.some((m) => haystack.includes(m.toLowerCase()));
+    });
+
+    // Фильтр 2: dedupe по (title, author) — предпочесть того, у кого mediator совпадает
+    const byKey = new Map();
+    for (const s of notBroken) {
+      const key = `${(s.title || "").trim().toLowerCase()}|${(s.author || "").trim().toLowerCase()}`;
+      const existing = byKey.get(key);
+      if (!existing) {
+        byKey.set(key, s);
+        continue;
+      }
+      const existingMatch = existing.generatedWithMediator === mediatorLanguage;
+      const currentMatch = s.generatedWithMediator === mediatorLanguage;
+      // Заменяем существующего, если у нового перевод под текущий медиатор, а у старого — нет
+      if (currentMatch && !existingMatch) byKey.set(key, s);
+    }
+    return Array.from(byKey.values());
+  })();
 
 
   // Load custom stories and daily feeds from backend
