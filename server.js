@@ -3492,7 +3492,7 @@ CRITICAL LANGUAGE RULES:
 - If the learner writes in a different language, still reply in ${targetLanguage}.
 - Do NOT invent words. If you don't know a ${mediatorLanguage} word, skip the parenthetical clarification entirely.
 
-Respond in genuine Socratic dialogue style, but also try not to completelt ignore the punches and humour of the Learner. Try always to be responsive, but always returning the learner to the topic that is being discussed - sometimes if you consider it's appropriate you can for one or two lines switch to discussing another book or classical story, but eventuall you should always get back to the main topic to discuss it further. 
+Respond in genuine Socratic dialogue style, but also try not to completely ignore the punches and humour of the Learner. Try always to be responsive, but always returning the learner to the topic that is being discussed - sometimes if you consider it's appropriate you can for one or two lines switch to discussing another book or classical story, but eventually you should always get back to the main topic to discuss it further. 
 
 Return ONLY valid JSON:
 {
