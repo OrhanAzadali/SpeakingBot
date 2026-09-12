@@ -2717,6 +2717,7 @@ const DAILY_FEED_SLOTS = [
 async function getDailyFeedsForLanguage(targetLanguage, mediatorLanguage) {
     const cacheKey = `spk:daily_feeds:${targetLanguage}:${mediatorLanguage}`;
     const today = new Date().toISOString().split("T")[0];
+    const canonicalTarget = normalizeLanguageCanonical(targetLanguage);
 
     // ── 1. Redis ──
     if (redis) {
@@ -2725,25 +2726,37 @@ async function getDailyFeedsForLanguage(targetLanguage, mediatorLanguage) {
             if (cached) {
                 const parsed = JSON.parse(cached);
                 if (parsed.date === today && Array.isArray(parsed.feeds) && parsed.feeds.length > 0) {
-                    console.log(`[DailyFeeds] Redis cache hit for ${targetLanguage}`);
-
-                    let added = 0;
-                    for (const feed of parsed.feeds) {
-                        const isDup = autoFetchedStories.some(
-                            (s) => s.title === feed.title && s.author === feed.author
-                        );
-                        if (!isDup) {
-                            autoFetchedStories.unshift(feed);
-                            added++;
-                        }
+                    // Filter: keep only feeds matching requested language
+                    const cleanFeeds = parsed.feeds.filter(feed =>
+                        !feed.targetLanguage ||
+                        normalizeLanguageCanonical(feed.targetLanguage) === canonicalTarget
+                    );
+                    if (cleanFeeds.length !== parsed.feeds.length) {
+                        console.warn(`[DailyFeeds] Cache had ${parsed.feeds.length - cleanFeeds.length} wrong-lang feeds for ${canonicalTarget} — dropping`);
                     }
-                    if (added > 0) {
-                        saveStoriesToDisk();
-                        if (typeof saveStoriesToSupabase === "function") {
-                            saveStoriesToSupabase().catch(() => { });
+                    if (cleanFeeds.length === 0) {
+                        // Cache poisoned with wrong-language feeds — ignore it
+                        console.warn(`[DailyFeeds] Cache for ${canonicalTarget} all wrong-lang — treating as miss`);
+                    } else {
+                        console.log(`[DailyFeeds] Redis cache hit for ${canonicalTarget} (${cleanFeeds.length} feeds)`);
+                        let added = 0;
+                        for (const feed of cleanFeeds) {
+                            const isDup = autoFetchedStories.some(
+                                (s) => s.title === feed.title && s.author === feed.author
+                            );
+                            if (!isDup) {
+                                autoFetchedStories.unshift(feed);
+                                added++;
+                            }
                         }
+                        if (added > 0) {
+                            saveStoriesToDisk();
+                            if (typeof saveStoriesToSupabase === "function") {
+                                saveStoriesToSupabase().catch(() => { });
+                            }
+                        }
+                        return cleanFeeds;
                     }
-                    return parsed.feeds;
                 }
             }
         } catch (e) {
@@ -2751,21 +2764,33 @@ async function getDailyFeedsForLanguage(targetLanguage, mediatorLanguage) {
         }
     }
 
-    // ── 2. Cache miss — вернуть fallback СРАЗУ, генерацию запустить в фоне ──
+    // ── 2. Cache miss — return static fallback NOW, generate in background ──
     const fallbackFeeds = getDailyBotStoryFeeds(targetLanguage);
 
-    // Fire-and-forget: генерация в фоне, кэширование в Redis
+    // Per-language fire-and-forget lock
     if (!dailyFeedsGenerationLocks.has(cacheKey)) {
         dailyFeedsGenerationLocks.set(cacheKey, (async () => {
-            console.log(`[DailyFeeds BG] Background generation for ${targetLanguage}...`);
+            console.log(`[DailyFeeds BG] Background generation for ${canonicalTarget}...`);
             const feeds = [];
+            const seenBookIds = new Set();
             try {
                 for (const slot of DAILY_FEED_SLOTS) {
                     try {
                         const story = await fetchAndPersistGutenbergStory(
                             targetLanguage, mediatorLanguage, "B1", slot
                         );
-                        if (story) feeds.push(story);
+                        if (story) {
+                            // Dedup by gutenbergBookId within this batch
+                            const gid = story.gutenbergBookId ||
+                                (story.source || "").match(/#(\d+)/)?.[1] ||
+                                story.id;
+                            if (seenBookIds.has(gid)) {
+                                console.log(`[DailyFeeds BG] Dup skip ${gid} in slot ${slot.id}`);
+                                continue;
+                            }
+                            seenBookIds.add(gid);
+                            feeds.push(story);
+                        }
                         await new Promise(r => setTimeout(r, 500));
                     } catch (e) {
                         console.warn(`[DailyFeeds BG] Slot ${slot.id} failed:`, e.message);
@@ -2775,7 +2800,7 @@ async function getDailyFeedsForLanguage(targetLanguage, mediatorLanguage) {
                 if (feeds.length > 0 && redis) {
                     try {
                         await redis.set(cacheKey, JSON.stringify({ date: today, feeds }), 'EX', 86400);
-                        console.log(`[DailyFeeds BG] Cached ${feeds.length} feeds for ${targetLanguage}`);
+                        console.log(`[DailyFeeds BG] Cached ${feeds.length} feeds for ${canonicalTarget}`);
                     } catch (e) {
                         console.warn("[DailyFeeds BG] Redis set failed:", e.message);
                     }
@@ -2794,7 +2819,7 @@ async function getDailyFeedsForLanguage(targetLanguage, mediatorLanguage) {
                 const generated = await pending;
                 if (Array.isArray(generated) && generated.length > 0) return generated;
             } catch (e) {
-                console.warn(`[DailyFeeds] Await generation failed for ${targetLanguage}:`, e.message);
+                console.warn(`[DailyFeeds] Await generation failed for ${canonicalTarget}:`, e.message);
             }
         }
     }
@@ -2965,9 +2990,10 @@ async function fetchRandomGutenbergBook(targetLanguage = "English") {
 
 // ── Shared AI pipeline: Gutenberg raw text → full interactive story ──
 async function synthesizeStoryFromGutenberg(rawStory, targetLanguage, mediatorLanguage, userLevel = "B1") {
+    const canonicalTarget = normalizeLanguageCanonical(targetLanguage);
     const aiPrompt = `You are SpeakBot's Chief NLP Literary Pedagogical Engine.
 The user uploaded a book/story titled "${rawStory.title}" by "${rawStory.author || "Unknown"}".
-Target Language of Book: ${targetLanguage}
+Target Language of Book: ${canonicalTarget}
 User Target CEFR Level: ${userLevel}
 Mediator Language for translations & explanations: ${mediatorLanguage}
 
@@ -2977,6 +3003,28 @@ ${rawStory.excerpt}
 """
 
 Synthesize a complete, interactive Classic Story reading and audio study module based on this excerpt.
+
+═══════════════════════════════════════════════════════
+CRITICAL OUTPUT LANGUAGE RULE — READ FIRST
+═══════════════════════════════════════════════════════
+The ENTIRE output must be in ${canonicalTarget}, EXCEPT where explicitly noted below.
+- If the source excerpt is NOT in ${canonicalTarget}, TRANSLATE it fully — do not preserve the source language.
+- Do NOT mix languages. Do NOT leave any English/Greek/Turkish/other words in the ${canonicalTarget} fields unless they are proper nouns (character names, place names, book titles that have no translation).
+- If you cannot translate a term, use the ${canonicalTarget} equivalent or a natural paraphrase — never leave the source-language word bare.
+
+Fields that MUST be in ${canonicalTarget}:
+  title, authorEra, culturalLinguisticContext, paragraphs[],
+  sentences[].text, sentences[].literaryNote, keyVocabulary[].word,
+  keyVocabulary[].example, stylisticDevices[].device,
+  stylisticDevices[].exampleFromText, stylisticDevices[].explanation,
+  conversations[].topic, conversations[].prompt, conversations[].options[],
+  exercises[].question, exercises[].options[], exercises[].category.
+
+Fields that MUST be in ${mediatorLanguage}:
+  sentences[].translation, keyVocabulary[].translation,
+  conversations[].botFeedback, exercises[].explanation.
+═══════════════════════════════════════════════════════
+
 CRITICAL REQUIREMENTS:
 1. Every sentence, vocabulary word, stylistic device, conversation question, and exercise MUST be uniquely tailored to "${rawStory.title}" and this specific passage.
 2. Provide authentic, accurate translations in ${mediatorLanguage}.
@@ -2988,15 +3036,15 @@ Return ONLY valid JSON matching this schema:
 {
   "title": "${rawStory.title}",
   "author": "${rawStory.author || "Unknown"}",
-  "authorEra": "Literary Era",
+  "authorEra": "Literary Era in ${canonicalTarget}",
   "level": "${userLevel}",
   "mode": "both",
   "duration": "4 min read • 2 min audio",
-  "targetLanguage": "${targetLanguage}",
-  "culturalLinguisticContext": "2-sentence context.",
-  "paragraphs": ["Paragraph 1", "Paragraph 2"],
-  "sentences": [{"text": "Exact sentence", "translation": "Translation in ${mediatorLanguage}", "literaryNote": "Commentary", "audioTime": "0:00 - 0:08"}],
-  "keyVocabulary": [{"word": "...", "ipa": "/.../", "pos": "noun", "translation": "...", "cefr": "${userLevel}", "example": "..."}],
+  "targetLanguage": "${canonicalTarget}",
+  "culturalLinguisticContext": "2-sentence context in ${canonicalTarget}.",
+  "paragraphs": ["Paragraph 1 in ${canonicalTarget}", "Paragraph 2 in ${canonicalTarget}"],
+  "sentences": [{"text": "Exact sentence in ${canonicalTarget}", "translation": "Translation in ${mediatorLanguage}", "literaryNote": "Commentary in ${canonicalTarget}", "audioTime": "0:00 - 0:08"}],
+  "keyVocabulary": [{"word": "...", "ipa": "/.../", "pos": "noun", "translation": "...", "cefr": "${userLevel}", "example": "in ${canonicalTarget}"}],
   "stylisticDevices": [{"device": "...", "exampleFromText": "...", "explanation": "..."}],
   "conversations": [{"id": "socratic-1", "stepNumber": 1, "persona": "SpeakBot Socratic Mentor", "topic": "...", "prompt": "...", "options": ["A","B","C"], "correctIndex": 0, "botFeedback": "...", "points": 25}],
   "exercises": [{"id": "task-1", "taskNumber": 1, "category": "Comprehension", "question": "...", "options": ["A","B","C","D"], "correctIndex": 0, "explanation": "...", "points": 25}]
@@ -3015,7 +3063,6 @@ Return ONLY valid JSON matching this schema:
         console.warn("[AI Engine] Gemini полностью недоступен, пробуем OpenRouter...");
         const orResult = await callOpenRouter(aiPrompt);
         if (orResult) {
-            // OpenRouter возвращает уже распарсенный объект, а не строку JSON
             return orResult;
         }
     }
@@ -3036,22 +3083,59 @@ Return ONLY valid JSON matching this schema:
 
 // ── Fetch + synthesize + label (works for both daily slots and plain cards) ──
 async function fetchAndPersistGutenbergStory(targetLanguage, mediatorLanguage, userLevel = "B1", slotMeta = null) {
-    const rawBook = await fetchRandomGutenbergBook(targetLanguage);  // ← передаём язык
+    const canonicalTarget = normalizeLanguageCanonical(targetLanguage);
+    const latinLangs = new Set(["English", "French", "German", "Italian", "Spanish", "Portuguese", "Dutch", "Turkish", "Azerbaijani"]);
+
+    const rawBook = await fetchRandomGutenbergBook(targetLanguage);
     if (!rawBook) return null;
-    // Respect the caller's target language — skip mismatched books
+
+    // ── Guard 1: rawBook.targetLanguage matches requested ──
     if (rawBook.targetLanguage &&
-        normalizeLanguageCanonical(rawBook.targetLanguage) !== normalizeLanguageCanonical(targetLanguage)) {
+        normalizeLanguageCanonical(rawBook.targetLanguage) !== canonicalTarget) {
+        console.warn(`[AutoPersist] Reject rawBook: target=${canonicalTarget} book=${rawBook.targetLanguage} title="${rawBook.title}"`);
         return null;
     }
 
-    // Убираем проверку языка — каждый уровень уже вернул книгу на нужном языке
-    // (или пометил её как симуляцию)
+    // ── Guard 2: raw source content script matches target ──
+    if (latinLangs.has(canonicalTarget)) {
+        const rawSample = ((rawBook.content || rawBook.excerpt || "") + " " + (rawBook.title || "")).slice(0, 3000);
+        const greek = (rawSample.match(/[\u0370-\u03FF\u1F00-\u1FFF]/g) || []).length;
+        const cyr = (rawSample.match(/[\u0400-\u04FF]/g) || []).length;
+        const lat = (rawSample.match(/[A-Za-z]/g) || []).length;
+        if (greek > Math.max(10, lat * 0.3) || cyr > Math.max(10, lat * 0.3)) {
+            console.warn(`[AutoPersist] Reject raw content: target=${canonicalTarget} greek=${greek} cyr=${cyr} lat=${lat} title="${rawBook.title}"`);
+            return null;
+        }
+    }
+
     const storyData = await synthesizeStoryFromGutenberg(rawBook, targetLanguage, mediatorLanguage, userLevel);
+    if (!storyData) return null;
+
+    // ── Guard 3: AI output script matches target ──
+    if (latinLangs.has(canonicalTarget)) {
+        const outSample = [
+            storyData.title || "",
+            storyData.authorEra || "",
+            storyData.culturalLinguisticContext || "",
+            ...(storyData.paragraphs || []).slice(0, 3),
+            ...(storyData.sentences || []).slice(0, 3).map(s => s.text || ""),
+        ].join(" ");
+        const greek = (outSample.match(/[\u0370-\u03FF\u1F00-\u1FFF]/g) || []).length;
+        const cyr = (outSample.match(/[\u0400-\u04FF]/g) || []).length;
+        if (greek > 5 || cyr > 5) {
+            console.warn(`[AutoPersist] Reject AI output: target=${canonicalTarget} greek=${greek} cyr=${cyr} title="${storyData.title}"`);
+            return null;
+        }
+    }
+
+    const gutenbergBookId = ((rawBook.source || "").match(/#(\d+)/)?.[1]) || rawBook.gutenbergId || rawBook.id || null;
+
     const story = {
         ...storyData,
         id: slotMeta ? `daily-${slotMeta.id}-${Date.now()}` : `auto-${Date.now()}`,
-        targetLanguage: normalizeLanguageCanonical(targetLanguage),
+        targetLanguage: canonicalTarget,
         sourceBook: `Project Gutenberg • ${rawBook.title}`,
+        gutenbergBookId,
         isAutoFetched: true,
         createdAt: new Date().toISOString(),
     };
@@ -3061,13 +3145,18 @@ async function fetchAndPersistGutenbergStory(targetLanguage, mediatorLanguage, u
         story.slotEmoji = slotMeta.emoji;
         story.isDailyBotFeed = true;
     }
-    // ── Persist to in-memory list so it appears in the classic cards grid ──
-    const isDuplicate = autoFetchedStories.some(
-        (s) => s.title === story.title && s.author === story.author
-    );
+
+    // ── Dedup by gutenbergBookId first, then by title+author+lang ──
+    const isDuplicate = autoFetchedStories.some((s) => {
+        if (gutenbergBookId && s.gutenbergBookId && s.gutenbergBookId === gutenbergBookId) return true;
+        if (s.title === story.title &&
+            s.author === story.author &&
+            normalizeLanguageCanonical(s.targetLanguage || "") === canonicalTarget) return true;
+        return false;
+    });
+
     if (!isDuplicate) {
         autoFetchedStories.unshift(story);
-        // Ограничиваем рост — не более 50 auto-историй
         if (autoFetchedStories.length > 50) {
             autoFetchedStories = autoFetchedStories.slice(0, 50);
         }
@@ -3080,7 +3169,6 @@ async function fetchAndPersistGutenbergStory(targetLanguage, mediatorLanguage, u
 
     return story;
 }
-
 /**
  * Уровень 2 — Open Library API.
  * Встроенная сортировка sort=random.
