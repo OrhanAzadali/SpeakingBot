@@ -62,17 +62,22 @@ export const SavedVocabularyPage = ({
 
   // Ensure we get words for the currently selected language tab
   const activeLangWords = useMemo(() => {
-    if (activeLangTab === currentTargetLang && savedVocabulary && savedVocabulary.length > 0) {
-      return savedVocabulary;
+    // 1. allVocabularies — источник истины per-language. Приходит с сервера вместе с countsByLanguage.
+    //    Если ключ для языка ЕСТЬ (даже если это пустой массив []) — используем его без исключений.
+    if (allVocabularies && Object.prototype.hasOwnProperty.call(allVocabularies, activeLangTab)) {
+      const list = allVocabularies[activeLangTab];
+      if (Array.isArray(list)) return list;
     }
-    if (allVocabularies[activeLangTab] && Array.isArray(allVocabularies[activeLangTab])) {
-      return allVocabularies[activeLangTab];
+    // 2. Если для языка ключа нет вовсе, но это активный target language —
+    //    отдаём savedVocabulary (единственный язык, для которого App.jsx держит данные в state).
+    if (activeLangTab === currentTargetLang) {
+      return Array.isArray(savedVocabulary) ? savedVocabulary : [];
     }
-    return savedVocabulary.filter(
+    // 3. Финальный fallback — фильтр по targetLanguage.
+    return (Array.isArray(savedVocabulary) ? savedVocabulary : []).filter(
       (v) => (v.targetLanguage || "English").toLowerCase() === activeLangTab.toLowerCase()
     );
   }, [activeLangTab, currentTargetLang, savedVocabulary, allVocabularies]);
-
   // Filtered & Sorted vocabulary list
   const filteredWords = useMemo(() => {
     return activeLangWords
@@ -335,7 +340,9 @@ export const SavedVocabularyPage = ({
       <div className="flex items-center gap-2 overflow-x-auto pb-2 scrollbar-none">
         {TARGET_LANGUAGES.map((lang) => {
           const isActive = activeLangTab.toLowerCase() === lang.name.toLowerCase();
-          const wordCount = countsByLanguage[lang.name] || allVocabularies[lang.name]?.length || (lang.name === currentTargetLang ? savedVocabulary.length : 0);
+          const wordCount = (countsByLanguage && typeof countsByLanguage[lang.name] === "number")
+            ? countsByLanguage[lang.name]
+            : (Array.isArray(allVocabularies?.[lang.name]) ? allVocabularies[lang.name].length : 0);
           return (
             <button
               key={lang.id}

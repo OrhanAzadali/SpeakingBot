@@ -211,7 +211,11 @@ function MainApp() {
       }
     };
     fetchProfile();
+  }, []);
 
+  // Реактивная перезагрузка словаря при смене активного targetLanguage.
+  // Без этого savedVocabulary/savedVocabulary.allVocabularies содержат данные СТАРОГО языка.
+  useEffect(() => {
     const fetchVocab = async () => {
       try {
         const res = await fetch(`/api/user/vocabulary?targetLanguage=${encodeURIComponent(userProfile.targetLanguage || "English")}`);
@@ -234,7 +238,7 @@ function MainApp() {
       }
     };
     fetchVocab();
-  }, []);
+  }, [userProfile.targetLanguage]);
 
   const handleSaveToVocabulary = async (termObj) => {
     if (!termObj || !termObj.word) return;
