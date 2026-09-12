@@ -1746,7 +1746,29 @@ function cleanExtractedPdfText(text) {
 // ═══════════════════════════════════════════════════════════════
 // JSON REPAIR — исправляет типичные огрехи AI при генерации
 // ═══════════════════════════════════════════════════════════════
-
+function looksLikeAiRefusal(text) {
+    if (!text || typeof text !== "string") return false;
+    // Отказ обычно короткий (<600 символов) и содержит маркеры
+    if (text.length > 800) return false;
+    const lower = text.toLowerCase();
+    const markers = [
+        "i cannot extract",
+        "i can't extract",
+        "i'm unable to extract",
+        "i am unable to extract",
+        "i cannot provide",
+        "i can't provide",
+        "i cannot reproduce",
+        "i can't reproduce",
+        "i would be happy to provide a summary",
+        "i'm not able to",
+        "due to copyright",
+        "copyright restrictions",
+        "copyrighted material",
+        "respect intellectual property",
+    ];
+    return markers.some((m) => lower.includes(m));
+}
 async function repairJson(rawText) {
     if (!rawText || typeof rawText !== "string") return null;
 
@@ -1898,6 +1920,10 @@ async function extractTextFromPdfWithGeminiOCR(buffer, userId = null) {
 
             const elapsed = Date.now() - startTime;
             const text = response?.text || '';
+            if (looksLikeAiRefusal(text)) {
+                console.warn(`[OCR] ${model} refused (copyright?), skip`);
+                continue;
+            }
             if (text.length > 50) {
                 console.log(`[OCR] ${model} extracted ${text.length} chars in ${elapsed}ms`);
                 return text;
@@ -3492,10 +3518,26 @@ Return ONLY valid JSON matching:
         let parsedStory = null;
         const rawAiResponse = await callGeminiWithResilience(aiPrompt, null, [], true, userId);
 
+        // Проверка на отказ AI от copyrighted material
+        if (rawAiResponse && looksLikeAiRefusal(rawAiResponse)) {
+            console.warn("[PDF Engine] AI refused (likely copyright)");
+            return res.status(400).json({
+                success: false,
+                error: "AI отказался обрабатывать эту книгу. Вероятная причина — произведение защищено авторским правом. Загрузите .txt-файл, вставьте excerpt вручную или используйте книгу в public domain (Project Gutenberg)."
+            });
+        }
+
         if (!rawAiResponse) {
             // OpenRouter fallback
             const openRouterResponse = await callOpenRouter(aiPrompt);
             if (openRouterResponse) {
+                if (looksLikeAiRefusal(openRouterResponse)) {
+                    console.warn("[PDF Engine] OpenRouter refused (likely copyright)");
+                    return res.status(400).json({
+                        success: false,
+                        error: "AI отказался обрабатывать эту книгу. Вероятная причина — произведение защищено авторским правом. Используйте public-domain или .txt."
+                    });
+                }
                 parsedStory = repairJson(openRouterResponse);
             }
         } else {
@@ -3506,14 +3548,22 @@ Return ONLY valid JSON matching:
         }
 
         if (!parsedStory || !parsedStory.sentences || parsedStory.sentences.length === 0) {
+            if (isTextScannedOrEmpty) {
+                // Не создавать fake-story, честно сказать пользователю
+                console.warn(`[PDF Engine] No extractable text and no AI content for "${resolvedTitle}"`);
+                return res.status(400).json({
+                    success: false,
+                    error: "Не удалось извлечь текст из PDF. Попробуйте: (1) .txt-файл, (2) вставьте excerpt вручную, (3) убедитесь что PDF не защищён и не сканированный."
+                });
+            }
+            // Если текст был, но AI не справился — оставляем fallback story
             console.log(`[PDF Engine] Using dynamic fallback for "${resolvedTitle}"`);
             parsedStory = generateLocalFallbackStory({
                 bookTitle: resolvedTitle, author: resolvedAuthor, authorEra: resolvedEra,
                 canonKey: meta.canonKey, targetLanguage, mediatorLanguage, userLevel,
-                excerptSlice, isSimulated: isTextScannedOrEmpty
+                excerptSlice, isSimulated: false
             });
         }
-
         if (Array.isArray(parsedStory.conversations)) {
             parsedStory.conversations = parsedStory.conversations.map((c, idx) => ({
                 id: c.id || `socratic-${idx + 1}`,
