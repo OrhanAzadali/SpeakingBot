@@ -3179,11 +3179,11 @@ async function fetchAndPersistGutenbergStory(targetLanguage, mediatorLanguage, u
     }
 
     // ── Dedup by gutenbergBookId first, then by title+author+lang ──
+    const normTitle = (t) => (t || "").trim().toLowerCase().replace(/[^\p{L}\p{N} ]/gu, "");
     const isDuplicate = autoFetchedStories.some((s) => {
         if (gutenbergBookId && s.gutenbergBookId && s.gutenbergBookId === gutenbergBookId) return true;
-        if (s.title === story.title &&
-            s.author === story.author &&
-            normalizeLanguageCanonical(s.targetLanguage || "") === canonicalTarget) return true;
+        if (normalizeLanguageCanonical(s.targetLanguage || "") !== canonicalTarget) return false;
+        if (normTitle(s.title) === normTitle(story.title)) return true;
         return false;
     });
 
@@ -4114,8 +4114,7 @@ app.get("/api/stories/custom-list", async (req, res) => {
             console.log(`[Stories] Empty list for ${canonicalTarget} — triggering on-demand Gutenberg fetch...`);
             const fresh = await fetchAndPersistGutenbergStory(canonicalTarget, mediatorLanguage, "B1");
             if (fresh) {
-                autoFetchedStories.unshift(fresh);
-                saveStoriesToDisk();          // persists locally + mirrors to Supabase
+                // fetchAndPersistGutenbergStory already did unshift + saveStoriesToDisk
                 combined.push(fresh);
                 console.log(`[Stories] On-demand added: "${fresh.title}"`);
             }
@@ -5080,20 +5079,25 @@ Schema:
     { "instruction": "...", "question": "...", "options": ["A","B","C","D"], "correctIndex": 0, "explanation": "<in ${mediatorLanguage}>" }
   ]
 }`;
-
         let guide = null;
 
-        const raw = await callGeminiWithResilience(prompt, null, [], true, userId);
-        if (raw) {
-            guide = await repairJson(raw);
-            if (!guide) {
-                console.warn("[Grammar Guide] repairJson returned null");
-            } else if (!Array.isArray(guide.coreRules) || guide.coreRules.length === 0) {
-                console.warn("[Grammar Guide] AI guide has no coreRules");
-                guide = null;
+        for (let attempt = 1; attempt <= 3 && !guide; attempt++) {
+            const raw = await callGeminiWithResilience(prompt, null, [], true, userId);
+            if (!raw) {
+                console.warn(`[Grammar Guide] AI returned null (attempt ${attempt}/3)`);
+                continue;
             }
-        } else {
-            console.warn("[Grammar Guide] AI returned null");
+            const candidate = await repairJson(raw);
+            if (!candidate) {
+                console.warn(`[Grammar Guide] repairJson returned null (attempt ${attempt}/3)`);
+                continue;
+            }
+            if (!Array.isArray(candidate.coreRules) || candidate.coreRules.length === 0) {
+                console.warn(`[Grammar Guide] AI guide has no coreRules (attempt ${attempt}/3)`);
+                continue;
+            }
+            guide = candidate;
+            break;
         }
 
         if (!guide) {
