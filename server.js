@@ -4135,14 +4135,16 @@ app.get("/api/stories/custom-list", async (req, res) => {
         if (Array.isArray(dailyFeeds) && dailyFeeds.length > 0) {
             let added = 0;
             for (const feed of dailyFeeds) {
-                if (feed.targetLanguage && normalizeLanguageCanonical(feed.targetLanguage) !== canonicalTarget) {
-                    const isDup = autoFetchedStories.some(
-                        (s) => s.title === feed.title && s.author === feed.author
-                    );
-                    if (!isDup) {
-                        autoFetchedStories.unshift(feed);
-                        added++;
-                    }
+                if (!feed.targetLanguage ||
+                    normalizeLanguageCanonical(feed.targetLanguage) !== canonicalTarget) {
+                    continue;
+                }
+                const isDup = autoFetchedStories.some(
+                    (s) => s.title === feed.title && s.author === feed.author
+                );
+                if (!isDup) {
+                    autoFetchedStories.unshift(feed);
+                    added++;
                 }
             }
             if (autoFetchedStories.length > 50) {
@@ -4165,8 +4167,25 @@ app.get("/api/stories/custom-list", async (req, res) => {
                 }
             }
         }
-
-        res.json({ success: true, customStories: combined, dailyFeeds });
+        // Final dedup — защита от double-insert через userStories + autoStories
+        const seenIds = new Set();
+        const seenTitles = new Set();
+        const deduped = [];
+        for (const s of combined) {
+            const idKey = s.id || "";
+            const titleKey = ((s.title || "").trim().toLowerCase() + "|" +
+                (s.author || "").trim().toLowerCase() + "|" +
+                normalizeLanguageCanonical(s.targetLanguage || ""));
+            if (idKey && seenIds.has(idKey)) continue;
+            if (seenTitles.has(titleKey)) continue;
+            if (idKey) seenIds.add(idKey);
+            seenTitles.add(titleKey);
+            deduped.push(s);
+        }
+        if (deduped.length !== combined.length) {
+            console.log(`[Stories] Deduped combined: ${combined.length} → ${deduped.length}`);
+        }
+        res.json({ success: true, customStories: deduped, dailyFeeds });
     } catch (err) {
         console.error("[Stories/custom-list] Error:", err);
         const canonicalTarget = normalizeLanguageCanonical(req.query.targetLanguage || "English");
