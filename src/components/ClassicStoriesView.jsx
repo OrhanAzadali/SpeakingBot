@@ -208,8 +208,16 @@ export const ClassicStoriesView = ({
   const allAvailableStories = [...customStories, ...CLASSIC_STORIES];
 
   const filteredStories = (() => {
+    // Фильтр 0: заглушки-симуляции
+    const PLACEHOLDER_TITLES = new Set(["classic literature", "classic author"]);
+    const noPlaceholders = allAvailableStories.filter((s) => {
+      const t = (s.title || "").trim().toLowerCase();
+      const a = (s.author || "").trim().toLowerCase();
+      return !PLACEHOLDER_TITLES.has(t) && !PLACEHOLDER_TITLES.has(a);
+    });
+
     // Базовый фильтр: target/mode/level
-    const base = allAvailableStories.filter((story) => {
+    const base = noPlaceholders.filter((story) => {
       const matchesTarget = (story.targetLanguage || "English").toLowerCase() === (targetLanguage || "English").toLowerCase();
       const matchesMode = filterMode === "all" || story.mode === "both" || story.mode === filterMode;
       const matchesLevel = selectedLevel === "ALL" || story.level === selectedLevel;
@@ -241,12 +249,10 @@ export const ClassicStoriesView = ({
       }
       const existingMatch = existing.generatedWithMediator === mediatorLanguage;
       const currentMatch = s.generatedWithMediator === mediatorLanguage;
-      // Заменяем существующего, если у нового перевод под текущий медиатор, а у старого — нет
       if (currentMatch && !existingMatch) byKey.set(key, s);
     }
     return Array.from(byKey.values());
   })();
-
 
   // Load custom stories and daily feeds from backend
   const loadCustomStoriesAndFeeds = async () => {
