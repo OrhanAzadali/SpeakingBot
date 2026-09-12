@@ -1809,7 +1809,7 @@ async function repairJson(rawText) {
         }
     } catch (e4) { /* ignore */ }
 
-    console.warn("[JSON Repair] Не удалось восстановить JSON:", e2.message);
+    console.warn("[JSON Repair] Не удалось восстановить JSON");
     return null;
 }
 function normalizeRoadmapShape(roadmap) {
@@ -1867,49 +1867,46 @@ async function extractTextFromPdfWithGeminiOCR(buffer, userId = null) {
     const base64Pdf = buffer.toString('base64');
 
     // Приоритетные мультимодальные модели (актуальные на 2026-09)
-    const preferred = [
-        'gemini-3.6-flash',
-        'gemini-3.5-flash',
-        'gemini-2.5-flash',
-        'gemini-2.5-pro',
-    ];
+    // Только 2 модели, каждая с 25-секундным таймаутом — иначе ждём минуты
+    const modelsToTry = ['gemini-3.6-flash', 'gemini-3.5-flash'];
 
-    // Плюс всё что нашёл discovery (на случай если Google переименует)
-    const discovered = await discoverAvailableGeminiModels().catch(() => []);
+    // Запрашиваем только начало — нам нужен excerpt, не вся книга.
+    // Это критично: 4MB сканированная книга содержит ~300k слов,
+    // Gemini не вернёт их в одном ответе.
+    const ocrPrompt = 'Extract the FIRST 1500 WORDS of visible text from the beginning of this PDF. Preserve paragraph breaks. Return ONLY the extracted text — no commentary, no summary, no markdown.';
 
-    // Убираем дубликаты, сохраняем порядок
-    const modelsToTry = [...new Set([...preferred, ...discovered])];
-
-    const ocrPrompt = 'Extract ALL visible text from this PDF exactly as it appears. Preserve paragraph breaks. Return ONLY the extracted text — no commentary, no summary, no markdown fences.';
+    const OCR_TIMEOUT_MS = 25000;
 
     for (const model of modelsToTry) {
         try {
-            console.log(`[OCR] Trying ${model}...`);
-            const response = await ai.models.generateContent({
-                model,
-                contents: [{
-                    role: 'user',
-                    parts: [
-                        { text: ocrPrompt },
-                        { inlineData: { mimeType: 'application/pdf', data: base64Pdf } }
-                    ]
-                }]
-            });
+            console.log(`[OCR] Trying ${model} (timeout ${OCR_TIMEOUT_MS}ms)...`);
+            const startTime = Date.now();
 
+            const response = await Promise.race([
+                ai.models.generateContent({
+                    model,
+                    contents: [{
+                        role: 'user',
+                        parts: [
+                            { text: ocrPrompt },
+                            { inlineData: { mimeType: 'application/pdf', data: base64Pdf } }
+                        ]
+                    }]
+                }),
+                new Promise((_, rej) => setTimeout(() => rej(new Error('OCR_TIMEOUT')), OCR_TIMEOUT_MS))
+            ]);
+
+            const elapsed = Date.now() - startTime;
             const text = response?.text || '';
             if (text.length > 50) {
-                console.log(`[OCR] ${model} extracted ${text.length} chars`);
+                console.log(`[OCR] ${model} extracted ${text.length} chars in ${elapsed}ms`);
                 return text;
             }
-            console.warn(`[OCR] ${model} returned ${text.length} chars, trying next`);
+            console.warn(`[OCR] ${model} returned ${text.length} chars in ${elapsed}ms, trying next`);
         } catch (e) {
             const msg = e?.message || String(e);
-            if (msg.includes('404') || msg.includes('not found') || msg.includes('no longer available')) {
-                console.warn(`[OCR] ${model} deprecated, skip`);
-                continue;
-            }
-            if (msg.includes('429') || msg.includes('quota')) {
-                console.warn(`[OCR] ${model} quota exceeded, skip`);
+            if (msg === 'OCR_TIMEOUT') {
+                console.warn(`[OCR] ${model} timeout after ${OCR_TIMEOUT_MS}ms`);
                 continue;
             }
             console.warn(`[OCR] ${model} failed: ${msg.slice(0, 120)}`);
@@ -4369,9 +4366,18 @@ app.post("/api/user/vocabulary", (req, res) => {
     }
 
     saveUsersToDisk();
+
+    const countsByLanguage = {};
+    Object.keys(user.vocabularyByLanguage).forEach((lang) => {
+        countsByLanguage[lang] = user.vocabularyByLanguage[lang].length;
+    });
+
     res.json({
-        success: true, message: `Added "${word}" to ${targetLanguage} vocabulary.`,
-        data: user.vocabularyByLanguage[targetLanguage]
+        success: true,
+        message: `Added "${word}" to ${targetLanguage} vocabulary.`,
+        data: user.vocabularyByLanguage[targetLanguage],
+        allVocabularies: user.vocabularyByLanguage,
+        countsByLanguage
     });
 });
 
@@ -4386,7 +4392,19 @@ app.delete("/api/user/vocabulary", (req, res) => {
         (item) => item.id !== wordId && item.word.toLowerCase() !== (word || "").toLowerCase()
     );
     saveUsersToDisk();
-    res.json({ success: true, message: "Deleted.", data: user.vocabularyByLanguage[targetLanguage] });
+
+    const countsByLanguage = {};
+    Object.keys(user.vocabularyByLanguage).forEach((lang) => {
+        countsByLanguage[lang] = user.vocabularyByLanguage[lang].length;
+    });
+
+    res.json({
+        success: true,
+        message: "Deleted.",
+        data: user.vocabularyByLanguage[targetLanguage],
+        allVocabularies: user.vocabularyByLanguage,
+        countsByLanguage
+    });
 });
 
 // =====================================================

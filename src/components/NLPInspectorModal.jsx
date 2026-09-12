@@ -2,10 +2,14 @@ import { useTranslation } from "../i18n/useTranslation";
 import { Volume2, Sparkles, BookOpen, Layers, X, Bookmark } from "lucide-react";
 import { SaveToVocabButton } from "./SaveToVocabButton";
 
-export const NLPInspectorModal = ({ token, onClose, targetLanguage = "English", onSaveToVocabulary }) => {
+export const NLPInspectorModal = ({ token, onClose, targetLanguage = "English", onSaveToVocabulary, savedVocabulary = [] }) => {
   const { t } = useTranslation();
   if (!token) return null;
 
+  const tokenWord = (token.text || token.lemma || "").toLowerCase().trim();
+  const isTokenSaved = savedVocabulary.some((v) =>
+    (v.word || "").toLowerCase().trim() === tokenWord
+  );
   const getLanguageSpeechCode = (lang) => {
     switch ((lang || "").toLowerCase()) {
       case "german":
@@ -188,6 +192,7 @@ export const NLPInspectorModal = ({ token, onClose, targetLanguage = "English", 
               ipa={token.ipa || ""}
               label={`Save to ${token.targetLanguage || targetLanguage} Lexicon`}
               onSave={onSaveToVocabulary}
+              isSaved={isTokenSaved}
             />
           ) : <div />}
           <button

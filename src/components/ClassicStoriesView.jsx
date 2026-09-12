@@ -576,11 +576,15 @@ export const ClassicStoriesView = ({
       setUploadError(`Файл слишком большой (${(pdfFile.size / 1024 / 1024).toFixed(1)} MB). Максимум 25 MB.`);
       return;
     }
+
     setIsUploadingPdf(true);
 
     try {
+      // 1. Готовим base64 и имя файла
       let fileBase64 = null;
-      let fileName = pdfFile ? pdfFile.name : `${pdfBookTitle || "Custom Book"}.txt`;
+      const fileName = pdfFile
+        ? pdfFile.name
+        : `${pdfBookTitle || "Custom Book"}.txt`;
 
       if (pdfFile) {
         fileBase64 = await new Promise((resolve, reject) => {
@@ -591,22 +595,33 @@ export const ClassicStoriesView = ({
         });
       }
 
-      const res = await fetch("/api/stories/upload-pdf-book", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          userId: "default-user",
-          fileBase64,
-          fileText: customExcerptText,
-          fileName,
-          bookTitle: pdfBookTitle || fileName.replace(/\.[^/.]+$/, ""),
-          author: pdfAuthor || "Classic Author",
-          targetLanguage,
-          mediatorLanguage,
-          userLevel: pdfLevel
-        })
-      });
+      // 2. Fetch с 70-секундным таймаутом
+      const uploadController = new AbortController();
+      const uploadTimeoutId = setTimeout(() => uploadController.abort(), 70000);
 
+      let res;
+      try {
+        res = await fetch("/api/stories/upload-pdf-book", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          signal: uploadController.signal,
+          body: JSON.stringify({
+            userId: "default-user",
+            fileBase64,
+            fileText: customExcerptText,
+            fileName,
+            bookTitle: pdfBookTitle || fileName.replace(/\.[^/.]+$/, ""),
+            author: pdfAuthor || "Classic Author",
+            targetLanguage,
+            mediatorLanguage,
+            userLevel: pdfLevel
+          })
+        });
+      } finally {
+        clearTimeout(uploadTimeoutId);
+      }
+
+      // 3. Читаем ответ
       const rawText = await res.text();
       let data;
       try {
@@ -634,7 +649,11 @@ export const ClassicStoriesView = ({
       }, 1000);
     } catch (err) {
       console.error("PDF upload error:", err);
-      setUploadError(err.message || "Failed to process PDF book.");
+      if (err.name === "AbortError") {
+        setUploadError("Обработка заняла больше 70 секунд. Попробуйте PDF меньшего размера или загрузите .txt-файл.");
+      } else {
+        setUploadError(err.message || "Failed to process PDF book.");
+      }
     } finally {
       setIsUploadingPdf(false);
     }

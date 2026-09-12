@@ -653,6 +653,7 @@ function MainApp() {
         onClose={() => setInspectedToken(null)}
         targetLanguage={userProfile.targetLanguage}
         onSaveToVocabulary={handleSaveToVocabulary}
+        savedVocabulary={savedVocabulary}
       />
 
     </div>
