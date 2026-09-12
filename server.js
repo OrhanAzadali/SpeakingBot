@@ -1232,6 +1232,43 @@ const syncedUsersDatabase = {
     }
 };
 
+// ═══ LEVEL TRACKING PER TARGET LANGUAGE ═══
+// currentLevel / overallScore / skillScores / testHistory в user — ЗЕРКАЛА активного targetLanguage.
+// Реальные данные — в user.levelsByLanguage[targetLanguage].
+// При смене targetLanguage зеркала пересчитываются из levelsByLanguage.
+// Если для языка данных нет — язык считается «не оценён» и получает baseline (A1, 0, 50-е навыки).
+const DEFAULT_SKILL_SCORES = { grammar: 50, vocabulary: 50, listening: 50, reading: 50, speaking: 50 };
+const DEFAULT_LEVEL = "A1";
+
+function ensureLevelsByLanguage(user) {
+    if (!user.levelsByLanguage) user.levelsByLanguage = {};
+    const activeLang = user.targetLanguage || "English";
+    if (!user.levelsByLanguage[activeLang]) {
+        // Миграция: при первом обращении «поднимаем» текущие зеркала в per-language storage.
+        user.levelsByLanguage[activeLang] = {
+            currentLevel: user.currentLevel || DEFAULT_LEVEL,
+            overallScore: typeof user.overallScore === "number" ? user.overallScore : 0,
+            skillScores: user.skillScores ? { ...user.skillScores } : { ...DEFAULT_SKILL_SCORES },
+            testHistory: Array.isArray(user.testHistory) ? [...user.testHistory] : []
+        };
+    }
+    return user.levelsByLanguage[activeLang];
+}
+
+function applyLevelsToMirrors(user, lang) {
+    const data = user.levelsByLanguage?.[lang];
+    if (!data) return;
+    user.currentLevel = data.currentLevel;
+    user.overallScore = data.overallScore;
+    user.skillScores = data.skillScores;
+    user.testHistory = data.testHistory;
+}
+
+// Миграция default-user при старте процесса
+(function migrateDefaultUser() {
+    const defUser = syncedUsersDatabase["default-user"];
+    if (defUser) ensureLevelsByLanguage(defUser);
+})();
 const USERS_FILE = path.join(process.cwd(), "data", "users.json");
 const ROADMAPS_FILE = path.join(process.cwd(), "data", "roadmaps.json");
 const GRAMMAR_GUIDES_FILE = path.join(process.cwd(), "data", "grammar_guides.json");
@@ -4026,9 +4063,13 @@ app.post("/api/stories/progress", (req, res) => {
 app.get("/api/user/profile", (req, res) => {
     const userId = String(req.query.userId || "default-user");
     if (!syncedUsersDatabase[userId]) {
-        syncedUsersDatabase[userId] = { ...syncedUsersDatabase["default-user"], userId };
+        syncedUsersDatabase[userId] = JSON.parse(JSON.stringify(syncedUsersDatabase["default-user"]));
+        syncedUsersDatabase[userId].userId = userId;
     }
-    res.json({ success: true, data: syncedUsersDatabase[userId] });
+    const user = syncedUsersDatabase[userId];
+    ensureLevelsByLanguage(user);
+    applyLevelsToMirrors(user, user.targetLanguage || "English");
+    res.json({ success: true, data: user });
 });
 
 app.post("/api/user/mediator-language", (req, res) => {
@@ -4044,16 +4085,32 @@ app.post("/api/user/mediator-language", (req, res) => {
 });
 
 app.post("/api/user/target-language", (req, res) => {
-    const { userId = "default-user", targetLanguage = "English" } = req.body;
+    const userId = String(req.body.userId || "default-user");
+    const targetLanguage = String(req.body.targetLanguage || "English");
+
     if (!syncedUsersDatabase[userId]) {
         syncedUsersDatabase[userId] = JSON.parse(JSON.stringify(syncedUsersDatabase["default-user"]));
         syncedUsersDatabase[userId].userId = userId;
     }
-    syncedUsersDatabase[userId].targetLanguage = targetLanguage;
-    saveUsersToDisk();
-    res.json({ success: true, targetLanguage });
-});
+    const user = syncedUsersDatabase[userId];
 
+    ensureLevelsByLanguage(user);
+    user.targetLanguage = targetLanguage;
+
+    if (!user.levelsByLanguage[targetLanguage]) {
+        user.levelsByLanguage[targetLanguage] = {
+            currentLevel: DEFAULT_LEVEL,
+            overallScore: 0,
+            skillScores: { ...DEFAULT_SKILL_SCORES },
+            testHistory: []
+        };
+    }
+
+    applyLevelsToMirrors(user, targetLanguage);
+
+    saveUsersToDisk();
+    res.json({ success: true, targetLanguage, data: user });
+});
 
 // ═══════════════════════════════════════════════════════════════
 // BYOK — API ENDPOINTS ДЛЯ УПРАВЛЕНИЯ ПОЛЬЗОВАТЕЛЬСКИМИ КЛЮЧАМИ
@@ -4507,57 +4564,95 @@ app.delete("/api/user/vocabulary", (req, res) => {
 // ROUTE: TESTS
 // =====================================================
 app.post("/api/user/level-test", (req, res) => {
-    const { userId = "default-user", targetLanguage = "English", score = 80 } = req.body;
+    const userId = String(req.body.userId || "default-user");
+    const score = typeof req.body.score === "number" ? req.body.score : 80;
+
     if (!syncedUsersDatabase[userId]) {
         syncedUsersDatabase[userId] = JSON.parse(JSON.stringify(syncedUsersDatabase["default-user"]));
         syncedUsersDatabase[userId].userId = userId;
     }
+
     let assessedLevel = "B1";
     if (score >= 90) assessedLevel = "C1";
     else if (score >= 75) assessedLevel = "B2";
     else if (score >= 55) assessedLevel = "B1";
     else if (score >= 35) assessedLevel = "A2";
     else assessedLevel = "A1";
-    syncedUsersDatabase[userId].currentLevel = assessedLevel;
-    syncedUsersDatabase[userId].overallScore = score;
-    syncedUsersDatabase[userId].lastTestScore = score;
-    syncedUsersDatabase[userId].lastTestedAt = new Date().toISOString();
-    if (!Array.isArray(syncedUsersDatabase[userId].testHistory)) syncedUsersDatabase[userId].testHistory = [];
-    syncedUsersDatabase[userId].testHistory.push({
+
+    const user = syncedUsersDatabase[userId];
+    ensureLevelsByLanguage(user);
+
+    // Если клиент явно указал язык теста — уважаем его и делаем его активным.
+    const requestedLang = (typeof req.body.targetLanguage === "string" && req.body.targetLanguage.trim().length > 0)
+        ? req.body.targetLanguage.trim()
+        : null;
+    if (requestedLang && requestedLang !== user.targetLanguage) {
+        if (!user.levelsByLanguage[requestedLang]) {
+            user.levelsByLanguage[requestedLang] = {
+                currentLevel: DEFAULT_LEVEL,
+                overallScore: 0,
+                skillScores: { ...DEFAULT_SKILL_SCORES },
+                testHistory: []
+            };
+        }
+        user.targetLanguage = requestedLang;
+    }
+    const activeLang = user.targetLanguage || "English";
+
+    const historyEntry = {
         date: new Date().toISOString(),
         testType: "Placement",
         level: assessedLevel,
         score,
         source: "webapp"
-    });
-    saveUsersToDisk();
-    res.json({ success: true, assessedLevel, score, currentLevel: assessedLevel, message: `CEFR ${assessedLevel} for ${targetLanguage}` });
-});
+    };
 
+    const langData = user.levelsByLanguage[activeLang];
+    langData.currentLevel = assessedLevel;
+    langData.overallScore = score;
+    if (!Array.isArray(langData.testHistory)) langData.testHistory = [];
+    langData.testHistory.push(historyEntry);
+
+    applyLevelsToMirrors(user, activeLang);
+    user.lastTestScore = score;
+    user.lastTestedAt = new Date().toISOString();
+
+    saveUsersToDisk();
+    res.json({
+        success: true,
+        assessedLevel, score,
+        currentLevel: assessedLevel,
+        targetLanguage: activeLang,
+        message: `CEFR ${assessedLevel} for ${activeLang}`
+    });
+});
 app.post("/api/user/skill-test", (req, res) => {
     const userId = String(req.body.userId || "default-user");
-    // Webapp sends { skill, scoreDelta, score }. Bot (bot.js) sends { skillType, score }.
-    // Accept both — pick skill, then fall back to skillType. Same for delta.
     const skill = String(req.body.skill || req.body.skillType || "lexicon");
     const rawDelta = (typeof req.body.scoreDelta === "number")
         ? req.body.scoreDelta
         : (typeof req.body.score === "number" ? req.body.score : 0);
-    // Safety clamp: one test can shift a skill by at most ±20 points.
     const delta = Math.max(-20, Math.min(20, rawDelta));
 
     if (!syncedUsersDatabase[userId]) {
         syncedUsersDatabase[userId] = JSON.parse(JSON.stringify(syncedUsersDatabase["default-user"]));
         syncedUsersDatabase[userId].userId = userId;
     }
-    if (!syncedUsersDatabase[userId].skillScores) syncedUsersDatabase[userId].skillScores = {};
 
-    const prev = (typeof syncedUsersDatabase[userId].skillScores[skill] === "number")
-        ? syncedUsersDatabase[userId].skillScores[skill]
-        : 70;
-    syncedUsersDatabase[userId].skillScores[skill] = Math.min(100, Math.max(0, prev + delta));
+    const user = syncedUsersDatabase[userId];
+    ensureLevelsByLanguage(user);
+    const activeLang = user.targetLanguage || "English";
+
+    const langData = user.levelsByLanguage[activeLang];
+    if (!langData.skillScores) langData.skillScores = { ...DEFAULT_SKILL_SCORES };
+
+    const prev = (typeof langData.skillScores[skill] === "number") ? langData.skillScores[skill] : 50;
+    langData.skillScores[skill] = Math.min(100, Math.max(0, prev + delta));
+
+    applyLevelsToMirrors(user, activeLang);
 
     saveUsersToDisk();
-    res.json({ success: true, skillScores: syncedUsersDatabase[userId].skillScores });
+    res.json({ success: true, skillScores: user.skillScores, targetLanguage: activeLang });
 });
 
 // =====================================================
