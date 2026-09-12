@@ -1752,18 +1752,6 @@ async function ensureStoriesHydrated() {
 const diskData = loadStoriesFromDisk();
 let userCustomStories = diskData.userCustomStories || {};
 let autoFetchedStories = diskData.autoFetchedStories || [];
-(function purgeAllCrossLanguageFeeds() {
-    if (!Array.isArray(autoFetchedStories)) return;
-    const before = autoFetchedStories.length;
-    autoFetchedStories = autoFetchedStories.filter(s => {
-        // Purge only auto-fetched items that have a wrong language marker
-        if (!s.isAutoFetched && !s.isDailyBotFeed) return true;
-        if (!s.targetLanguage) return true;
-        // Keep if title/paragraphs don't contain foreign scripts for latin-langs
-        return true; // placeholder — real check below
-    });
-    console.log(`[Migrate] Cross-lang purge: ${before} → ${autoFetchedStories.length}`);
-})();
 
 // Hydrate from Supabase (overrides local disk if present)
 (async () => {
