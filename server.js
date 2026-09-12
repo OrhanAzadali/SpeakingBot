@@ -2787,6 +2787,17 @@ async function getDailyFeedsForLanguage(targetLanguage, mediatorLanguage) {
         })());
     }
 
+    if (fallbackFeeds.length === 0) {
+        const pending = dailyFeedsGenerationLocks.get(cacheKey);
+        if (pending) {
+            try {
+                const generated = await pending;
+                if (Array.isArray(generated) && generated.length > 0) return generated;
+            } catch (e) {
+                console.warn(`[DailyFeeds] Await generation failed for ${targetLanguage}:`, e.message);
+            }
+        }
+    }
     return fallbackFeeds;
 }
 // =====================================================
@@ -3215,10 +3226,21 @@ app.get("/api/health", (req, res) => {
 app.get("/api/debug/clear-daily-feeds-cache", async (req, res) => {
     if (!redis) return res.json({ cleared: false, reason: "no redis" });
     try {
-        const keys = await redis.keys("spk:daily_feeds:*");
-        if (keys.length > 0) await redis.del(...keys);
-        res.json({ cleared: true, deletedKeys: keys });
+        const pattern = req.query.pattern || "spk:daily_feeds:*";
+        const deleted = [];
+        let cursor = "0";
+        do {
+            const [next, keys] = await redis.scan(cursor, { match: pattern, count: 100 });
+            cursor = next;
+            if (keys && keys.length > 0) {
+                await redis.del(...keys);
+                deleted.push(...keys);
+            }
+        } while (cursor !== "0");
+        console.log(`[Debug] Cleared ${deleted.length} daily-feeds keys:`, deleted);
+        res.json({ cleared: true, deletedKeys: deleted });
     } catch (e) {
+        console.error("[Debug] clear-daily-feeds-cache failed:", e.message);
         res.json({ cleared: false, error: e.message });
     }
 });
