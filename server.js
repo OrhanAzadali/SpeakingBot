@@ -1691,6 +1691,32 @@ async function ensureStoriesHydrated() {
                     mergedAutoCount = autoOnlyInRemote.length;
                 }
 
+                // Purge runs ALWAYS (not only on remote merge)
+                (function purgeCrossLanguageFeeds() {
+                    if (!Array.isArray(autoFetchedStories)) return;
+                    const before = autoFetchedStories.length;
+                    const latinTargets = new Set(["English", "German", "Italian", "French", "Spanish", "Portuguese", "Dutch", "Turkish", "Azerbaijani"]);
+                    const greekRe = /[\u0370-\u03FF\u1F00-\u1FFF]/;
+                    const cyrRe = /[\u0400-\u04FF]/;
+                    const arabRe = /[\u0600-\u06FF]/;
+                    autoFetchedStories = autoFetchedStories.filter(s => {
+                        if (!s.isAutoFetched && !s.isDailyBotFeed) return true;
+                        const lang = s.targetLanguage;
+                        if (!lang) return false;
+                        if (!latinTargets.has(lang)) return true;
+                        const sample = [s.title, s.authorEra, (s.paragraphs || [])[0] || ""].join(" ").slice(0, 800);
+                        if (greekRe.test(sample)) { console.warn(`[Purge] greek in ${lang}: "${s.title}"`); return false; }
+                        if (cyrRe.test(sample)) { console.warn(`[Purge] cyrillic in ${lang}: "${s.title}"`); return false; }
+                        if (arabRe.test(sample)) { console.warn(`[Purge] arabic in ${lang}: "${s.title}"`); return false; }
+                        return true;
+                    });
+                    console.log(`[Purge] ${before} → ${autoFetchedStories.length}`);
+                    if (autoFetchedStories.length !== before) {
+                        saveStoriesToDisk();
+                        if (typeof saveStoriesToSupabase === "function") saveStoriesToSupabase().catch(() => { });
+                    }
+                })();
+
                 console.log(
                     `[Supabase] Merged: users=${Object.keys(userCustomStories).length}, ` +
                     `auto=${(autoFetchedStories || []).length}, ` +
