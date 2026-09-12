@@ -1888,17 +1888,16 @@ async function extractTextFromPdfWithGeminiOCR(buffer, userId = null) {
     const ai = getGeminiClient();
     const base64Pdf = buffer.toString('base64');
 
-    // Приоритетные мультимодальные модели (актуальные на 2026-09)
-    // Только 2 модели, каждая с 25-секундным таймаутом — иначе ждём минуты
-    const modelsToTry = ['gemini-3.6-flash', 'gemini-3.5-flash'];
+    // Одна модель + увеличенный timeout. 2 модели × 25s = 50s уже не влезает
+    // в клиентский 70s-лимит после pdf-parse и AI-генерации.
+    const modelsToTry = ['gemini-3.5-flash'];
 
     // Запрашиваем только начало — нам нужен excerpt, не вся книга.
     // Это критично: 4MB сканированная книга содержит ~300k слов,
     // Gemini не вернёт их в одном ответе.
     const ocrPrompt = 'Extract the FIRST 1500 WORDS of visible text from the beginning of this PDF. Preserve paragraph breaks. Return ONLY the extracted text — no commentary, no summary, no markdown.';
 
-    const OCR_TIMEOUT_MS = 25000;
-
+    const OCR_TIMEOUT_MS = 45000;
     for (const model of modelsToTry) {
         try {
             console.log(`[OCR] Trying ${model} (timeout ${OCR_TIMEOUT_MS}ms)...`);
@@ -1924,11 +1923,13 @@ async function extractTextFromPdfWithGeminiOCR(buffer, userId = null) {
                 console.warn(`[OCR] ${model} refused (copyright?), skip`);
                 continue;
             }
-            if (text.length > 50) {
+            // Минимум 1000 символов (~150 слов) — иначе это титульная страница,
+            // copyright-нотис, или обрывок. Для story нужен полноценный фрагмент.
+            if (text.length >= 1000) {
                 console.log(`[OCR] ${model} extracted ${text.length} chars in ${elapsed}ms`);
                 return text;
             }
-            console.warn(`[OCR] ${model} returned ${text.length} chars in ${elapsed}ms, trying next`);
+            console.warn(`[OCR] ${model} returned only ${text.length} chars in ${elapsed}ms (<1000, treating as failed)`);
         } catch (e) {
             const msg = e?.message || String(e);
             if (msg === 'OCR_TIMEOUT') {
@@ -3466,7 +3467,8 @@ app.post("/api/stories/upload-pdf-book", async (req, res) => {
         const meta = parseBookMetadata(fileName, bookTitle, author, extractedText);
         const { title: resolvedTitle, author: resolvedAuthor, era: resolvedEra } = meta;
 
-        const isTextScannedOrEmpty = !extractedText || extractedText.trim().length < 20;
+        // <500 символов = это не литературный фрагмент, а титул/дисклеймер/обрывок
+        const isTextScannedOrEmpty = !extractedText || extractedText.trim().length < 500;
         let cleanedText = "";
 
         if (isTextScannedOrEmpty) {
@@ -3549,11 +3551,10 @@ Return ONLY valid JSON matching:
 
         if (!parsedStory || !parsedStory.sentences || parsedStory.sentences.length === 0) {
             if (isTextScannedOrEmpty) {
-                // Не создавать fake-story, честно сказать пользователю
                 console.warn(`[PDF Engine] No extractable text and no AI content for "${resolvedTitle}"`);
                 return res.status(400).json({
                     success: false,
-                    error: "Не удалось извлечь текст из PDF. Попробуйте: (1) .txt-файл, (2) вставьте excerpt вручную, (3) убедитесь что PDF не защищён и не сканированный."
+                    error: "Не удалось извлечь достаточно текста из PDF (получено меньше 500 символов). Причины: (1) PDF сканированный без текстового слоя, (2) защищён, (3) содержит только титульную страницу. Решение: загрузите .txt-файл, вставьте excerpt вручную, или возьмите PDF с полным текстом из Project Gutenberg."
                 });
             }
             // Если текст был, но AI не справился — оставляем fallback story
