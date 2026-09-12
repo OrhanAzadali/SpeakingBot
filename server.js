@@ -3203,7 +3203,13 @@ async function fetchFromOpenLibrary(targetLanguage = "English") {
 
         const url = `https://openlibrary.org/search.json?q=${randomQuery}&sort=random&limit=20&language=${langCode}`;
 
-        const res = await fetch(url, { signal: AbortSignal.timeout(15000) });
+        const res = await fetch(url, {
+            headers: {
+                "User-Agent": "SpeakBot/1.0 (https://speakingbot.onrender.com; educational)",
+                "Accept": "application/json",
+            },
+            signal: AbortSignal.timeout(8000),
+        });
         if (!res.ok) throw new Error(`OpenLibrary HTTP ${res.status}`);
 
         const data = await res.json();
