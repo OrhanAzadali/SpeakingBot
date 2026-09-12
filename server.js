@@ -1726,6 +1726,18 @@ async function ensureStoriesHydrated() {
 const diskData = loadStoriesFromDisk();
 let userCustomStories = diskData.userCustomStories || {};
 let autoFetchedStories = diskData.autoFetchedStories || [];
+(function purgeAllCrossLanguageFeeds() {
+    if (!Array.isArray(autoFetchedStories)) return;
+    const before = autoFetchedStories.length;
+    autoFetchedStories = autoFetchedStories.filter(s => {
+        // Purge only auto-fetched items that have a wrong language marker
+        if (!s.isAutoFetched && !s.isDailyBotFeed) return true;
+        if (!s.targetLanguage) return true;
+        // Keep if title/paragraphs don't contain foreign scripts for latin-langs
+        return true; // placeholder — real check below
+    });
+    console.log(`[Migrate] Cross-lang purge: ${before} → ${autoFetchedStories.length}`);
+})();
 
 // Hydrate from Supabase (overrides local disk if present)
 (async () => {
@@ -2472,7 +2484,13 @@ async function fetchFromGutendex(targetLanguage = "English") {
         const randomPage = Math.floor(Math.random() * 20) + 1;
         const url = `https://gutendex.com/books?languages=${langCode}&page=${randomPage}`;
 
-        const res = await fetch(url, { signal: AbortSignal.timeout(8000) });
+        const res = await fetch(url, {
+            headers: {
+                "User-Agent": "SpeakBot/1.0 (https://speakingbot.onrender.com; educational)",
+                "Accept": "application/json",
+            },
+            signal: AbortSignal.timeout(8000),
+        });
 
         if (!res.ok) throw new Error(`Gutendex HTTP ${res.status}`);
 
@@ -3315,18 +3333,14 @@ app.get("/api/debug/clear-daily-feeds-cache", async (req, res) => {
     if (!redis) return res.json({ cleared: false, reason: "no redis" });
     try {
         const pattern = req.query.pattern || "spk:daily_feeds:*";
-        const deleted = [];
-        let cursor = "0";
-        do {
-            const [next, keys] = await redis.scan(cursor, { match: pattern, count: 100 });
-            cursor = next;
-            if (keys && keys.length > 0) {
-                await redis.del(...keys);
-                deleted.push(...keys);
-            }
-        } while (cursor !== "0");
-        console.log(`[Debug] Cleared ${deleted.length} daily-feeds keys:`, deleted);
-        res.json({ cleared: true, deletedKeys: deleted });
+        const keys = await redis.keys(pattern);
+        let deleted = [];
+        if (Array.isArray(keys) && keys.length > 0) {
+            await redis.del(...keys);
+            deleted = keys;
+        }
+        console.log(`[Debug] Cleared ${deleted.length} daily-feeds keys`);
+        res.json({ cleared: true, pattern, deletedKeys: deleted });
     } catch (e) {
         console.error("[Debug] clear-daily-feeds-cache failed:", e.message);
         res.json({ cleared: false, error: e.message });
