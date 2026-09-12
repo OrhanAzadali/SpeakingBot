@@ -1264,6 +1264,80 @@ function applyLevelsToMirrors(user, lang) {
     user.testHistory = data.testHistory;
 }
 
+// ═══════════════════════════════════════════════════════════════
+// JSON REPAIR — исправляет типичные огрехи AI при генерации
+// ═══════════════════════════════════════════════════════════════
+async function repairJson(rawText) {
+    if (!rawText || typeof rawText !== "string") return null;
+
+    let text = rawText.trim();
+
+    // 1. Убираем markdown-обёртки ```json ... ```
+    text = text.replace(/^```json\s*/i, "").replace(/^```\s*/i, "");
+    text = text.replace(/\s*```\s*$/, "");
+
+    // 2. Если есть префикс "Here is the JSON:" или похожий — отсекаем до первой {
+    const firstBrace = text.indexOf("{");
+    if (firstBrace > 0) text = text.slice(firstBrace);
+
+    // 3. Если есть суффикс после последней } — отсекаем
+    const lastBrace = text.lastIndexOf("}");
+    if (lastBrace > 0) text = text.slice(0, lastBrace + 1);
+
+    // 4. Первая попытка — как есть
+    try {
+        return JSON.parse(text);
+    } catch (_) { /* продолжаем ремонт */ }
+
+    // 5. Ремонт: висячие запятые перед } или ]
+    text = text.replace(/,\s*([}\]])/g, "$1");
+
+    // 6. Ремонт: одинарные кавычки на двойные (аккуратно — только вокруг ключей)
+    text = text.replace(/([{,]\s*)'([^']+)'(\s*:)/g, '$1"$2"$3');
+    text = text.replace(/(:\s*)'([^']*)'(\s*[,}\]])/g, '$1"$2"$3');
+
+    // 7. Ремонт: неэкранированные переносы строк внутри значений
+    // Заменяем \n, \r, \t внутри строк на пробел (грубо, но работает для большинства случаев)
+    text = text.replace(/"([^"]*)"/g, (match, inner) => {
+        const cleaned = inner.replace(/[\r\n\t]/g, " ");
+        return `"${cleaned}"`;
+    });
+
+    // 8. Вторая попытка
+    // 8. Вторая попытка
+    try {
+        return JSON.parse(text);
+    } catch (e2) { /* продолжаем */ }
+
+    // 9. Ремонт пропущенных запятых между свойствами
+    // Ищем паттерн: "value" <newline> "key": и добавляем запятую
+    text = text.replace(/("\s*)\n(\s*")/g, "$1,\n$2");
+    text = text.replace(/(\d|\]|\}|true|false|null)\s*\n\s*"/g, (match, p1) => `${p1},\n"`);
+    text = text.replace(/"\s+"/g, '", "');   // "value" "value" → "value", "value"
+
+    // 10. Третья попытка
+    try {
+        return JSON.parse(text);
+    } catch (e3) { /* продолжаем */ }
+
+    // 11. Последняя попытка: используем jsonrepair если установлен
+    try {
+        const { jsonrepair } = await import("jsonrepair").catch(() => ({ jsonrepair: null }));
+        if (jsonrepair) {
+            const repaired = jsonrepair(text);
+            return JSON.parse(repaired);
+        } else {
+            console.warn("[JSON Repair] jsonrepair not installed");
+        }
+    } catch (e4) {
+        console.warn("[JSON Repair] jsonrepair threw:", e4.message);
+    }
+
+    console.warn("[JSON Repair] FAILED. Raw len:", rawText.length);
+    console.warn("[JSON Repair] Raw head:", rawText.slice(0, 300));
+    console.warn("[JSON Repair] Raw tail:", rawText.slice(-200));
+    return null;
+}
 // Миграция default-user при старте процесса
 (function migrateDefaultUser() {
     const defUser = syncedUsersDatabase["default-user"];
@@ -1274,6 +1348,7 @@ const ROADMAPS_FILE = path.join(process.cwd(), "data", "roadmaps.json");
 const GRAMMAR_GUIDES_FILE = path.join(process.cwd(), "data", "grammar_guides.json");
 const STORAGE_FILE = path.join(process.cwd(), "data", "stories.json");
 const DATA_DIR = path.dirname(STORAGE_FILE);
+
 
 // ── Защита от race condition при генерации daily feeds ──
 const dailyFeedsGenerationLocks = new Map();
@@ -1864,74 +1939,7 @@ function looksLikeAiRefusal(text) {
     return markers.some((m) => lower.includes(m));
 }
 
-// ═══════════════════════════════════════════════════════════════
-// JSON REPAIR — исправляет типичные огрехи AI при генерации
-// ═══════════════════════════════════════════════════════════════
-async function repairJson(rawText) {
-    if (!rawText || typeof rawText !== "string") return null;
 
-    let text = rawText.trim();
-
-    // 1. Убираем markdown-обёртки ```json ... ```
-    text = text.replace(/^```json\s*/i, "").replace(/^```\s*/i, "");
-    text = text.replace(/\s*```\s*$/, "");
-
-    // 2. Если есть префикс "Here is the JSON:" или похожий — отсекаем до первой {
-    const firstBrace = text.indexOf("{");
-    if (firstBrace > 0) text = text.slice(firstBrace);
-
-    // 3. Если есть суффикс после последней } — отсекаем
-    const lastBrace = text.lastIndexOf("}");
-    if (lastBrace > 0) text = text.slice(0, lastBrace + 1);
-
-    // 4. Первая попытка — как есть
-    try {
-        return JSON.parse(text);
-    } catch (_) { /* продолжаем ремонт */ }
-
-    // 5. Ремонт: висячие запятые перед } или ]
-    text = text.replace(/,\s*([}\]])/g, "$1");
-
-    // 6. Ремонт: одинарные кавычки на двойные (аккуратно — только вокруг ключей)
-    text = text.replace(/([{,]\s*)'([^']+)'(\s*:)/g, '$1"$2"$3');
-    text = text.replace(/(:\s*)'([^']*)'(\s*[,}\]])/g, '$1"$2"$3');
-
-    // 7. Ремонт: неэкранированные переносы строк внутри значений
-    // Заменяем \n, \r, \t внутри строк на пробел (грубо, но работает для большинства случаев)
-    text = text.replace(/"([^"]*)"/g, (match, inner) => {
-        const cleaned = inner.replace(/[\r\n\t]/g, " ");
-        return `"${cleaned}"`;
-    });
-
-    // 8. Вторая попытка
-    // 8. Вторая попытка
-    try {
-        return JSON.parse(text);
-    } catch (e2) { /* продолжаем */ }
-
-    // 9. Ремонт пропущенных запятых между свойствами
-    // Ищем паттерн: "value" <newline> "key": и добавляем запятую
-    text = text.replace(/("\s*)\n(\s*")/g, "$1,\n$2");
-    text = text.replace(/(\d|\]|\}|true|false|null)\s*\n\s*"/g, (match, p1) => `${p1},\n"`);
-    text = text.replace(/"\s+"/g, '", "');   // "value" "value" → "value", "value"
-
-    // 10. Третья попытка
-    try {
-        return JSON.parse(text);
-    } catch (e3) { /* продолжаем */ }
-
-    // 11. Последняя попытка: используем jsonrepair если установлен
-    try {
-        const { jsonrepair } = await import("jsonrepair").catch(() => ({ jsonrepair: null }));
-        if (jsonrepair) {
-            const repaired = jsonrepair(text);
-            return JSON.parse(repaired);
-        }
-    } catch (e4) { /* ignore */ }
-
-    console.warn("[JSON Repair] Не удалось восстановить JSON");
-    return null;
-}
 function normalizeRoadmapShape(roadmap) {
     if (!roadmap || typeof roadmap !== "object") return roadmap;
 
@@ -5076,10 +5084,11 @@ Schema:
     { "incorrect": "...", "correct": "...", "reason": "<in ${mediatorLanguage}>" }
   ],
   "practiceExercises": [
-    { "instruction": "...", "question": "...", "options": ["A","B","C","D"], "correctIndex": 0, "explanation": "<in ${mediatorLanguage}>" }
+    { "instruction": "...", "question": "...", "options": ["A","B","C","D"], "correctIndex": 0, "explanation":"<in ${mediatorLanguage}>" }
   ]
-}`;
-        let guide = null;
+}
+
+CRITICAL: Return ONLY raw JSON. No markdown fences, no text before or after. Start with { and end with }.`; let guide = null;
 
         for (let attempt = 1; attempt <= 3 && !guide; attempt++) {
             const raw = await callGeminiWithResilience(prompt, null, [], true, userId);
