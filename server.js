@@ -2478,9 +2478,16 @@ async function fetchFromGutendex(targetLanguage = "English") {
         if (!res.ok) throw new Error(`Gutendex HTTP ${res.status}`);
 
         const data = await res.json();
-        if (!data.results || data.results.length === 0) return null;
 
-        const book = data.results[Math.floor(Math.random() * data.results.length)];
+        if (!data.results || data.results.length === 0) return null;
+        // после const data = await res.json();
+        const candidates = (data.results || []).filter(b =>
+            Array.isArray(b.languages) &&
+            b.languages.length > 0 &&
+            b.languages[0].toLowerCase() === langCode.toLowerCase()
+        );
+        if (candidates.length === 0) throw new Error(`Gutendex returned no books with primary lang=${langCode}`);
+        const book = candidates[Math.floor(Math.random() * candidates.length)];
 
         const textUrl = book.formats?.["text/plain; charset=utf-8"]
             || book.formats?.["text/plain"]
