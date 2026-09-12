@@ -1743,9 +1743,41 @@ function cleanExtractedPdfText(text) {
         .replace(/[ \t]+/g, " ")
         .trim();
 }
-// ═══════════════════════════════════════════════════════════════
-// JSON REPAIR — исправляет типичные огрехи AI при генерации
-// ═══════════════════════════════════════════════════════════════
+function looksLikeOcrGarbage(text) {
+    if (!text || typeof text !== "string" || text.length < 100) return false;
+
+    const sample = text.slice(0, 3000);
+    const totalChars = sample.length;
+
+    // 1. Unicode replacement chars (U+FFFD) — битые символы от OCR
+    const replacementChars = (sample.match(/\uFFFD/g) || []).length;
+    if (replacementChars / totalChars > 0.003) return true;
+
+    // 2. Странные символы внутри слов: "reviei^ers", "succes� sive", "tew"
+    //    Считаем символы, которых обычно нет в литературном тексте
+    const weirdChars = (sample.match(/[\^`~|\\]/g) || []).length;
+    if (weirdChars / totalChars > 0.005) return true;
+
+    // 3. Типичные OCR-ошибки в частотных английских словах
+    const ocrErrorWords = sample.match(/\b(tew|aiso|thc|whcn|tbe|reviei|arn|ofc|dccp)\b/gi) || [];
+    if (ocrErrorWords.length >= 3) return true;
+
+    // 4. Слишком высокая доля заглавных букв (>35%) — обычно OCR плана "8 THE HOBBIT"
+    const letters = sample.match(/[A-Za-z]/g) || [];
+    if (letters.length > 50) {
+        const uppercase = (sample.match(/[A-Z]/g) || []).length;
+        if (uppercase / letters.length > 0.35) return true;
+    }
+
+    // 5. Слишком короткие "слова" в среднем (<3.5 chars) — признак OCR-потери
+    const words = sample.split(/\s+/).filter((w) => w.length > 0);
+    if (words.length > 50) {
+        const avgLen = words.reduce((s, w) => s + w.length, 0) / words.length;
+        if (avgLen < 3.5) return true;
+    }
+
+    return false;
+}
 function looksLikeAiRefusal(text) {
     if (!text || typeof text !== "string") return false;
     // Отказ обычно короткий (<600 символов) и содержит маркеры
@@ -1769,6 +1801,10 @@ function looksLikeAiRefusal(text) {
     ];
     return markers.some((m) => lower.includes(m));
 }
+
+// ═══════════════════════════════════════════════════════════════
+// JSON REPAIR — исправляет типичные огрехи AI при генерации
+// ═══════════════════════════════════════════════════════════════
 async function repairJson(rawText) {
     if (!rawText || typeof rawText !== "string") return null;
 
@@ -3468,6 +3504,15 @@ app.post("/api/stories/upload-pdf-book", async (req, res) => {
         const { title: resolvedTitle, author: resolvedAuthor, era: resolvedEra } = meta;
 
         // <500 символов = это не литературный фрагмент, а титул/дисклеймер/обрывок
+        // Проверка на OCR-мусор: PDF может иметь текстовый слой, но это может быть плохой OCR
+        if (extractedText && looksLikeOcrGarbage(extractedText)) {
+            console.warn(`[PDF Engine] Extracted text looks like OCR garbage for "${bookTitle}"`);
+            return res.status(400).json({
+                success: false,
+                error: "Текст из PDF содержит слишком много ошибок распознавания (типично для сканированных копий с плохим OCR-слоем). Попробуйте: (1) PDF с настоящим текстовым слоем, (2) .txt-файл, (3) вставьте excerpt вручную через текстовое поле загрузки."
+            });
+        }
+
         const isTextScannedOrEmpty = !extractedText || extractedText.trim().length < 500;
         let cleanedText = "";
 
