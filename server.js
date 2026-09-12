@@ -3367,6 +3367,19 @@ app.get("/api/debug/clear-daily-feeds-cache", async (req, res) => {
     }
 });
 
+app.get("/api/debug/wipe-auto-stories", async (req, res) => {
+    const before = Array.isArray(autoFetchedStories) ? autoFetchedStories.length : 0;
+    autoFetchedStories = [];
+    try {
+        if (typeof saveStoriesToDisk === "function") saveStoriesToDisk();
+        if (typeof saveStoriesToSupabase === "function") await saveStoriesToSupabase();
+    } catch (e) {
+        console.error("[Debug] wipe-auto-stories persist failed:", e.message);
+    }
+    console.log(`[Debug] Wiped autoFetchedStories: ${before} → 0`);
+    res.json({ cleared: true, before, after: 0 });
+});
+
 app.get("/api/debug/daily-feeds", async (req, res) => {
     const targetLanguage = req.query.targetLanguage || "English";
     const mediatorLanguage = req.query.mediatorLanguage || "az";
