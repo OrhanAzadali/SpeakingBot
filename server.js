@@ -3031,12 +3031,16 @@ async function fetchRandomGutenbergBook(targetLanguage = "English") {
 // ── Shared AI pipeline: Gutenberg raw text → full interactive story ──
 async function synthesizeStoryFromGutenberg(rawStory, targetLanguage, mediatorLanguage, userLevel = "B1") {
     const canonicalTarget = normalizeLanguageCanonical(targetLanguage);
+
+    // §5.25 Mediator gating for stories: mediator only for A1/A2
+    const useMediator = (userLevel === "A1" || userLevel === "A2");
+    const effectiveMediator = useMediator ? mediatorLanguage : canonicalTarget;
+
     const aiPrompt = `You are SpeakBot's Chief NLP Literary Pedagogical Engine.
 The user uploaded a book/story titled "${rawStory.title}" by "${rawStory.author || "Unknown"}".
 Target Language of Book: ${canonicalTarget}
 User Target CEFR Level: ${userLevel}
-Mediator Language for translations & explanations: ${mediatorLanguage}
-
+Language for translations & explanations: ${effectiveMediator}
 Here is the authentic text excerpt extracted from the book:
 """
 ${rawStory.excerpt}
@@ -3060,17 +3064,21 @@ Fields that MUST be in ${canonicalTarget}:
   conversations[].topic, conversations[].prompt, conversations[].options[],
   exercises[].question, exercises[].options[], exercises[].category.
 
-Fields that MUST be in ${mediatorLanguage}:
+Fields that MUST be in ${effectiveMediator}:
   sentences[].translation, keyVocabulary[].translation,
   conversations[].botFeedback, exercises[].explanation.
 ═══════════════════════════════════════════════════════
 
 CRITICAL REQUIREMENTS:
 1. Every sentence, vocabulary word, stylistic device, conversation question, and exercise MUST be uniquely tailored to "${rawStory.title}" and this specific passage.
-2. Provide authentic, accurate translations in ${mediatorLanguage}.
+2. Provide authentic, accurate translations in ${effectiveMediator}.
 3. Generate at least 4 SEQUENTIAL Socratic dialogue questions.
 4. Generate at least 5 COMPREHENSIVE tasks & exercises.
 5. IMPORTANT: If the book is non-fiction (technical/practical), generate comprehension questions about the subject matter, NOT literary analysis.
+
+IMPORTANT TO FOLLOW: ${useMediator
+            ? `Translate sentences[].translation and keyVocabulary[].translation into ${effectiveMediator}.`
+            : `For B1+ levels: sentences[].translation and keyVocabulary[].translation MUST be native ${canonicalTarget} paraphrases (simpler words in the same language), NOT translations to another language.`}
 
 Return ONLY valid JSON matching this schema:
 {
@@ -3083,7 +3091,7 @@ Return ONLY valid JSON matching this schema:
   "targetLanguage": "${canonicalTarget}",
   "culturalLinguisticContext": "2-sentence context in ${canonicalTarget}.",
   "paragraphs": ["Paragraph 1 in ${canonicalTarget}", "Paragraph 2 in ${canonicalTarget}"],
-  "sentences": [{"text": "Exact sentence in ${canonicalTarget}", "translation": "Translation in ${mediatorLanguage}", "literaryNote": "Commentary in ${canonicalTarget}", "audioTime": "0:00 - 0:08"}],
+  "sentences": [{"text": "Exact sentence in ${canonicalTarget}", "translation": "Translation in ${effectiveMediator}", "literaryNote": "Commentary in ${canonicalTarget}", "audioTime": "0:00 - 0:08"}],
   "keyVocabulary": [{"word": "...", "ipa": "/.../", "pos": "noun", "translation": "...", "cefr": "${userLevel}", "example": "in ${canonicalTarget}"}],
   "stylisticDevices": [{"device": "...", "exampleFromText": "...", "explanation": "..."}],
   "conversations": [{"id": "socratic-1", "stepNumber": 1, "persona": "SpeakBot Socratic Mentor", "topic": "...", "prompt": "...", "options": ["A","B","C"], "correctIndex": 0, "botFeedback": "...", "points": 25}],
@@ -3114,7 +3122,8 @@ Return ONLY valid JSON matching this schema:
         authorEra: "World Literature",
         canonKey: null,
         targetLanguage,
-        mediatorLanguage,
+        mediatorLanguage: effectiveMediator,
+        userLevel,
         userLevel,
         excerptSlice: rawStory.excerpt,
         isSimulated: false,
@@ -3897,12 +3906,36 @@ app.post("/api/socratic/chat", async (req, res) => {
             userMessage = "",
             chatHistory = [],
             targetLanguage = "English",
-            mediatorLanguage = req.body.mediatorLanguage || (syncedUsersDatabase[userId]?.mediatorLanguage) || "en"
+            level = "B1",
+            mediatorLanguage = req.body.mediatorLanguage || (syncedUsersDatabase[userId]?.mediatorLanguage) || "en",
+            userRequestedTranslation = false
         } = req.body;
 
         if (!userMessage || !userMessage.trim()) {
             return res.status(400).json({ success: false, error: "userMessage is required" });
         }
+
+        // §5.25 Mediator gating for Socratic chat:
+        // A1/A2 → mediator allowed for word-clarifications, never for full replies
+        // B1+   → mediator forbidden; all explanation in target language
+        const isBeginner = (level === "A1" || level === "A2");
+        const effectiveMediator = mediatorLanguage;
+
+        const languageRules = isBeginner
+            ? `CRITICAL LANGUAGE RULES (beginner mode):
+- Reply PRIMARILY in ${targetLanguage}. Do NOT write the whole reply in ${effectiveMediator}.
+- You MAY include brief parenthetical clarifications in ${effectiveMediator} for difficult words — at most 1 short phrase per reply (max 5 words in parentheses).
+- If the learner explicitly asks for a translation ("what does X mean?" or "translate"), provide:
+  (a) the ${effectiveMediator} translation in parentheses,
+  (b) followed by a short explanation of the word IN ${targetLanguage} — so the learner still learns from ${targetLanguage} context.
+- Occasionally (not every reply — once every 3-4 exchanges) ask the learner: "Would you like a beginner-friendly explanation or a translation for any word?" in ${targetLanguage}.
+- If the learner writes in ${effectiveMediator}, still reply primarily in ${targetLanguage}.
+- Never invent ${effectiveMediator} words. If unsure, skip the clarification and explain in ${targetLanguage}.`
+            : `CRITICAL LANGUAGE RULES (immersive mode):
+- Reply EXCLUSIVELY in ${targetLanguage}. Do NOT use ${effectiveMediator} at all, not even in parentheses.
+- If the learner asks for a translation, DO NOT translate. Instead, explain the word or phrase in simpler ${targetLanguage} — use synonyms, definitions, or examples in ${targetLanguage} only.
+- If the learner writes in ${effectiveMediator}, gently nudge them to continue in ${targetLanguage} and respond in ${targetLanguage}.
+- Never invent words. Never switch languages.`;
 
         const aiPrompt = `You are SpeakBot Socratic Mentor, an intellectually stimulating literary tutor having a live Socratic conversation about "${bookTitle}" by ${author}.
 
@@ -3917,13 +3950,11 @@ ${chatHistory.slice(-4).map((m) => `${m.role === 'user' ? 'Learner' : 'Mentor'}:
 Learner's latest message:
 "${userMessage}"
 
-CRITICAL LANGUAGE RULES:
-- Reply ONLY in ${targetLanguage}. Do NOT reply in ${mediatorLanguage}.
-- ${mediatorLanguage} is only for brief clarifications in parentheses if the learner is stuck — at most 1 short phrase per reply.
-- If the learner writes in a different language, still reply in ${targetLanguage}.
-- Do NOT invent words. If you don't know a ${mediatorLanguage} word, skip the parenthetical clarification entirely.
+${userRequestedTranslation ? `NOTE: The learner has EXPLICITLY requested a translation in the previous message. ${isBeginner ? `Provide the ${effectiveMediator} translation followed by a ${targetLanguage} explanation.` : `Provide a ${targetLanguage}-only explanation (no ${effectiveMediator} translation).`}` : ""}
 
-Respond in genuine Socratic dialogue style, but also try not to completely ignore the punches and humour of the Learner. Try always to be responsive, but always returning the learner to the topic that is being discussed - sometimes if you consider it's appropriate you can for one or two lines switch to discussing another book or classical story, but eventually you should always get back to the main topic to discuss it further. 
+${languageRules}
+
+Respond in genuine Socratic dialogue style, but also try not to completely ignore the punches and humour of the Learner. Try always to be responsive, but always returning the learner to the topic that is being discussed - sometimes if you consider it's appropriate you can for one or two lines switch to discussing another book or classical story, but eventually you should always get back to the main topic to discuss it further.
 
 Return ONLY valid JSON:
 {
@@ -3939,7 +3970,7 @@ Return ONLY valid JSON:
             try {
                 const clean = raw.replace(/```json\n?|\n?```/g, "").trim();
                 replyData = JSON.parse(clean);
-            } catch (err) { console.warn("[Socratic Chat] Parse:", err); }
+            } catch (err) { console.warn("[Socratic Chat] Parse:", err.message); }
         }
 
         if (!replyData || !replyData.reply) {

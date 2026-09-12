@@ -1,3 +1,4 @@
+import { sanitizeForTTS } from "../utils/ttsSanitize";
 import { useState, useEffect, useRef } from "react";
 import { CLASSIC_STORIES } from "../data/classicStoriesData";
 import { useTranslation } from "../i18n/useTranslation";
@@ -382,7 +383,12 @@ export const ClassicStoriesView = ({
         return;
       }
       setActiveSentenceIndex(currentIdx);
-      const textToSpeak = sentences[currentIdx].text;
+      const textToSpeak = sanitizeForTTS(sentences[currentIdx].text, activeStory.targetLanguage || targetLanguage);
+      if (!textToSpeak) {
+        currentIdx++;
+        playNext();
+        return;
+      }
       const utterance = new SpeechSynthesisUtterance(textToSpeak);
       speechUtteranceRef.current = utterance;
 
@@ -473,7 +479,9 @@ export const ClassicStoriesView = ({
           excerpt,
           userMessage: text,
           targetLanguage: activeStory.targetLanguage || targetLanguage,
-          mediatorLanguage
+          mediatorLanguage,
+          level: userLevel || "B1",
+          userRequestedTranslation: /\b(translate|translation|what does .* mean|переведи|перевод|tərcümə)\b/i.test(text)
         })
       });
 
