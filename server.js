@@ -1276,8 +1276,7 @@ const STORAGE_FILE = path.join(process.cwd(), "data", "stories.json");
 const DATA_DIR = path.dirname(STORAGE_FILE);
 
 // ── Защита от race condition при генерации daily feeds ──
-let dailyFeedsGenerationLock = null;
-
+const dailyFeedsGenerationLocks = new Map();
 // ── Защита от race condition при перегенерации stories при смене mediator ──
 const mediatorRegenerationInFlight = new Set();
 let storiesHydrated = false;
@@ -2702,7 +2701,12 @@ function getDailyBotStoryFeeds(targetLanguage = "English") {
     };
 
     const feedKey = languageMap[lang] || 'english';
-    return feeds[feedKey] && feeds[feedKey].length > 0 ? feeds[feedKey] : feeds.english;
+    const result = feeds[feedKey];
+    if (!Array.isArray(result) || result.length === 0) {
+        console.warn(`[DailyFeeds] No static fallback for lang="${targetLanguage}" — returning []`);
+        return [];
+    }
+    return result;
 }
 const DAILY_FEED_SLOTS = [
     { id: "morning", label: "Morning Classic (08:00)", emoji: "🌅" },
@@ -2751,8 +2755,8 @@ async function getDailyFeedsForLanguage(targetLanguage, mediatorLanguage) {
     const fallbackFeeds = getDailyBotStoryFeeds(targetLanguage);
 
     // Fire-and-forget: генерация в фоне, кэширование в Redis
-    if (!dailyFeedsGenerationLock) {
-        dailyFeedsGenerationLock = (async () => {
+    if (!dailyFeedsGenerationLocks.has(cacheKey)) {
+        dailyFeedsGenerationLocks.set(cacheKey, (async () => {
             console.log(`[DailyFeeds BG] Background generation for ${targetLanguage}...`);
             const feeds = [];
             try {
@@ -2777,10 +2781,10 @@ async function getDailyFeedsForLanguage(targetLanguage, mediatorLanguage) {
                     }
                 }
             } finally {
-                dailyFeedsGenerationLock = null;
+                dailyFeedsGenerationLocks.delete(cacheKey);
             }
             return feeds;
-        })();
+        })());
     }
 
     return fallbackFeeds;
@@ -3967,12 +3971,14 @@ app.get("/api/stories/custom-list", async (req, res) => {
         if (Array.isArray(dailyFeeds) && dailyFeeds.length > 0) {
             let added = 0;
             for (const feed of dailyFeeds) {
-                const isDup = autoFetchedStories.some(
-                    (s) => s.title === feed.title && s.author === feed.author
-                );
-                if (!isDup) {
-                    autoFetchedStories.unshift(feed);
-                    added++;
+                if (feed.targetLanguage && normalizeLanguageCanonical(feed.targetLanguage) !== canonicalTarget) {
+                    const isDup = autoFetchedStories.some(
+                        (s) => s.title === feed.title && s.author === feed.author
+                    );
+                    if (!isDup) {
+                        autoFetchedStories.unshift(feed);
+                        added++;
+                    }
                 }
             }
             if (autoFetchedStories.length > 50) {
