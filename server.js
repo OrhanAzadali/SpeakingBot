@@ -475,13 +475,28 @@ app.use((req, res, next) => {
     next();
 });
 
-app.use(express.json({ limit: "35mb" }));
-app.use(express.urlencoded({ limit: "35mb", extended: true }));
+app.use(express.json({ limit: "100mb" }));
+app.use(express.urlencoded({ limit: "100mb", extended: true }));
+
+// JSON error handler — body-parser не должен отдавать HTML при 413/400
+app.use((err, req, res, next) => {
+    if (err?.type === "entity.too.large") {
+        return res.status(413).json({
+            success: false,
+            error: "File too large. Max ~75MB raw PDF / ~100MB base64."
+        });
+    }
+    if (err instanceof SyntaxError && "body" in err) {
+        return res.status(400).json({ success: false, error: "Invalid JSON body" });
+    }
+    next(err);
+});
 
 // =====================================================
 // GEMINI ENGINE
 // =====================================================
 let geminiClient = null;
+
 function getGeminiClient() {
     if (!geminiClient) {
         const apiKey = process.env.GEMINI_API_KEY;
@@ -1848,28 +1863,61 @@ async function extractTextFromPdfWithGeminiOCR(buffer, userId = null) {
         return '';
     }
 
-    try {
-        const ai = getGeminiClient();
-        const base64Pdf = buffer.toString('base64');
+    const ai = getGeminiClient();
+    const base64Pdf = buffer.toString('base64');
 
-        const response = await ai.models.generateContent({
-            model: 'gemini-3.6-flash',
-            contents: [{
-                role: 'user',
-                parts: [
-                    { text: 'Extract ALL visible text from this PDF exactly as it appears. Preserve paragraph breaks. Return ONLY the extracted text — no commentary, no summary, no markdown fences.' },
-                    { inlineData: { mimeType: 'application/pdf', data: base64Pdf } }
-                ]
-            }]
-        });
+    // Приоритетные мультимодальные модели (актуальные на 2026-09)
+    const preferred = [
+        'gemini-3.6-flash',
+        'gemini-3.5-flash',
+        'gemini-2.5-flash',
+        'gemini-2.5-pro',
+    ];
 
-        const text = response?.text || '';
-        console.log(`[OCR] Gemini extracted ${text.length} chars`);
-        return text;
-    } catch (e) {
-        console.warn('[OCR] Gemini OCR failed:', e.message);
-        return '';
+    // Плюс всё что нашёл discovery (на случай если Google переименует)
+    const discovered = await discoverAvailableGeminiModels().catch(() => []);
+
+    // Убираем дубликаты, сохраняем порядок
+    const modelsToTry = [...new Set([...preferred, ...discovered])];
+
+    const ocrPrompt = 'Extract ALL visible text from this PDF exactly as it appears. Preserve paragraph breaks. Return ONLY the extracted text — no commentary, no summary, no markdown fences.';
+
+    for (const model of modelsToTry) {
+        try {
+            console.log(`[OCR] Trying ${model}...`);
+            const response = await ai.models.generateContent({
+                model,
+                contents: [{
+                    role: 'user',
+                    parts: [
+                        { text: ocrPrompt },
+                        { inlineData: { mimeType: 'application/pdf', data: base64Pdf } }
+                    ]
+                }]
+            });
+
+            const text = response?.text || '';
+            if (text.length > 50) {
+                console.log(`[OCR] ${model} extracted ${text.length} chars`);
+                return text;
+            }
+            console.warn(`[OCR] ${model} returned ${text.length} chars, trying next`);
+        } catch (e) {
+            const msg = e?.message || String(e);
+            if (msg.includes('404') || msg.includes('not found') || msg.includes('no longer available')) {
+                console.warn(`[OCR] ${model} deprecated, skip`);
+                continue;
+            }
+            if (msg.includes('429') || msg.includes('quota')) {
+                console.warn(`[OCR] ${model} quota exceeded, skip`);
+                continue;
+            }
+            console.warn(`[OCR] ${model} failed: ${msg.slice(0, 120)}`);
+        }
     }
+
+    console.warn('[OCR] All models exhausted');
+    return '';
 }
 
 function extractTextFromPdfStreams(buffer) {

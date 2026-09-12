@@ -572,7 +572,10 @@ export const ClassicStoriesView = ({
       setUploadError("Please choose a PDF file or enter an excerpt from your book.");
       return;
     }
-
+    if (pdfFile && pdfFile.size > 25 * 1024 * 1024) {
+      setUploadError(`Файл слишком большой (${(pdfFile.size / 1024 / 1024).toFixed(1)} MB). Максимум 25 MB.`);
+      return;
+    }
     setIsUploadingPdf(true);
 
     try {
@@ -594,7 +597,6 @@ export const ClassicStoriesView = ({
         body: JSON.stringify({
           userId: "default-user",
           fileBase64,
-          pdfData: fileBase64,
           fileText: customExcerptText,
           fileName,
           bookTitle: pdfBookTitle || fileName.replace(/\.[^/.]+$/, ""),
