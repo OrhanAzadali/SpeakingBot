@@ -4218,18 +4218,24 @@ app.get("/api/stories/custom-story/:storyId/pdf", (req, res) => {
     const buffer = generateClassicStoryPdfBuffer(story);
     sendPdf(res, buffer, `story-${storyId}.pdf`);
 });
-
 app.post("/api/stories/generate-daily-excerpt", async (req, res) => {
     try {
         const { targetLanguage = "English", level = "B1", topic = "Literature and philosophy" } = req.body;
-        const prompt = `Write a rich, level-${level} story excerpt in ${targetLanguage} about "${topic}". Return ONLY valid JSON with keys: title, level, targetLanguage, paragraphs, sentences, keyVocabulary.`;
-        const raw = await callGeminiWithResilience(prompt, null, [], true, null)
+
+        const prompt = `Write a rich, level-${level} story excerpt in ${targetLanguage} about "${topic}".
+For sentences[].translation and keyVocabulary[].translation, provide a native ${targetLanguage} paraphrase (simpler words, not a translation to another language).
+Return ONLY valid JSON with keys: title, level, targetLanguage, paragraphs, sentences, keyVocabulary.
+No markdown, no text before or after. Start with { and end with }.`;
+
+        const raw = await callGeminiWithResilience(prompt, null, [], true, null);
         if (raw) {
             const clean = raw.replace(/^```json\s*/i, "").replace(/```$/i, "").trim();
             try {
                 const parsed = JSON.parse(clean);
                 return res.json({ success: true, story: parsed });
-            } catch (err) { console.warn("JSON parse fallback:", err.message); }
+            } catch (err) {
+                console.warn("JSON parse fallback:", err.message);
+            }
         }
         const feeds = getDailyBotStoryFeeds(targetLanguage);
         const fallbackStory = feeds[0] || getDailyBotStoryFeeds("English")[0];
@@ -4936,15 +4942,18 @@ app.post("/api/gemini/generate-grammar-roadmap", async (req, res) => {
             targetLanguage = "English",
             mediatorLanguage = "en"
         } = req.body;
+        // §5.25 Mediator gating: mediator only for A1/A2, otherwise target
+        const useMediator = (userLevel === "A1" || userLevel === "A2");
+        const effectiveMediator = useMediator ? mediatorLanguage : targetLanguage;
 
         const prompt = `You are a world-class language curriculum designer. Create a personalized grammar roadmap for ${targetLanguage} at CEFR ${userLevel}.
 Test score: ${testScore}%. Tested concepts: ${testedWeaknesses.join(", ")}.
-Mediator language for all explanations: ${mediatorLanguage}.
+Mediator language for all explanations: ${effectiveMediator}.
 
 STRICT REQUIREMENTS — the roadmap is INVALID if any minimum is not met:
 - milestones: MINIMUM 3 distinct steps, each with 5-8 tokens.
 - checkpointQuestions: MINIMUM 4 questions, each testing a different sub-topic.
-- Every description, explanation, and token.mediatorTranslation MUST be in ${mediatorLanguage} — NOT English, NOT Hungarian, NOT any other language.
+- Every description, explanation, and token.mediatorTranslation MUST be in ${effectiveMediator} — NOT English, NOT Hungarian, NOT any other language.
 
 Return ONLY valid JSON. No markdown, no code fences.
 
@@ -4954,12 +4963,12 @@ Schema:
   "category": "Grammar",
   "level": "${userLevel}",
   "estimatedDuration": "3 Weeks",
-  "summary": "3-4 sentences in ${mediatorLanguage}.",
+  "summary": "3-4 sentences in ${effectiveMediator}.",
   "milestones": [
-    { "step": 1, "title": "...", "description": "<in ${mediatorLanguage}>", "grammarPoint": "...", "sampleSentence": "...", "tokens": [{ "text": "...", "lemma": "...", "pos": "...", "syntaxRole": "...", "cefrLevel": "...", "ipa": "/.../", "mediatorTranslation": "<in ${mediatorLanguage}>" }] }
+    { "step": 1, "title": "...", "description": "<in ${effectiveMediator}>", "grammarPoint": "...", "sampleSentence": "...", "tokens": [{ "text": "...", "lemma": "...", "pos": "...", "syntaxRole": "...", "cefrLevel": "...", "ipa": "/.../", "mediatorTranslation": "<in ${effectiveMediator}>" }] }
   ],
   "checkpointQuestions": [
-    { "question": "<in ${mediatorLanguage}>", "options": ["A","B","C","D"], "correctIndex": 0, "explanation": "<in ${mediatorLanguage}>" }
+    { "question": "<in ${effectiveMediator}>", "options": ["A","B","C","D"], "correctIndex": 0, "explanation": "<in ${effectiveMediator}>" }
   ]
 }`;
 
@@ -4979,7 +4988,7 @@ Schema:
 
         if (!roadmap) {
             console.warn("[Grammar Roadmap] FALLBACK activated");
-            roadmap = getFallbackRoadmap(targetLanguage, userLevel, "", mediatorLanguage);
+            roadmap = getFallbackRoadmap(targetLanguage, userLevel, "", effectiveMediator);
         }
         roadmap = normalizeRoadmapShape(roadmap);
 
@@ -5002,26 +5011,28 @@ Schema:
 app.post("/api/gemini/generate-roadmap", async (req, res) => {
     try {
         const { topic, level = "B1", targetLanguage = "English", mediatorLanguage = "en", customGoal = "" } = req.body;
-
+        // §5.25 Mediator gating: mediator only for A1/A2, otherwise target
+        const useMediator = (level === "A1" || level === "A2");
+        const effectiveMediator = useMediator ? mediatorLanguage : targetLanguage;
         const prompt = `Create a detailed language learning roadmap for topic "${topic}" at CEFR ${level} in ${targetLanguage}.
-Mediator language for all explanations: ${mediatorLanguage}. Learner goal: ${customGoal || "General proficiency"}.
+Mediator language for all explanations: ${effectiveMediator}. Learner goal: ${customGoal || "General proficiency"}.
 
 STRICT REQUIREMENTS — INVALID if any minimum is not met:
 - milestones: MINIMUM 3 distinct steps, each with 5-8 tokens.
 - checkpointQuestions: MINIMUM 4 questions.
-- Every description, explanation, and token.mediatorTranslation MUST be in ${mediatorLanguage}.
+- Every description, explanation, and token.mediatorTranslation MUST be in ${effectiveMediator}.
 
 Return ONLY valid JSON. No markdown, no code fences.
 
 Schema:
 {
   "title": "...",
-  "summary": "3-4 sentences in ${mediatorLanguage}.",
+  "summary": "3-4 sentences in ${effectiveMediator}.",
   "milestones": [
-    { "step": 1, "title": "...", "description": "<in ${mediatorLanguage}>", "grammarPoint": "...", "sampleSentence": "...", "tokens": [{ "text": "...", "lemma": "...", "pos": "...", "syntaxRole": "...", "cefrLevel": "...", "ipa": "/.../", "mediatorTranslation": "<in ${mediatorLanguage}>" }] }
+    { "step": 1, "title": "...", "description": "<in ${effectiveMediator}>", "grammarPoint": "...", "sampleSentence": "...", "tokens": [{ "text": "...", "lemma": "...", "pos": "...", "syntaxRole": "...", "cefrLevel": "...", "ipa": "/.../", "mediatorTranslation": "<in ${effectiveMediator}>" }] }
   ],
   "checkpointQuestions": [
-    { "question": "<in ${mediatorLanguage}>", "options": ["A","B","C","D"], "correctIndex": 0, "explanation": "<in ${mediatorLanguage}>" }
+    { "question": "<in ${effectiveMediator}>", "options": ["A","B","C","D"], "correctIndex": 0, "explanation": "<in ${effectiveMediator}>" }
   ]
 }`;
 
@@ -5042,7 +5053,7 @@ Schema:
 
         if (!roadmap) {
             console.warn("[Roadmap] FALLBACK activated");
-            roadmap = getFallbackRoadmap(targetLanguage, level, topic, mediatorLanguage);
+            roadmap = getFallbackRoadmap(targetLanguage, level, topic, effectiveMediator);
         }
         roadmap = normalizeRoadmapShape(roadmap);
         res.json({ success: true, roadmap });
@@ -5068,16 +5079,19 @@ app.post('/api/gemini/generate-grammar-guide', async (req, res) => {
             mediatorLanguage = "en"
         } = req.body;
 
-        const prompt = `You are a master grammar expert writing a comprehensive study guide for ${targetLanguage} at CEFR ${level} on the topic "${ruleTitle}". Mediator language for explanations: ${mediatorLanguage}.
+        // §5.25 Mediator gating: mediator only for A1/A2, otherwise target
+        const useMediator = (level === "A1" || level === "A2");
+        const effectiveMediator = useMediator ? mediatorLanguage : targetLanguage;
+        const prompt = `You are a master grammar expert writing a comprehensive study guide for ${targetLanguage} at CEFR ${level} on the topic "${ruleTitle}". Mediator language for explanations: ${effectiveMediator}.
 
 STRICT REQUIREMENTS — the guide is considered INVALID if any minimum is not met:
 - coreRules: MINIMUM 4 distinct rules (not variations of one rule). Each rule MUST have 5-8 tokens with full linguistic metadata.
 - commonMistakes: MINIMUM 4 distinct mistakes, each illustrating a DIFFERENT pitfall.
 - practiceExercises: MINIMUM 6 exercises covering different sub-aspects.
-- Every explanationInMediator MUST be written exactly in ${mediatorLanguage}. The mediator language is EXACTLY this: ${mediatorLanguage}. Do NOT use any other language (not Hungarian, not Turkish, not English, not ${targetLanguage}, not any other language).
-- If you do not know a word in ${mediatorLanguage}, use a simpler word in the same language — never substitute another language.
-- The field "reason" in commonMistakes and "explanation" in practiceExercises must also be in ${mediatorLanguage}.
-- Self-check before returning: verify the first 10 words of every mediator field are in ${mediatorLanguage}.
+- Every explanationInMediator MUST be written exactly in ${effectiveMediator}. The mediator language is EXACTLY this: ${effectiveMediator}. Do NOT use any other language (not Hungarian, not Turkish, not English, not ${effectiveMediator}, not any other language).
+- If you do not know a word in ${effectiveMediator}, use a simpler word in the same language — never substitute another language.
+- The field "reason" in commonMistakes and "explanation" in practiceExercises must also be in ${effectiveMediator}.
+- Self-check before returning: verify the first 10 words of every mediator field are in ${effectiveMediator}.
 - IPA transcription must be accurate for the target word.
 
 Return ONLY valid JSON. No markdown, no code fences.
@@ -5091,19 +5105,19 @@ Schema:
   "coreRules": [
     {
       "ruleTitle": "...",
-      "explanationInMediator": "<full explanation in ${mediatorLanguage}>",
+      "explanationInMediator": "<full explanation in ${effectiveMediator}>",
       "formula": "...",
       "example": "...",
       "tokens": [
-        { "text": "...", "lemma": "...", "pos": "...", "syntaxRole": "...", "cefrLevel": "...", "ipa": "/.../", "mediatorTranslation": "<in ${mediatorLanguage}>" }
+        { "text": "...", "lemma": "...", "pos": "...", "syntaxRole": "...", "cefrLevel": "...", "ipa": "/.../", "mediatorTranslation": "<in ${effectiveMediator}>" }
       ]
     }
   ],
   "commonMistakes": [
-    { "incorrect": "...", "correct": "...", "reason": "<in ${mediatorLanguage}>" }
+    { "incorrect": "...", "correct": "...", "reason": "<in ${effectiveMediator}>" }
   ],
   "practiceExercises": [
-    { "instruction": "...", "question": "...", "options": ["A","B","C","D"], "correctIndex": 0, "explanation":"<in ${mediatorLanguage}>" }
+    { "instruction": "...", "question": "...", "options": ["A","B","C","D"], "correctIndex": 0, "explanation":"<in ${effectiveMediator}>" }
   ]
 }
 
@@ -5130,7 +5144,7 @@ CRITICAL: Return ONLY raw JSON. No markdown fences, no text before or after. Sta
 
         if (!guide) {
             console.warn("[Grammar Guide] FALLBACK activated");
-            guide = getFallbackGrammarGuide(targetLanguage, ruleTitle, level, mediatorLanguage);
+            guide = getFallbackGrammarGuide(targetLanguage, ruleTitle, level, effectiveMediator);
         }
 
         if (req.query.format === 'pdf' || req.body.format === 'pdf') {
@@ -5202,6 +5216,15 @@ function getFallbackGrammarGuide(lang = "English", rule = "Verb Tenses", level =
     const langDisplay = lang.charAt(0).toUpperCase() + lang.slice(1).toLowerCase();
     const ruleDisplay = rule.charAt(0).toUpperCase() + rule.slice(1).toLowerCase();
 
+    // Normalize "English"/"en"/"ENG" → "en"
+    const CODE_MAP = {
+        english: "en", russian: "ru", azerbaijani: "az", azeri: "az",
+        turkish: "tr", german: "de", spanish: "es", french: "fr",
+        italian: "it", portuguese: "pt", dutch: "nl",
+    };
+    const raw = String(mediatorLang || "en").toLowerCase().trim();
+    const code = CODE_MAP[raw] || (raw.length === 2 ? raw : "en");
+
     const msg = {
         ru: `Не удалось сгенерировать руководство через AI. Попробуйте ещё раз или измените формулировку темы.`,
         az: `AI vasitəsilə bələdçi yaratmaq mümkün olmadı. Yenidən cəhd edin və ya mövzunu dəyişdirin.`,
@@ -5209,7 +5232,9 @@ function getFallbackGrammarGuide(lang = "English", rule = "Verb Tenses", level =
         en: `Could not generate guide via AI. Try again or rephrase the topic.`,
         de: `Leitfaden konnte nicht über KI generiert werden. Bitte erneut versuchen.`,
         es: `No se pudo generar la guía mediante IA. Inténtelo de nuevo.`,
-    }[mediatorLang] || `Could not generate guide via AI.`;
+        fr: `Impossible de générer le guide via IA. Réessayez ou reformulez le sujet.`,
+        it: `Impossibile generare la guida tramite IA. Riprova o riformula l'argomento.`,
+    }[code] || `Could not generate guide via AI.`;
 
     return {
         title: `${ruleDisplay} (${langDisplay})`,
@@ -5556,23 +5581,41 @@ app.post("/api/games/generate-words", async (req, res) => {
 });
 
 app.post("/api/games/generate-vocabulary", async (req, res) => {
-    const { targetLanguage = "English", userLevel = "B1", count = 8 } = req.body || {};
+    const {
+        targetLanguage = "English",
+        userLevel = "B1",
+        count = 8,
+        mediatorLanguage = "en"
+    } = req.body || {};
     try {
-        const prompt = `Generate ${count} vocabulary items for CEFR ${userLevel} in ${targetLanguage}. Provide word, translation, ipa, pos, level, example. Return ONLY JSON array.`;
-        const raw = await callGeminiWithResilience(prompt, null, [], true, null)
+        // §5.25 Mediator gating: mediator only for A1/A2, synonym for B1+
+        const useMediator = (userLevel === "A1" || userLevel === "A2");
+
+        const prompt = useMediator
+            ? `Generate ${count} vocabulary items for CEFR ${userLevel} in ${targetLanguage}. For each item provide: word (in ${targetLanguage}), translation (in ${mediatorLanguage}), ipa, pos, level, example (in ${targetLanguage}). Return ONLY a JSON array. No markdown, no text before or after.`
+            : `Generate ${count} vocabulary items for CEFR ${userLevel} in ${targetLanguage}. For each item provide: word (in ${targetLanguage}), synonyms (2-5 words in ${targetLanguage} with similar meaning), ipa, pos, level, example (in ${targetLanguage}). Return ONLY a JSON array. No markdown, no text before or after.`;
+
+        const raw = await callGeminiWithResilience(prompt, null, [], true, null);
         if (raw) {
             const clean = raw.replace(/```json\n?|\n?```/g, "").trim();
             const items = JSON.parse(clean);
             if (Array.isArray(items) && items.length > 0) {
                 const vocabulary = items.slice(0, count).map(item => ({
-                    word: item.word || "", translation: item.translation || item.meaning || "",
-                    ipa: item.ipa || "", pos: item.pos || "noun",
-                    level: item.level || userLevel, example: item.example || ""
+                    word: item.word || "",
+                    translation: useMediator
+                        ? (item.translation || item.meaning || "")
+                        : (Array.isArray(item.synonyms) ? item.synonyms.join(", ") : (item.synonyms || item.translation || "")),
+                    ipa: item.ipa || "",
+                    pos: item.pos || "noun",
+                    level: item.level || userLevel,
+                    example: item.example || ""
                 })).filter(item => item.word);
                 if (vocabulary.length > 0) return res.json({ success: true, vocabulary });
             }
         }
-    } catch (err) { console.warn("AI vocabulary generation failed:", err.message); }
+    } catch (err) {
+        console.warn("AI vocabulary generation failed:", err.message);
+    }
     const fallback = getStaticVocabulary(targetLanguage, userLevel, count);
     res.json({ success: true, vocabulary: fallback });
 });
