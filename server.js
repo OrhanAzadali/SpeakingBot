@@ -4218,6 +4218,7 @@ app.get("/api/stories/custom-story/:storyId/pdf", (req, res) => {
     const buffer = generateClassicStoryPdfBuffer(story);
     sendPdf(res, buffer, `story-${storyId}.pdf`);
 });
+
 app.post("/api/stories/generate-daily-excerpt", async (req, res) => {
     try {
         const { targetLanguage = "English", level = "B1", topic = "Literature and philosophy" } = req.body;
@@ -5380,7 +5381,14 @@ app.get("/api/cubeword/generate-special-word", async (req, res) => {
         const mediatorLanguage = req.query.mediatorLanguage || "en";
         const targetLang = req.query.targetLanguage || "English";
         const level = req.query.level || "B2";
-        const prompt = `Provide one elegant vocabulary word in ${targetLang} at CEFR ${level}. Return JSON: { "word": "WORD", "clue": "Definition", "translation": "Translation in ${mediatorLanguage}", "cefr": "${level}" }`;
+
+        // §5.25 Mediator gating for cubeword
+        const useMediator = (level === "A1" || level === "A2");
+        const effectiveMediator = useMediator ? mediatorLanguage : targetLang;
+
+        const prompt = useMediator
+            ? `Provide one elegant vocabulary word in ${targetLang} at CEFR ${level}. Return JSON: { "word": "WORD", "clue": "Definition", "translation": "Translation in ${effectiveMediator}", "cefr": "${level}" }`
+            : `Provide one elegant vocabulary word in ${targetLang} at CEFR ${level}. Return JSON: { "word": "WORD", "clue": "Native ${targetLang} paraphrase (simpler words, not a translation)", "translation": "Same as clue — no external translation", "cefr": "${level}" }`;
         const raw = await callGeminiWithResilience(prompt, null, [], true, null)
         if (raw) {
             const clean = raw.replace(/^```json\s*/i, "").replace(/```$/i, "").trim();
