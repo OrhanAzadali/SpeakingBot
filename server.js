@@ -3990,7 +3990,7 @@ app.post("/api/stories/generate-daily-excerpt", async (req, res) => {
     try {
         const { targetLanguage = "English", level = "B1", topic = "Literature and philosophy" } = req.body;
         const prompt = `Write a rich, level-${level} story excerpt in ${targetLanguage} about "${topic}". Return ONLY valid JSON with keys: title, level, targetLanguage, paragraphs, sentences, keyVocabulary.`;
-        const raw = await callGeminiWithResilience(prompt, null, [], true, userId);
+        const raw = await callGeminiWithResilience(prompt, null, [], true, null)
         if (raw) {
             const clean = raw.replace(/^```json\s*/i, "").replace(/```$/i, "").trim();
             try {
@@ -4518,22 +4518,44 @@ app.post("/api/user/level-test", (req, res) => {
     else if (score >= 55) assessedLevel = "B1";
     else if (score >= 35) assessedLevel = "A2";
     else assessedLevel = "A1";
-
-    syncedUsersDatabase[userId].userLevel = assessedLevel;
+    syncedUsersDatabase[userId].currentLevel = assessedLevel;
+    syncedUsersDatabase[userId].overallScore = score;
     syncedUsersDatabase[userId].lastTestScore = score;
     syncedUsersDatabase[userId].lastTestedAt = new Date().toISOString();
+    if (!Array.isArray(syncedUsersDatabase[userId].testHistory)) syncedUsersDatabase[userId].testHistory = [];
+    syncedUsersDatabase[userId].testHistory.push({
+        date: new Date().toISOString(),
+        testType: "Placement",
+        level: assessedLevel,
+        score,
+        source: "webapp"
+    });
     saveUsersToDisk();
-    res.json({ success: true, assessedLevel, score, message: `CEFR ${assessedLevel} for ${targetLanguage}` });
+    res.json({ success: true, assessedLevel, score, currentLevel: assessedLevel, message: `CEFR ${assessedLevel} for ${targetLanguage}` });
 });
 
 app.post("/api/user/skill-test", (req, res) => {
-    const { userId = "default-user", skillType = "lexicon", score = 10 } = req.body;
+    const userId = String(req.body.userId || "default-user");
+    // Webapp sends { skill, scoreDelta, score }. Bot (bot.js) sends { skillType, score }.
+    // Accept both — pick skill, then fall back to skillType. Same for delta.
+    const skill = String(req.body.skill || req.body.skillType || "lexicon");
+    const rawDelta = (typeof req.body.scoreDelta === "number")
+        ? req.body.scoreDelta
+        : (typeof req.body.score === "number" ? req.body.score : 0);
+    // Safety clamp: one test can shift a skill by at most ±20 points.
+    const delta = Math.max(-20, Math.min(20, rawDelta));
+
     if (!syncedUsersDatabase[userId]) {
         syncedUsersDatabase[userId] = JSON.parse(JSON.stringify(syncedUsersDatabase["default-user"]));
         syncedUsersDatabase[userId].userId = userId;
     }
     if (!syncedUsersDatabase[userId].skillScores) syncedUsersDatabase[userId].skillScores = {};
-    syncedUsersDatabase[userId].skillScores[skillType] = (syncedUsersDatabase[userId].skillScores[skillType] || 0) + score;
+
+    const prev = (typeof syncedUsersDatabase[userId].skillScores[skill] === "number")
+        ? syncedUsersDatabase[userId].skillScores[skill]
+        : 70;
+    syncedUsersDatabase[userId].skillScores[skill] = Math.min(100, Math.max(0, prev + delta));
+
     saveUsersToDisk();
     res.json({ success: true, skillScores: syncedUsersDatabase[userId].skillScores });
 });
@@ -4666,7 +4688,7 @@ Schema:
 
         if (!roadmap) {
             console.warn("[Grammar Roadmap] FALLBACK activated");
-            roadmap = getFallbackRoadmap(targetLanguage, userLevel, ruleTitle || "", mediatorLanguage);
+            roadmap = getFallbackRoadmap(targetLanguage, userLevel, "", mediatorLanguage);
         }
         roadmap = normalizeRoadmapShape(roadmap);
 
@@ -5037,7 +5059,7 @@ app.get("/api/cubeword/generate-special-word", async (req, res) => {
         const targetLang = req.query.targetLanguage || "English";
         const level = req.query.level || "B2";
         const prompt = `Provide one elegant vocabulary word in ${targetLang} at CEFR ${level}. Return JSON: { "word": "WORD", "clue": "Definition", "translation": "Translation in ${mediatorLanguage}", "cefr": "${level}" }`;
-        const raw = await callGeminiWithResilience(prompt, null, [], true, userId);
+        const raw = await callGeminiWithResilience(prompt, null, [], true, null)
         if (raw) {
             const clean = raw.replace(/^```json\s*/i, "").replace(/```$/i, "").trim();
             const parsed = JSON.parse(clean);
@@ -5224,7 +5246,7 @@ app.post("/api/games/generate-words", async (req, res) => {
     const { targetLanguage = "English", userLevel = "B1", count = 6, wordType = "noun" } = req.body || {};
     try {
         const prompt = `Generate exactly ${count} common ${wordType} words in ${targetLanguage} for CEFR ${userLevel}. Return ONLY a JSON array of strings.`;
-        const raw = await callGeminiWithResilience(prompt, null, [], true, userId);
+        const raw = await callGeminiWithResilience(prompt, null, [], true, null)
         if (raw) {
             const clean = raw.replace(/```json\n?|\n?```/g, "").trim();
             const words = JSON.parse(clean);
@@ -5240,7 +5262,7 @@ app.post("/api/games/generate-vocabulary", async (req, res) => {
     const { targetLanguage = "English", userLevel = "B1", count = 8 } = req.body || {};
     try {
         const prompt = `Generate ${count} vocabulary items for CEFR ${userLevel} in ${targetLanguage}. Provide word, translation, ipa, pos, level, example. Return ONLY JSON array.`;
-        const raw = await callGeminiWithResilience(prompt, null, [], true, userId);
+        const raw = await callGeminiWithResilience(prompt, null, [], true, null)
         if (raw) {
             const clean = raw.replace(/```json\n?|\n?```/g, "").trim();
             const items = JSON.parse(clean);

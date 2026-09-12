@@ -297,8 +297,9 @@ export const SkillTestsView = ({
         })
       });
       const data = await res.json();
-      if (data.success && data.data?.skillScores) {
-        onSkillUpdated(data.data.skillScores);
+      const serverScores = data?.data?.skillScores || data?.skillScores;
+      if (data.success && serverScores) {
+        onSkillUpdated(serverScores);
       }
       setSuccessNotice(`${testedSkill.toUpperCase()} skill rating updated to ${newScore}% and synchronized to @SpeakBot!`);
       setTimeout(() => setSuccessNotice(""), 5e3);
