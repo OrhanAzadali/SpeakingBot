@@ -4219,54 +4219,89 @@ app.post("/api/socratic/chat", async (req, res) => {
         const isBeginner = (level === "A1" || level === "A2");
         const effectiveMediator = mediatorLanguage;
 
+        // Детектор явной просьбы использовать mediator
+        const asksForMediator = /\b(use|speak|talk|write|answer|reply|explain)\b.{0,40}\b(mediator|native|own|my)\s+language\b|\b(explain|translate|talk|speak)\b.{0,30}\b(in|to)\s+(english|azerbaijani|russian|turkish|azeri|az|ru|tr|en|de|es|fr|it)\b|\b(i\s+(?:don'?t|can'?t)\s+understand|please\s+use)\b/i.test(userMessage);
+
         const languageRules = isBeginner
-            ? `CRITICAL LANGUAGE RULES (beginner mode):
-- Reply PRIMARILY in ${targetLanguage}. Do NOT write the whole reply in ${effectiveMediator}.
-- You MAY include brief parenthetical clarifications in ${effectiveMediator} for difficult words — at most 1 short phrase per reply (max 5 words in parentheses).
-- If the learner explicitly asks for a translation ("what does X mean?" or "translate"), provide:
-  (a) the ${effectiveMediator} translation in parentheses,
-  (b) followed by a short explanation of the word IN ${targetLanguage} — so the learner still learns from ${targetLanguage} context.
-- Occasionally (not every reply — once every 3-4 exchanges) ask the learner: "Would you like a beginner-friendly explanation or a translation for any word?" in ${targetLanguage}.
-- If the learner writes in ${effectiveMediator}, still reply primarily in ${targetLanguage}.
-- Never invent ${effectiveMediator} words. If unsure, skip the clarification and explain in ${targetLanguage}.`
-            : `CRITICAL LANGUAGE RULES (immersive mode):
-- Reply EXCLUSIVELY in ${targetLanguage}. Do NOT use ${effectiveMediator} at all, not even in parentheses.
-- If the learner asks for a translation, DO NOT translate. Instead, explain the word or phrase in simpler ${targetLanguage} — use synonyms, definitions, or examples in ${targetLanguage} only.
-- If the learner writes in ${effectiveMediator}, gently nudge them to continue in ${targetLanguage} and respond in ${targetLanguage}.
+            ? `CRITICAL LANGUAGE RULES (BEGINNER MODE — level ${level}):
+
+You are teaching ${targetLanguage} to a BEGINNER (${level}).
+The learner does NOT yet understand ${targetLanguage} fluently.
+
+${asksForMediator
+                ? `★★★ LEARNER HAS EXPLICITLY REQUESTED to be spoken to in ${effectiveMediator}.
+OBEY IMMEDIATELY. Reply ENTIRELY in ${effectiveMediator}.
+Do NOT argue, do NOT insist on ${targetLanguage}, do NOT ask permission again.
+This is the learner's right at ${level}.`
+                : `CONVERSATION LANGUAGE = ${effectiveMediator} (default for ${level}).
+Reply in ${effectiveMediator}. Use it for questions, instructions, explanations.`}
+
+TEACHING ${targetLanguage}:
+- Include ${targetLanguage} content as examples inside ${effectiveMediator} sentences:
+  • ${targetLanguage} phrase (${effectiveMediator} translation)
+  • Short sample sentences followed by translation
+  • Vocabulary items with translations
+- Every reply includes at least ONE ${targetLanguage} item with its translation.
+
+IF the learner writes in ${targetLanguage}: praise, then continue in ${effectiveMediator}
+with more ${targetLanguage} examples.
+
+IF the learner explicitly asks for a different language (English, etc.):
+- SWITCH IMMEDIATELY and permanently for the rest of the dialogue.
+- Still teach ${targetLanguage} the same way.
+
+HARD RULES:
+- Never invent ${targetLanguage} words. If unsure → skip and say so.
+- Never mix scripts inside a single field.
+- Never write a long paragraph in ${targetLanguage} without translation.
+- Never argue about language choice. The learner decides.`
+            : `CRITICAL LANGUAGE RULES (IMMERSIVE MODE — level ${level}):
+
+You are teaching ${targetLanguage} to a ${level} learner.
+The learner can follow ${targetLanguage} for the main content.
+
+CONVERSATION LANGUAGE = ${targetLanguage}:
+- Reply EXCLUSIVELY in ${targetLanguage}. Do NOT use ${effectiveMediator} at all.
+- If the learner asks for a translation → DO NOT translate. Explain the word
+  in simpler ${targetLanguage} — synonyms, definitions, examples.
+- If the learner writes in ${effectiveMediator}, gently nudge them to continue
+  in ${targetLanguage}.
+
+HARD RULES:
 - Never invent words. Never switch languages.`;
 
         const aiPrompt = `You are SpeakBot Socratic Mentor, an intellectually stimulating literary tutor having a live Socratic conversation about "${bookTitle}" by ${author}.
 
 The Excerpt:
-"""
+        """
 ${String(excerpt).slice(0, 2400)}
-"""
+        """
 
 Recent Chat History:
 ${(chatHistory || []).slice(-4).map((m) => `${m.role === 'user' ? 'Learner' : 'Mentor'}: ${m.text}`).join('\n')}
 
 Learner's latest message:
-"${userMessage}"
+        "${userMessage}"
 
 ${userRequestedTranslation ? `NOTE: The learner has EXPLICITLY requested a translation in the previous message. ${isBeginner ? `Provide the ${effectiveMediator} translation followed by a ${targetLanguage} explanation.` : `Provide a ${targetLanguage}-only explanation (no ${effectiveMediator} translation).`}` : ""}
 
 ${languageRules}
 
-Respond in genuine Socratic dialogue style, but also try not to completely ignore the punches and humour of the Learner. Try always to be responsive, but always returning the learner to the topic that is being discussed - sometimes if you consider it's appropriate you can for one or two lines switch to discussing another book or classical story, but eventually you should always get back to the main topic to discuss it further.
+      Respond in a genuine Socratic dialogue style. Depending on the topic, maintain a moderate tone, using emotional or grand language only when it fits the context. Do not ignore the learner's wit, humor, or sharp remarks — engage with them. If student makes utterly rude mistakes, politely correct them and explain their mistake in friendly and understandable manner. Always remain highly responsive and ask thought-provoking questions to spark the student's interest. However, always guide the learner back to the core topic. If appropriate, you may briefly pivot to another book or classical story for one or two lines, but you must ultimately return to the main subject for deeper discussion.
 
 Return ONLY valid JSON:
-{
-  "reply": "...",
-  "pointsAwarded": 20,
-  "pedagogicalTip": "...",
-  "suggestedReplies": ["...", "..."]
-}`;
+        {
+            "reply": "...",
+                "pointsAwarded": 20,
+                    "pedagogicalTip": "...",
+                        "suggestedReplies": ["...", "..."]
+        } `;
 
         let replyData = null;
         const raw = await callGeminiWithResilience(aiPrompt, null, [], true, userId);
         if (raw) {
             try {
-                const clean = raw.replace(/```json\n?|\n?```/g, "").trim();
+                const clean = raw.replace(/```json\n ?|\n ? ```/g, "").trim();
                 replyData = await repairJson(clean);
             } catch (err) {
                 console.warn("[Socratic Chat] Parse:", err.message);
@@ -4276,7 +4311,7 @@ Return ONLY valid JSON:
         if (!replyData || !replyData.reply) {
             console.warn(`[Socratic Chat] AI failed for "${bookTitle}", fallback active`);
             replyData = {
-                reply: `That is a thoughtful observation about "${bookTitle}". Consider how ${author}'s choice of words shapes the narrator's perspective. What is the author conveying through the imagery?`,
+                reply: `That is a thoughtful observation about "${bookTitle}".Consider how ${author} 's choice of words shapes the narrator's perspective.What is the author conveying through the imagery ? `,
                 pointsAwarded: 15,
                 pedagogicalTip: `This passage uses ${targetLanguage} syntax to create a specific mood.`,
                 suggestedReplies: [
@@ -4307,7 +4342,7 @@ app.post("/api/user/mediator-language", (req, res) => {
         syncedUsersDatabase[userId].userId = userId;
     }
     syncedUsersDatabase[userId].mediatorLanguage = actualMediator;
-    setToCache(`spk:user:${userId}`, syncedUsersDatabase[userId], 86400 * 30).catch(() => { });
+    setToCache(`spk: user:${userId} `, syncedUsersDatabase[userId], 86400 * 30).catch(() => { });
     saveUsersToDisk();
 
     res.json({ success: true, actualMediator, data: syncedUsersDatabase[userId] });
@@ -4339,7 +4374,7 @@ app.post("/api/user/target-language", (req, res) => {
 
     saveUsersToDisk();
 
-    setToCache(`spk:user:${userId}`, syncedUsersDatabase[userId], 86400 * 30).catch(() => { });
+    setToCache(`spk: user:${userId} `, syncedUsersDatabase[userId], 86400 * 30).catch(() => { });
     res.json({ success: true, targetLanguage, data: user });
 });
 
@@ -4440,7 +4475,7 @@ app.post("/api/user/api-keys", async (req, res) => {
         if (!ALLOWED_BYOK_PROVIDERS.includes(provider)) {
             return res.status(400).json({
                 success: false,
-                error: `Неизвестный провайдер. Разрешены: ${ALLOWED_BYOK_PROVIDERS.join(", ")}`
+                error: `Неизвестный провайдер.Разрешены: ${ALLOWED_BYOK_PROVIDERS.join(", ")} `
             });
         }
         if (!apiKey || typeof apiKey !== "string" || apiKey.trim().length < 8) {
@@ -4487,7 +4522,7 @@ app.post("/api/user/api-keys", async (req, res) => {
         if (upsertError) throw upsertError;
         // ── Сбрасываем кэш расшифрованных ключей для этого пользователя ──
         if (typeof userKeyCache !== "undefined" && userKeyCache) {
-            userKeyCache.delete(`${userId}:${provider}`);
+            userKeyCache.delete(`${userId}:${provider} `);
         }
 
         console.log(`[BYOK] ${BYOK_PROVIDER_NAMES[provider]} ключ сохранён для ${userId} (${maskKey(cleanKey)})`);
@@ -4553,10 +4588,10 @@ app.delete("/api/user/api-keys/:provider", async (req, res) => {
 
         // ── Сбрасываем кэш ──
         if (typeof userKeyCache !== "undefined" && userKeyCache) {
-            userKeyCache.delete(`${userId}:${provider}`);
+            userKeyCache.delete(`${userId}:${provider} `);
         }
 
-        console.log(`[BYOK] ${BYOK_PROVIDER_NAMES[provider]} ключ удалён для ${userId}`);
+        console.log(`[BYOK] ${BYOK_PROVIDER_NAMES[provider]} ключ удалён для ${userId} `);
 
         res.json({
             success: true,
