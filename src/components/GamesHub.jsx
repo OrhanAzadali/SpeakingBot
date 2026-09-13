@@ -79,18 +79,19 @@ export const GamesHub = ({
   onGainXp,
   onSaveToVocabulary,
   onSelectToken,
-  initialActiveGame = null,
-  onCloseGame,
   asSection = false,
-  themeColors = {}
+  themeColors,
+  initialGameId,
+  onCloseGame,
 }) => {
-  const { t } = useTranslation();
-  const [activeGame, setActiveGame] = useState(initialActiveGame);
-  const [gameLanguage, setGameLanguage] = useState(targetLanguage);
+  const [activeGame, setActiveGame] = useState(initialGameId || null);
 
   useEffect(() => {
-    setActiveGame(initialActiveGame);
-  }, [initialActiveGame]);
+    if (initialGameId) setActiveGame(initialGameId);
+  }, [initialGameId]);
+
+  const { t } = useTranslation();
+  const [gameLanguage, setGameLanguage] = useState(targetLanguage);
 
   useEffect(() => {
     setGameLanguage(targetLanguage);
@@ -110,11 +111,28 @@ export const GamesHub = ({
   };
 
   const handleCloseGame = () => {
+    // Перечитать high score из localStorage (его обновил CubeWordGame)
+    try {
+      const fresh = Number(localStorage.getItem('cubeword_highscore') || '0');
+      if (fresh !== cubeHighScore) {
+        setCubeHighScore(fresh);
+      }
+    } catch { }
+
     setActiveGame(null);
     if (onCloseGame) {
       onCloseGame();
     }
   };
+
+  useEffect(() => {
+    try {
+      const fresh = Number(localStorage.getItem('cubeword_highscore') || '0');
+      if (fresh !== cubeHighScore) {
+        setCubeHighScore(fresh);
+      }
+    } catch { }
+  }, []);   // при монтировании
 
   // If a game is active, render it full-screen taking the entire page space
   if (activeGame === 'cubeword') {
@@ -145,6 +163,14 @@ export const GamesHub = ({
             onSaveToVocabulary={onSaveToVocabulary}
             onGainXp={(pts) => {
               if (onGainXp) onGainXp('cubeword', pts, 25);
+            }}
+            onHighScore={(newScore) => {
+              if (newScore > cubeHighScore) {
+                setCubeHighScore(newScore);
+                try {
+                  localStorage.setItem('cubeword_highscore', String(newScore));
+                } catch { }
+              }
             }}
             apiBase=""
             themeColors={themeColors}

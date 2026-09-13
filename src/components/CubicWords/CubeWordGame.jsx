@@ -38,7 +38,8 @@ export const CubeWordGame = ({
   onSaveToVocabulary,
   onGainXp,
   apiBase = '',
-  themeColors
+  themeColors,
+  onHighScore
 }) => {
   // Target language represents the linguistic content being formed with 3D blocks
   const resolvedTargetLanguage = normalizeTargetLang(targetLanguage || initialLanguage || 'english');
@@ -75,9 +76,12 @@ export const CubeWordGame = ({
       try {
         localStorage.setItem('cubeword_highscore', String(totalScore));
       } catch { }
+      // Уведомляем родителя
+      if (typeof onHighScore === 'function') {
+        onHighScore(totalScore);
+      }
     }
-  }, [totalScore, highScore]);
-
+  }, [totalScore, highScore, onHighScore]);
   const handleRoundWin = (nextRound, pointsEarned) => {
     setTotalScore((prev) => prev + pointsEarned);
     setRound(nextRound);
