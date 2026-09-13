@@ -4198,7 +4198,112 @@ app.get("/api/user/profile", (req, res) => {
     applyLevelsToMirrors(user, user.targetLanguage || "English");
     res.json({ success: true, data: user });
 });
+// ═══════════════════════════════════════════════════════════════
+// ROUTE: SOCRATIC CHAT
+// ═══════════════════════════════════════════════════════════════
+app.post("/api/socratic/chat", async (req, res) => {
+    try {
+        const {
+            userId = "default-user",
+            bookTitle = "Literary Classic",
+            author = "Author",
+            excerpt = "",
+            userMessage = "",
+            chatHistory = [],
+            targetLanguage = "English",
+            level = "B1",
+            mediatorLanguage = req.body.mediatorLanguage || (syncedUsersDatabase[userId]?.mediatorLanguage) || "en",
+            userRequestedTranslation = false
+        } = req.body;
 
+        if (!userMessage || !userMessage.trim()) {
+            return res.status(400).json({ success: false, error: "userMessage is required" });
+        }
+
+        // §5.25 Mediator gating for Socratic chat
+        const isBeginner = (level === "A1" || level === "A2");
+        const effectiveMediator = mediatorLanguage;
+
+        const languageRules = isBeginner
+            ? `CRITICAL LANGUAGE RULES (beginner mode):
+- Reply PRIMARILY in ${targetLanguage}. Do NOT write the whole reply in ${effectiveMediator}.
+- You MAY include brief parenthetical clarifications in ${effectiveMediator} for difficult words — at most 1 short phrase per reply (max 5 words in parentheses).
+- If the learner explicitly asks for a translation ("what does X mean?" or "translate"), provide:
+  (a) the ${effectiveMediator} translation in parentheses,
+  (b) followed by a short explanation of the word IN ${targetLanguage} — so the learner still learns from ${targetLanguage} context.
+- Occasionally (not every reply — once every 3-4 exchanges) ask the learner: "Would you like a beginner-friendly explanation or a translation for any word?" in ${targetLanguage}.
+- If the learner writes in ${effectiveMediator}, still reply primarily in ${targetLanguage}.
+- Never invent ${effectiveMediator} words. If unsure, skip the clarification and explain in ${targetLanguage}.`
+            : `CRITICAL LANGUAGE RULES (immersive mode):
+- Reply EXCLUSIVELY in ${targetLanguage}. Do NOT use ${effectiveMediator} at all, not even in parentheses.
+- If the learner asks for a translation, DO NOT translate. Instead, explain the word or phrase in simpler ${targetLanguage} — use synonyms, definitions, or examples in ${targetLanguage} only.
+- If the learner writes in ${effectiveMediator}, gently nudge them to continue in ${targetLanguage} and respond in ${targetLanguage}.
+- Never invent words. Never switch languages.`;
+
+        const aiPrompt = `You are SpeakBot Socratic Mentor, an intellectually stimulating literary tutor having a live Socratic conversation about "${bookTitle}" by ${author}.
+
+The Excerpt:
+"""
+${String(excerpt).slice(0, 2400)}
+"""
+
+Recent Chat History:
+${(chatHistory || []).slice(-4).map((m) => `${m.role === 'user' ? 'Learner' : 'Mentor'}: ${m.text}`).join('\n')}
+
+Learner's latest message:
+"${userMessage}"
+
+${userRequestedTranslation ? `NOTE: The learner has EXPLICITLY requested a translation in the previous message. ${isBeginner ? `Provide the ${effectiveMediator} translation followed by a ${targetLanguage} explanation.` : `Provide a ${targetLanguage}-only explanation (no ${effectiveMediator} translation).`}` : ""}
+
+${languageRules}
+
+Respond in genuine Socratic dialogue style, but also try not to completely ignore the punches and humour of the Learner. Try always to be responsive, but always returning the learner to the topic that is being discussed - sometimes if you consider it's appropriate you can for one or two lines switch to discussing another book or classical story, but eventually you should always get back to the main topic to discuss it further.
+
+Return ONLY valid JSON:
+{
+  "reply": "...",
+  "pointsAwarded": 20,
+  "pedagogicalTip": "...",
+  "suggestedReplies": ["...", "..."]
+}`;
+
+        let replyData = null;
+        const raw = await callGeminiWithResilience(aiPrompt, null, [], true, userId);
+        if (raw) {
+            try {
+                const clean = raw.replace(/```json\n?|\n?```/g, "").trim();
+                replyData = await repairJson(clean);
+            } catch (err) {
+                console.warn("[Socratic Chat] Parse:", err.message);
+            }
+        }
+
+        if (!replyData || !replyData.reply) {
+            console.warn(`[Socratic Chat] AI failed for "${bookTitle}", fallback active`);
+            replyData = {
+                reply: `That is a thoughtful observation about "${bookTitle}". Consider how ${author}'s choice of words shapes the narrator's perspective. What is the author conveying through the imagery?`,
+                pointsAwarded: 15,
+                pedagogicalTip: `This passage uses ${targetLanguage} syntax to create a specific mood.`,
+                suggestedReplies: [
+                    `The imagery creates a sense of isolation and introspection.`,
+                    `The author uses vivid sensory details to immerse the reader.`
+                ]
+            };
+        }
+
+        if (!syncedUsersDatabase[userId]) {
+            syncedUsersDatabase[userId] = JSON.parse(JSON.stringify(syncedUsersDatabase["default-user"]));
+            syncedUsersDatabase[userId].userId = userId;
+        }
+        const user = syncedUsersDatabase[userId];
+        user.xp = (user.xp || 0) + (replyData.pointsAwarded || 20);
+
+        res.json({ success: true, ...replyData, totalXp: user.xp });
+    } catch (err) {
+        console.error("[Socratic Chat Error]:", err);
+        res.status(500).json({ success: false, error: err.message || "Socratic chat failed." });
+    }
+});
 app.post("/api/user/mediator-language", (req, res) => {
     const { userId = "default-user", mediatorLanguage } = req.body;
     const actualMediator = mediatorLanguage || syncedUsersDatabase[userId]?.mediatorLanguage || "en";
