@@ -373,16 +373,32 @@ function extractLanguageFromText(text) {
 }
 
 function detectLanguageSwitchIntent(text) {
-    const lower = text.toLowerCase();
-    // Should be a request, not just mentioning a language
-    const patterns = [
+    const lower = text.toLowerCase().trim().replace(/[.!?,]+$/g, '');
+
+    // 0. Голые команды: "to french", "in german", "auf deutsch", "french", "fr"
+    const SHORT = [
+        /^(?:to|in|into|auf|en|по)\s+(\w+)$/i,
+        /^(?:switch|change|shift|move)\s+(?:to\s+)?(\w+)$/i,
+        /^(?:learn|study|start)\s+(\w+)$/i,
+        /^(\w+)$/i,
+    ];
+    for (const p of SHORT) {
+        const m = lower.match(p);
+        if (m) {
+            const lang = extractLanguageFromText(m[1] || lower);
+            if (lang) return lang;
+        }
+    }
+
+    // 1. Длинные фразы с глаголом
+    const LONG = [
         /(?:switch|change|shift|move|set).{0,20}(?:language|target)/,
         /(?:learn|study|start).{0,20}(?:german|spanish|french|italian|russian|turkish|english|azerbaijani|deutsch|español|français|italiano)/,
         /(?:i want|i'd like|i would like|please).{0,30}(?:learn|study|switch to|change to)\s+(\w+)/,
         /(?:switch|change)\s+(?:to|my target to)\s+(\w+)/,
         /(?:start learning|begin learning)\s+(\w+)/,
     ];
-    for (const p of patterns) {
+    for (const p of LONG) {
         if (p.test(lower)) {
             const lang = extractLanguageFromText(text);
             if (lang) return lang;
@@ -390,7 +406,6 @@ function detectLanguageSwitchIntent(text) {
     }
     return null;
 }
-
 function detectHowToIntent(text) {
     const lower = text.toLowerCase();
     const patterns = [
@@ -441,6 +456,90 @@ async function handleLanguageSwitch(ctx, newLang) {
     }
 }
 
+// ==================== AI INTENT CLASSIFIER ====================
+
+async function classifyIntentWithAI(text, currentTarget, currentMediator) {
+    // Быстрый AI-классификатор. Возвращает { intent, language } или null.
+    // Используем Groq (быстрый + дешёвый) для скорости.
+
+    const systemPrompt = `You are an intent classifier for a language-learning Telegram bot.
+
+Current user settings:
+- Target language (what they learn): ${currentTarget}
+- Mediator language (for explanations): ${currentMediator}
+
+Classify the user's message into EXACTLY ONE of these intents:
+
+1. "switch_language" — user wants to CHANGE their target language (the language they are learning).
+2. "switch_mediator" — user wants to change their MEDIATOR language (for explanations only).
+3. "chat" — anything else (asking questions, discussing literature, greetings, requests to explain grammar, etc.).
+
+RULES:
+- Only classify as "switch_language" if the user CLEARLY expresses desire to change target.
+- "I'm reading about German literature" → "chat" (mention ≠ switch)
+- "to french" → "switch_language" with language="French"
+- "switch to spanish" → "switch_language" with language="Spanish"
+- "can we do German instead?" → "switch_language" with language="German"
+- "hello" → "chat"
+- "what is Romanticism?" → "chat"
+
+Return ONLY valid JSON:
+{ "intent": "switch_language", "language": "French" }
+or
+{ "intent": "switch_mediator", "language": "Russian" }
+or
+{ "intent": "chat" }`;
+
+    try {
+        const response = await axios.post('https://api.groq.com/openai/v1/chat/completions', {
+            model: 'llama-3.3-70b-versatile',
+            messages: [
+                { role: 'system', content: systemPrompt },
+                { role: 'user', content: text },
+            ],
+            temperature: 0.1,
+            response_format: { type: 'json_object' },
+            max_tokens: 100,
+        }, {
+            headers: { 'Authorization': `Bearer ${GROQ_API_KEY}` },
+            timeout: 8000,
+        });
+
+        const content = response.data.choices[0].message.content;
+        const parsed = JSON.parse(content);
+        if (parsed && parsed.intent) return parsed;
+    } catch (e) {
+        console.warn('[Intent] AI classifier failed:', e.message);
+    }
+    return null;
+}
+function looksLikeLanguageRequest(text) {
+    // Быстрая эвристика — стоит ли вообще вызывать AI-классификатор
+    if (!text) return false;
+    const lower = text.toLowerCase().trim();
+    if (lower.length > 200) return false;              // длинные тексты — точно chat
+
+    const KEYWORDS = [
+        'switch', 'change', 'shift', 'move', 'instead',
+        'learn', 'study', 'start', 'try', 'prefer',
+        'to french', 'to german', 'to spanish', 'to italian', 'to russian', 'to turkish',
+        'to english', 'to azerbaijani',
+        'на ', 'переключ', 'смен', 'учить', 'изучать',
+        'keç', 'dəyiş', 'öyrən',
+    ];
+    if (KEYWORDS.some(k => lower.includes(k))) return true;
+
+    // Голое имя языка: "french", "to french", "in french"
+    const LANG_NAMES = [
+        'english', 'german', 'spanish', 'french', 'italian',
+        'russian', 'turkish', 'azerbaijani',
+        'deutsch', 'español', 'français', 'italiano',
+    ];
+    const words = lower.split(/\s+/);
+    if (words.length <= 3 && LANG_NAMES.some(n => lower.includes(n))) return true;
+
+    return false;
+}
 // ==================== COMMANDS ====================
 bot.start(async (ctx) => {
     const userId = ctx.from.id;
@@ -981,23 +1080,34 @@ bot.on('message', async (ctx) => {
             fs.writeFileSync(inputPath, buffer);
             const text = await transcribeAudio(inputPath, 'en');
             // Language switch detection (голосом)
+            await ctx.reply(`📝 Heard: "${text}"`);
+
+            const userId = ctx.from.id;
+            const p = await getUserProfile(userId);
+
+            // Fast regex
             const langSwitch = detectLanguageSwitchIntent(text);
             if (langSwitch) {
-                await ctx.reply(`Understanding: "${text}"`);
                 return await handleLanguageSwitch(ctx, langSwitch);
             }
 
-            // How-to detection
+            // How-to
             if (detectHowToIntent(text)) {
-                await ctx.reply(`Understanding: "${text}"`);
                 return await ctx.reply(
-                    `🎯 Open the Mini App and go to *Profile* to change language settings.\n\nOr just say: "switch to German" — I'll do it.`,
+                    `🎯 Open the Mini App and go to *Profile* to change settings. Or say "switch to German".`,
                     { parse_mode: 'Markdown' }
                 );
             }
 
+            // AI classifier для voice тоже
+            if (looksLikeLanguageRequest(text)) {
+                const aiIntent = await classifyIntentWithAI(text, p.targetLanguage, p.mediatorLanguage);
+                if (aiIntent?.intent === 'switch_language' && aiIntent.language) {
+                    return await handleLanguageSwitch(ctx, aiIntent.language);
+                }
+            }
+
             const intent = detectIntent(text);
-            const p = await getUserProfile(ctx.from.id);
 
             if (['grammar', 'roadmap', 'skills', 'listening', 'reading', 'writing'].includes(intent)) {
 
@@ -1025,30 +1135,30 @@ bot.on('message', async (ctx) => {
         return;
     }
 
-
     // Text
     if (ctx.message.text) {
         const text = ctx.message.text;
         const userId = ctx.from.id;
+        const p = await getUserProfile(userId);
 
-        // ── INTENT: target language switch ──
-        const langSwitch = detectLanguageSwitchIntent(text);
-        if (langSwitch) {
-            return await handleLanguageSwitch(ctx, langSwitch);
+        // ── 1. Fast regex check (без AI) ──
+        const fastSwitch = detectLanguageSwitchIntent(text);
+        if (fastSwitch) {
+            return await handleLanguageSwitch(ctx, fastSwitch);
         }
 
-        // ── INTENT: how to start learning / where to go ──
+        // ── 2. How-to intent (regex) ──
         if (detectHowToIntent(text)) {
             return await ctx.reply(
                 `🎯 *To start learning:*\n\n` +
                 `1. Open the Mini App — tap the menu button next to the text input\n` +
                 `2. Go to *Profile* tab\n` +
-                `3. Change *Target Language* (what you learn) and *Mediator Language* (for explanations)\n` +
+                `3. Change *Target Language* and *Mediator Language*\n` +
                 `4. Come back here and start chatting\n\n` +
                 `Or use:\n` +
                 `• /start — main menu\n` +
-                `• /profile — see your current settings\n` +
-                `• /games — play vocabulary games\n` +
+                `• /profile — see current settings\n` +
+                `• /games — vocabulary games\n` +
                 `• /read — reading skill test`,
                 {
                     parse_mode: 'Markdown',
@@ -1060,12 +1170,43 @@ bot.on('message', async (ctx) => {
             );
         }
 
-        const p = await getUserProfile(userId);
+        // ── 3. AI intent classifier (только для подозрительных коротких сообщений) ──
+        if (looksLikeLanguageRequest(text)) {
+            const aiIntent = await classifyIntentWithAI(text, p.targetLanguage, p.mediatorLanguage);
+
+            if (aiIntent?.intent === 'switch_language' && aiIntent.language) {
+                console.log(`[Intent] AI detected switch to ${aiIntent.language}`);
+                return await handleLanguageSwitch(ctx, aiIntent.language);
+            }
+
+            if (aiIntent?.intent === 'switch_mediator' && aiIntent.language) {
+                // Смена mediator — отдельный endpoint
+                try {
+                    await axios.post(`${API_BASE}/api/user/mediator-language`, {
+                        userId: String(userId),
+                        mediatorLanguage: aiIntent.language.toLowerCase().slice(0, 2),
+                    }, { timeout: 8000 });
+                    const cached = await getUser(String(userId));
+                    if (cached) {
+                        cached.mediatorLanguage = aiIntent.language;
+                        await saveUser(String(userId), cached);
+                    }
+                    return await ctx.reply(
+                        `✅ Mediator language switched to *${aiIntent.language}*.\n\nExplanations will now be in ${aiIntent.language}.`,
+                        { parse_mode: 'Markdown' }
+                    );
+                } catch (e) {
+                    console.error('Mediator switch failed:', e.message);
+                    return ctx.reply('Failed to switch mediator language.');
+                }
+            }
+        }
+
+        // ── 4. Fallback: Socratic AI ──
         const reply = await getTutorResponse(userId, text, p.targetLanguage, p.mediatorLanguage, p.currentLevel);
         await ctx.reply(reply);
     }
 });
-
 // ==================== LAUNCH ====================
 bot.launch();
 console.log('[Telegram Bot] Launched (mode: ' + (require.main === module ? 'standalone' : 'embedded') + ')');
