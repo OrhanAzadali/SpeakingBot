@@ -18,9 +18,12 @@ const redis = process.env.UPSTASH_REDIS_URL && process.env.UPSTASH_REDIS_TOKEN
         password: process.env.UPSTASH_REDIS_TOKEN,
         tls: process.env.UPSTASH_REDIS_URL.startsWith('rediss://') ? {} : undefined,
         maxRetriesPerRequest: 20,
-        retryStrategy: (times) => Math.min(times * 500, 5000),
+        retryStrategy: (times) => Math.min(times * 500, 30000),   // ← до 30 сек, не 5
         enableOfflineQueue: true,
         connectTimeout: 10000,
+        keepAlive: 30000,        // ← TCP keepalive каждые 30 сек
+        lazyConnect: false,
+        enableReadyCheck: false,
     })
     : null;
 
@@ -348,13 +351,45 @@ const pdfMenu = Markup.inlineKeyboard([
 bot.start(async (ctx) => {
     const userId = ctx.from.id;
     await syncUser(userId, ctx.from.username || 'user');
-    ctx.reply('👋 Welcome to SpeakBot! Use /help to see all commands.\nSend me text or voice to interact!',
-        Markup.inlineKeyboard([
-            [Markup.button.callback('📚 Stories', 'show_stories')],
-            [Markup.button.callback('🎮 Games', 'show_games')],
-            [Markup.button.callback('📄 PDF Materials', 'pdf_menu')],
-            [Markup.button.callback('👤 Profile', 'show_profile')]
-        ]));
+    await ctx.reply(
+        '👋 Welcome to SpeakBot!\n\n' +
+        '🎯 **Explore literary classics** with Socratic chat\n' +
+        '🎮 **Play language games** with vocabulary\n' +
+        '📄 **Generate PDF materials** for grammar, roadmap, listening\n' +
+        '🗣 **Send voice messages** for STT + TTS\n\n' +
+        'Use buttons below to start 👇',
+        {
+            parse_mode: 'Markdown',
+            ...Markup.inlineKeyboard([
+                [Markup.button.callback('📚 Stories', 'show_stories')],
+                [Markup.button.callback('🎮 Games', 'show_games')],
+                [Markup.button.callback('📄 PDF Materials', 'pdf_menu')],
+                [Markup.button.callback('👤 Profile', 'show_profile')],
+                [Markup.button.callback('🆘 Help', 'show_help')]
+            ])
+        }
+    );
+});
+
+bot.action('show_help', async (ctx) => {
+    await ctx.answerCbQuery();
+    await ctx.reply(
+        '*Available commands:*\n\n' +
+        '`/start` — main menu\n' +
+        '`/profile` — your learning profile\n' +
+        '`/skills` — skill scores\n' +
+        '`/grammar <topic>` — grammar PDF\n' +
+        '`/roadmap <topic>` — learning roadmap PDF\n' +
+        '`/games` — play language games\n' +
+        '`/cubeword` — find the word\n' +
+        '`/memory` — memory match\n' +
+        '`/wordbuilder` — build words\n' +
+        '`/vocab <word>` — save to vocabulary\n' +
+        '`/tts <text>` — text to speech\n' +
+        '`/premium` — upgrade to premium\n\n' +
+        'Or just send text/voice to chat with AI mentor.',
+        { parse_mode: 'Markdown' }
+    );
 });
 
 bot.help((ctx) => {
@@ -581,10 +616,98 @@ async function sendNextQuestion(ctx) {
 
 // Handle answer for skill test (in message handler)
 // ==================== GAMES ====================
-bot.command('games', (ctx) => {
-    ctx.reply('🎮 Available Games:\n1. CubeWord\n2. Memory Match\n3. Word Builder');
+bot.command('games', async (ctx) => {
+    const arg = ctx.message.text.split(' ')[1];
+
+    // /games 1 → CubeWord
+    if (arg === '1' || arg === 'cubeword') {
+        return startCubeWord(ctx);
+    }
+    // /games 2 → Memory Match
+    if (arg === '2' || arg === 'memory') {
+        return startMemoryMatch(ctx);
+    }
+    // /games 3 → Word Builder
+    if (arg === '3' || arg === 'wordbuilder') {
+        return startWordBuilder(ctx);
+    }
+
+    // Без аргумента → меню с кнопками
+    return ctx.reply('🎮 Available Games:', Markup.inlineKeyboard([
+        [Markup.button.callback('🧩 CubeWord', 'start_cubeword')],
+        [Markup.button.callback('🎴 Memory Match', 'start_memory')],
+        [Markup.button.callback('🔨 Word Builder', 'start_wordbuilder')],
+        [Markup.button.callback('❌ Close', 'close_menu')],
+    ]));
 });
 
+// ── Inline-кнопки запуска игр ──
+bot.action('start_cubeword', async (ctx) => {
+    await ctx.answerCbQuery();
+    return startCubeWord(ctx);
+});
+
+bot.action('start_memory', async (ctx) => {
+    await ctx.answerCbQuery();
+    return startMemoryMatch(ctx);
+});
+
+bot.action('start_wordbuilder', async (ctx) => {
+    await ctx.answerCbQuery();
+    return startWordBuilder(ctx);
+});
+
+bot.action('close_menu', async (ctx) => {
+    await ctx.answerCbQuery();
+    await ctx.deleteMessage().catch(() => { });
+});
+
+// ── Shared starters (используются и в командах, и в callback) ──
+async function startCubeWord(ctx) {
+    const userId = ctx.from.id;
+    const profile = await getUserProfile(userId);
+    try {
+        const { data } = await axios.get(`${API_BASE}/api/cubeword/target-words`, {
+            params: { targetLanguage: profile.targetLanguage }
+        });
+        const word = data.targetWords[0];
+        activeGames[userId] = { game: 'cubeword', targetWord: word.word };
+        return ctx.reply(`🧩 Find the word: ${word.clue}\nUse /cubeword <answer>`);
+    } catch (e) {
+        console.error('startCubeWord failed:', e.message);
+        return ctx.reply('Failed to start CubeWord.');
+    }
+}
+
+async function startMemoryMatch(ctx) {
+    const userId = ctx.from.id;
+    const targetLanguage = (await getUserProfile(userId)).targetLanguage || 'en';
+    try {
+        const { data } = await axios.post(`${API_BASE}/api/games/memory/start`, { userId, targetLanguage });
+        if (!data || !Array.isArray(data.cards)) {
+            return ctx.reply('Memory Match could not be started.');
+        }
+        const cardIds = data.cards.map(c => c.id).join(', ');
+        return ctx.reply(`🎴 Memory Match started!\nCards: ${cardIds}\nUse /flip <id> to see a card, /match <id1> <id2> to match.`);
+    } catch (e) {
+        console.error('startMemoryMatch failed:', e.message);
+        return ctx.reply('Memory Match failed to start.');
+    }
+}
+
+async function startWordBuilder(ctx) {
+    const userId = ctx.from.id;
+    try {
+        const { data } = await axios.post(`${API_BASE}/api/games/wordbuilder/start`, { userId, targetWord: 'LANGUAGE' });
+        return ctx.reply(`🔨 Word Builder started!\nTarget word: ${data.targetWord}\nUse /word <word> to submit.`);
+    } catch (e) {
+        console.error('startWordBuilder failed:', e.message);
+        return ctx.reply('Word Builder failed to start.');
+    }
+}
+bot.command('cubeword', (ctx) => startCubeWord(ctx));
+bot.command('memory', (ctx) => startMemoryMatch(ctx));
+bot.command('wordbuilder', (ctx) => startWordBuilder(ctx));
 // CubeWord
 bot.command('cubeword', async (ctx) => {
     const userId = ctx.from.id;
@@ -605,16 +728,50 @@ bot.command('vocab', async (ctx) => {
     ctx.reply(`Saved "${word}" to your vocabulary.`);
 });
 
-// TTS
+// ── Helper: определяет язык TTS по §5.25 ── 
+function getTtsVoiceCode(profile) {
+    const isBeginner = (profile.currentLevel === 'A1' || profile.currentLevel === 'A2');
+    const voiceLangName = isBeginner
+        ? (profile.mediatorLanguage || 'en')
+        : (profile.targetLanguage || 'English');
+
+    // Маппинг язык → MSEdge voice code
+    const map = {
+        // ISO код (mediator language)
+        en: 'en-US', ru: 'ru-RU', az: 'az-AZ', tr: 'tr-TR',
+        de: 'de-DE', es: 'es-ES', fr: 'fr-FR', it: 'it-IT',
+        // Полное имя (target language)
+        English: 'en-US', Russian: 'ru-RU', Azerbaijani: 'az-AZ',
+        Turkish: 'tr-TR', German: 'de-DE', Spanish: 'es-ES',
+        French: 'fr-FR', Italian: 'it-IT',
+    };
+    return map[voiceLangName] || 'en-US';
+}
+
 bot.command('tts', async (ctx) => {
     const text = ctx.message.text.replace('/tts', '').trim();
-    if (!text) return ctx.reply('Please provide text: `/tts Hello world!`');
+    if (!text) {
+        return ctx.reply(
+            '🔊 Send text after the command:\n`/tts Hello world`\n\nVoice language follows your profile (target for B1+, mediator for A1/A2).',
+            { parse_mode: 'Markdown' }
+        );
+    }
+
+    const userId = ctx.from.id;
+    const profile = await getUserProfile(userId);
+    const langCode = getTtsVoiceCode(profile);
+
     try {
-        const webm = await generateVoice(text, 'en-US');
+        console.log(`[TTS] user=${userId} level=${profile.currentLevel} voice=${langCode}`);
+        const webm = await generateVoice(text, langCode);
         const ogg = await convertToOgg(webm);
         await ctx.replyWithVoice({ source: ogg });
-        fs.unlinkSync(webm); fs.unlinkSync(ogg);
-    } catch (err) { ctx.reply('Failed to generate voice note.'); }
+        fs.unlinkSync(webm);
+        fs.unlinkSync(ogg);
+    } catch (err) {
+        console.error('TTS failed:', err.message);
+        ctx.reply('Failed to generate voice note.');
+    }
 });
 
 // Premium
@@ -681,20 +838,106 @@ bot.command('word', async (ctx) => {
 
 // ==================== CALLBACKS ====================
 bot.action('show_stories', async (ctx) => {
+    await ctx.answerCbQuery();
     const userId = ctx.from.id;
-    const { data } = await axios.get(`${API_BASE}/api/stories/custom-list`, { params: { userId, targetLanguage: 'en' } });
-    if (data.customStories.length === 0) return ctx.answerCbQuery('No stories yet.');
-    ctx.reply(`📖 Your stories:\n${data.customStories.map(s => `• ${s.title}`).join('\n')}`);
+    const profile = await getUserProfile(userId);
+
+    try {
+        const { data } = await axios.get(`${API_BASE}/api/stories/custom-list`, {
+            params: { userId, targetLanguage: profile.targetLanguage || 'English' }
+        });
+
+        const stories = data.customStories || [];
+        if (stories.length === 0) {
+            return ctx.reply(`📚 No stories available for ${profile.targetLanguage || 'English'}.\n\nTry another language or wait for daily feeds.`);
+        }
+
+        // Показываем первые 5 stories с кнопками
+        const topStories = stories.slice(0, 5);
+        const buttons = topStories.map(s => [
+            Markup.button.callback(
+                `📖 ${s.title.slice(0, 40)}`,
+                `story_open_${s.id}`
+            )
+        ]);
+        buttons.push([Markup.button.callback('⬅ Back', 'back_to_main')]);
+
+        await ctx.reply(
+            `📚 *Available Stories in ${profile.targetLanguage || 'English'}* (${stories.length}):`,
+            { parse_mode: 'Markdown', ...Markup.inlineKeyboard(buttons) }
+        );
+    } catch (e) {
+        console.error('show_stories failed:', e.message);
+        await ctx.reply('Failed to load stories.');
+    }
 });
 
-bot.action('show_games', (ctx) => {
-    ctx.answerCbQuery();
-    ctx.reply('🎮 Games: CubeWord, Memory Match, Word Builder. Use /games to see options.');
+// Открытие story → показывает детали
+bot.action(/^story_open_(.+)$/, async (ctx) => {
+    await ctx.answerCbQuery();
+    const storyId = ctx.match[1];
+    try {
+        const { data } = await axios.get(`${API_BASE}/api/stories/custom-list`, {
+            params: { userId: ctx.from.id }
+        });
+        const story = (data.customStories || []).find(s => s.id === storyId);
+        if (!story) {
+            return ctx.reply('Story not found.');
+        }
+        await ctx.reply(
+            `📖 *${story.title}*\n` +
+            `by _${story.author || 'Unknown'}_\n\n` +
+            `Level: ${story.level || 'B1'}\n` +
+            `${story.culturalLinguisticContext || ''}\n\n` +
+            `_To read full content and chat about it, open the Mini App._`,
+            { parse_mode: 'Markdown' }
+        );
+    } catch (e) {
+        console.error('story_open failed:', e.message);
+        await ctx.reply('Failed to open story.');
+    }
 });
 
-bot.action('show_tts', (ctx) => {
-    ctx.answerCbQuery();
-    ctx.reply('Use /tts <text> to get voice.');
+bot.action('show_games', async (ctx) => {
+    await ctx.answerCbQuery();
+    await ctx.reply('🎮 Available Games:', Markup.inlineKeyboard([
+        [Markup.button.callback('🧩 CubeWord', 'start_cubeword')],
+        [Markup.button.callback('🎴 Memory Match', 'start_memory')],
+        [Markup.button.callback('🔨 Word Builder', 'start_wordbuilder')],
+        [Markup.button.callback('⬅ Back', 'back_to_main')],
+    ]));
+});
+
+bot.action('back_to_main', async (ctx) => {
+    await ctx.answerCbQuery();
+    await ctx.deleteMessage().catch(() => { });
+    await ctx.reply('🏠 Main menu:', Markup.inlineKeyboard([
+        [Markup.button.callback('📚 Stories', 'show_stories')],
+        [Markup.button.callback('🎮 Games', 'show_games')],
+        [Markup.button.callback('📄 PDF Materials', 'pdf_menu')],
+        [Markup.button.callback('👤 Profile', 'show_profile')],
+    ]));
+});
+
+
+bot.action('show_tts', async (ctx) => {
+    await ctx.answerCbQuery();
+    const userId = ctx.from.id;
+    const profile = await getUserProfile(userId);
+
+    const isBeginner = (profile.currentLevel === 'A1' || profile.currentLevel === 'A2');
+    const voiceLang = isBeginner
+        ? (profile.mediatorLanguage || 'en')
+        : (profile.targetLanguage || 'English');
+
+    await ctx.reply(
+        `🔊 *Text-to-Speech*\n\n` +
+        `Voice language: *${voiceLang}*\n` +
+        `_(${isBeginner ? 'mediator language for A1/A2' : 'target language for B1+'})_\n\n` +
+        `Send any text and I'll reply with voice. Or use \`/tts your text\`.\n\n` +
+        `_Change target/mediator in the Mini App._`,
+        { parse_mode: 'Markdown' }
+    );
 });
 
 bot.action('show_profile', async (ctx) => {
@@ -728,6 +971,17 @@ bot.on('message', async (ctx) => {
         return sendNextQuestion(ctx);
     }
 
+    // Handle plain digits outside of a test — guide user to buttons
+    if (ctx.message.text && /^\d+$/.test(ctx.message.text) && !skillTestState[ctx.from.id]) {
+        return ctx.reply(
+            '💡 Use buttons instead of typing numbers.\n' +
+            'Try /games to see the menu.',
+            Markup.inlineKeyboard([
+                [Markup.button.callback('🎮 Open Games', 'show_games')]
+            ])
+        );
+    }
+
     // Voice
     if (ctx.message.voice) {
         await ctx.reply('🎧 Processing voice...');
@@ -759,9 +1013,11 @@ bot.on('message', async (ctx) => {
             activeGames[userId] = { game: 'cubeword', targetWord: word.word };
             await ctx.reply(`🧩 Find the word: ${word.clue}\nUse /cubeword <answer>`);
         } else {
-            // Normal tutor response with voice
+            // Normal tutor response with voice — language per §5.25
             const reply = await getTutorResponse(userId, text, profile.targetLanguage, profile.mediatorLanguage, profile.currentLevel);
-            const webm = await generateVoice(reply, profile.targetLanguage);
+            const langCode = getTtsVoiceCode(profile);
+            console.log(`[TTS auto] level=${profile.currentLevel} voice=${langCode}`);
+            const webm = await generateVoice(reply, langCode);
             const ogg = await convertToOgg(webm);
             await ctx.replyWithVoice({ source: ogg });
             await ctx.reply(`📝 Transcribed: ${text}\n💬 Voice reply sent.`);
@@ -777,7 +1033,31 @@ bot.on('message', async (ctx) => {
         ctx.reply(reply);
     }
 });
-// В самом конце bot.cjs
+
+bot.action(/^tts_play_(\d+)$/, async (ctx) => {
+    await ctx.answerCbQuery('Generating voice...');
+    const msgId = ctx.match[1];
+    const text = botTtsCache[msgId];
+
+    if (!text) {
+        return ctx.reply('Text expired, please try again.');
+    }
+
+    const userId = ctx.from.id;
+    const profile = await getUserProfile(userId);
+    const langCode = getTtsVoiceCode(profile);
+
+    try {
+        const webm = await generateVoice(text, langCode);
+        const ogg = await convertToOgg(webm);
+        await ctx.replyWithVoice({ source: ogg });
+        fs.unlinkSync(webm);
+        fs.unlinkSync(ogg);
+    } catch (err) {
+        console.error('TTS reply failed:', err.message);
+        await ctx.reply('Failed to generate voice.');
+    }
+});
 // В самом конце bot.cjs
 bot.launch();
 console.log('[Telegram Bot] Launched (mode: ' + (require.main === module ? 'standalone' : 'embedded') + ')');
