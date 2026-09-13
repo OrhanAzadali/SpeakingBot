@@ -4208,7 +4208,8 @@ app.post("/api/socratic/chat", async (req, res) => {
             targetLanguage = "English",
             level = "B1",
             mediatorLanguage = req.body.mediatorLanguage || (syncedUsersDatabase[userId]?.mediatorLanguage) || "en",
-            userRequestedTranslation = false
+            userRequestedTranslation = false,
+            mode = "literature"        // "literature" (default) | "language"
         } = req.body;
 
         if (!userMessage || !userMessage.trim()) {
@@ -4270,8 +4271,49 @@ CONVERSATION LANGUAGE = ${targetLanguage}:
 HARD RULES:
 - Never invent words. Never switch languages.`;
 
-        const aiPrompt = `You are SpeakBot Socratic Mentor, an intellectually stimulating literary tutor having a live Socratic conversation about "${bookTitle}" by ${author}.
+        let aiPrompt;
 
+        if (mode === "language") {
+            // ── LANGUAGE TUTOR MODE (Telegram bot) ──
+            aiPrompt = `You are SpeakBot Language Tutor — a patient, focused LANGUAGE teacher.
+
+You are teaching ${targetLanguage} to a ${level} learner.
+Mediator language (for explanations): ${mediatorLanguage}.
+
+YOU ARE NOT A LITERATURE TEACHER.
+- Do NOT discuss books, stories, novels, passages, authors, literary analysis.
+- Do NOT say "our current text", "the passage", "narrative", "the author".
+- If the learner asks about a book → briefly answer, then return to language practice.
+- Your ONLY job: teach ${targetLanguage} — grammar, vocabulary, pronunciation,
+  usage, idioms, exercises, conversation practice.
+
+Recent Chat History:
+${(chatHistory || []).slice(-4).map((m) => `${m.role === 'user' ? 'Learner' : 'Tutor'}: ${m.text}`).join('\n')}
+
+Learner's latest message:
+"${userMessage}"
+
+${languageRules}
+
+WHAT YOU DO:
+1. Teach ${targetLanguage} through: short lessons, examples, corrections,
+   translations, and guided practice.
+2. Every reply ends with ONE short question or prompt that keeps the learner
+   actively using ${targetLanguage} (repeat after me, translate this, answer this,
+   fill the gap, etc.).
+3. Correct mistakes gently. Show the corrected version explicitly.
+4. If the learner does not understand → simplify, use mediator.
+
+Return ONLY valid JSON:
+{
+  "reply": "...",
+  "pointsAwarded": 20,
+  "pedagogicalTip": "short tip in ${mediatorLanguage}",
+  "suggestedReplies": ["...", "..."]
+}`;
+        } else {
+            // ── LITERATURE MODE (Mini App Socratic Chat) ──
+            aiPrompt = `You are SpeakBot Socratic Mentor, an intellectually stimulating literary tutor having a live Socratic conversation about "${bookTitle}" by ${author}.
 The Excerpt:
         """
 ${String(excerpt).slice(0, 2400)}
@@ -4290,13 +4332,13 @@ ${languageRules}
       Respond in a genuine Socratic dialogue style. Depending on the topic, maintain a moderate tone, using emotional or grand language only when it fits the context. Do not ignore the learner's wit, humor, or sharp remarks — engage with them. If student makes utterly rude mistakes, politely correct them and explain their mistake in friendly and understandable manner. Always remain highly responsive and ask thought-provoking questions to spark the student's interest. However, always guide the learner back to the core topic. If appropriate, you may briefly pivot to another book or classical story for one or two lines, but you must ultimately return to the main subject for deeper discussion.
 
 Return ONLY valid JSON:
-        {
-            "reply": "...",
-                "pointsAwarded": 20,
-                    "pedagogicalTip": "...",
-                        "suggestedReplies": ["...", "..."]
-        } `;
-
+{
+  "reply": "...",
+  "pointsAwarded": 20,
+  "pedagogicalTip": "...",
+  "suggestedReplies": ["...", "..."]
+}`;
+        }
         let replyData = null;
         const raw = await callGeminiWithResilience(aiPrompt, null, [], true, userId);
         if (raw) {

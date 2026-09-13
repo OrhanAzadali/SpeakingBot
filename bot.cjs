@@ -191,6 +191,7 @@ async function getTutorResponseInternal(userId, userMessage, targetLanguage = 'e
             chatHistory: (conversationHistory[userId] || []).slice(-4),
             targetLanguage, mediatorLanguage, level,
             userRequestedTranslation: /\b(translate|translation|what does .* mean|переведи|перевод|tərcümə)\b/i.test(userMessage),
+            mode: "language",       // ← ЯЗЫКОВОЙ ТЬЮТОР, не литература
         }, { timeout: 25000 });
         if (data.success && data.reply) {
             if (!conversationHistory[userId]) conversationHistory[userId] = [];
