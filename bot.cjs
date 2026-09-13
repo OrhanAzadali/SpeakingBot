@@ -769,9 +769,6 @@ bot.on('message', async (ctx) => {
     }
 });
 // В самом конце bot.cjs
-if (require.main === module) {
-    bot.launch();
-    console.log('Bot is running in standalone mode...');
-} else {
-    console.log('[Telegram Bot] Loaded as module, skipping launch');
-}
+// В самом конце bot.cjs
+bot.launch();
+console.log('[Telegram Bot] Launched (mode: ' + (require.main === module ? 'standalone' : 'embedded') + ')');
