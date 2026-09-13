@@ -315,7 +315,8 @@ async function generatePdf(type, userId, targetLang, level, mediatorLang = 'en',
                 userId, targetLanguage: targetLang, userLevel: level, mediatorLanguage: mediatorLang, topic,
             }, { timeout: 60000 });
             if (res.data.pdfUrl) return res.data.pdfUrl;
-            return await generateStructuredPDF(res.data, `speakbot_${type}_${Date.now()}`, type.toUpperCase() + ' Guide');
+            const inner = res.data.guide || res.data.roadmap || res.data.story || res.data;
+            return await generateStructuredPDF(inner, `speakbot_${type}_${Date.now()}`, type.toUpperCase() + ' Guide');
         } catch (err) { console.error(`PDF endpoint error ${type}:`, err.message); }
     }
     const aiPrompt = `Generate ${type} material on "${topic}" for ${targetLang} at CEFR ${level}. Return JSON: {title, modules or exercises}.`;
@@ -463,21 +464,178 @@ bot.action('cancel_pdf', async (ctx) => {
     await ctx.reply('Cancelled.');
 });
 
-// PDF commands
-['grammar', 'roadmap', 'listen', 'read', 'write'].forEach(cmd => {
-    bot.command(cmd, async (ctx) => {
-        const topic = ctx.message.text.split(' ').slice(1).join(' ') || 'Basic';
-        const p = await getUserProfile(ctx.from.id);
-        await ctx.reply(`Generating ${cmd}...`);
-        const typeMap = { grammar: 'grammar', roadmap: 'roadmap', listen: 'listening', read: 'reading', write: 'writing' };
+['read', 'write', 'listen', 'speak'].forEach(skill => {
+    bot.command(skill, async (ctx) => {
+        const skillMap = { read: 'reading', write: 'writing', listen: 'listening', speak: 'speaking' };
+        const skillName = skillMap[skill];
+        const userId = ctx.from.id;
+        const p = await getUserProfile(userId);
+
+        await ctx.reply(`📝 Generating ${skillName} test...`);
+
         try {
-            const pdfPath = await generatePdf(typeMap[cmd], ctx.from.id, p.targetLanguage, p.currentLevel, p.mediatorLanguage, topic);
-            await ctx.replyWithDocument({ source: pdfPath });
-            try { fs.unlinkSync(pdfPath); } catch { }
-        } catch (e) { ctx.reply('Failed.'); }
+            const { data } = await axios.post(`${API_BASE}/api/tests/generate-skill`, {
+                userId,
+                skill: skillName,
+                targetLanguage: p.targetLanguage,
+                userLevel: p.currentLevel,
+                mediatorLanguage: p.mediatorLanguage,
+                count: 5,
+            }, { timeout: 60000 });
+
+            if (!data.success || !data.test?.questions || data.test.questions.length === 0) {
+                return ctx.reply('Failed to generate test.');
+            }
+
+            skillTestState[userId] = {
+                skill: skillName,
+                step: 0,
+                score: 0,
+                questions: data.test.questions,
+            };
+
+            await sendNextQuestion(ctx);
+        } catch (e) {
+            console.error(`${skill} test error:`, e.message);
+            ctx.reply('Failed to start test.');
+        }
     });
 });
+// PDF commands
+bot.command('grammar', async (ctx) => {
+    const topic = ctx.message.text.split(' ').slice(1).join(' ') || 'Basic Grammar';
+    const p = await getUserProfile(ctx.from.id);
+    await ctx.reply(`📖 Generating grammar guide for "${topic}"...`);
 
+    try {
+        const { data } = await axios.post(`${API_BASE}/api/gemini/generate-grammar-guide`, {
+            userId: ctx.from.id,
+            targetLanguage: p.targetLanguage,
+            ruleTitle: topic,
+            level: p.currentLevel,
+            mediatorLanguage: p.mediatorLanguage,
+        }, { timeout: 60000 });
+
+        const guide = data.guide;
+        if (!guide) throw new Error('No guide');
+
+        // Форматируем текстом
+        const lines = [
+            `📖 *${guide.title}*`,
+            `Level: ${guide.level || p.currentLevel}`,
+            '',
+            guide.summary || '',
+            '',
+            '*Core Rules:*',
+        ];
+        (guide.coreRules || []).slice(0, 4).forEach((rule, i) => {
+            lines.push(`${i + 1}. *${rule.ruleTitle}*`);
+            lines.push(`   ${rule.explanationInMediator}`);
+            lines.push(`   📐 ${rule.formula}`);
+            lines.push(`   💬 ${rule.example}`);
+            lines.push('');
+        });
+
+        if (guide.commonMistakes?.length) {
+            lines.push('*Common Mistakes:*');
+            guide.commonMistakes.slice(0, 3).forEach(m => {
+                lines.push(`❌ ${m.incorrect}`);
+                lines.push(`✅ ${m.correct}`);
+                lines.push(`   ${m.reason}`);
+                lines.push('');
+            });
+        }
+
+        lines.push('_Full PDF: /grammar_pdf ' + topic + '_');
+
+        const text = lines.join('\n');
+        // Telegram limit 4096 chars per message
+        if (text.length > 4000) {
+            await ctx.reply(text.slice(0, 4000), { parse_mode: 'Markdown' });
+            await ctx.reply(text.slice(4000), { parse_mode: 'Markdown' });
+        } else {
+            await ctx.reply(text, { parse_mode: 'Markdown' });
+        }
+    } catch (e) {
+        console.error('grammar error:', e.message);
+        ctx.reply('Failed to generate grammar guide.');
+    }
+});
+
+bot.command('roadmap', async (ctx) => {
+    const topic = ctx.message.text.split(' ').slice(1).join(' ') || 'General';
+    const p = await getUserProfile(ctx.from.id);
+    await ctx.reply(`🗺️ Generating roadmap for "${topic}"...`);
+
+    try {
+        const { data } = await axios.post(`${API_BASE}/api/gemini/generate-grammar-roadmap`, {
+            userId: ctx.from.id,
+            targetLanguage: p.targetLanguage,
+            userLevel: p.currentLevel,
+            mediatorLanguage: p.mediatorLanguage,
+            topic,
+        }, { timeout: 60000 });
+
+        const roadmap = data.roadmap;
+        if (!roadmap) throw new Error('No roadmap');
+
+        const lines = [
+            `🗺️ *${roadmap.title}*`,
+            `Level: ${roadmap.level || p.currentLevel} • ${roadmap.estimatedDuration || ''}`,
+            '',
+            roadmap.summary || '',
+            '',
+            '*Milestones:*',
+        ];
+        (roadmap.milestones || []).slice(0, 5).forEach(m => {
+            lines.push(`📍 Step ${m.step}: *${m.title}*`);
+            lines.push(`   ${m.description}`);
+            if (m.sampleSentence) lines.push(`   💬 ${m.sampleSentence}`);
+            lines.push('');
+        });
+
+        if (roadmap.checkpointQuestions?.length) {
+            lines.push('*Checkpoint Questions:*');
+            roadmap.checkpointQuestions.slice(0, 3).forEach((q, i) => {
+                lines.push(`${i + 1}. ${q.question}`);
+            });
+        }
+
+        lines.push('_Full PDF: /roadmap_pdf ' + topic + '_');
+
+        const text = lines.join('\n');
+        if (text.length > 4000) {
+            await ctx.reply(text.slice(0, 4000), { parse_mode: 'Markdown' });
+            await ctx.reply(text.slice(4000), { parse_mode: 'Markdown' });
+        } else {
+            await ctx.reply(text, { parse_mode: 'Markdown' });
+        }
+    } catch (e) {
+        console.error('roadmap error:', e.message);
+        ctx.reply('Failed to generate roadmap.');
+    }
+});
+bot.command('grammar_pdf', async (ctx) => {
+    const topic = ctx.message.text.split(' ').slice(1).join(' ') || 'Basic Grammar';
+    const p = await getUserProfile(ctx.from.id);
+    await ctx.reply(`📄 Generating grammar PDF for "${topic}"...`);
+    try {
+        const pdfPath = await generatePdf('grammar', ctx.from.id, p.targetLanguage, p.currentLevel, p.mediatorLanguage, topic);
+        await ctx.replyWithDocument({ source: pdfPath });
+        try { fs.unlinkSync(pdfPath); } catch { }
+    } catch (e) { ctx.reply('Failed to generate PDF.'); }
+});
+
+bot.command('roadmap_pdf', async (ctx) => {
+    const topic = ctx.message.text.split(' ').slice(1).join(' ') || 'General';
+    const p = await getUserProfile(ctx.from.id);
+    await ctx.reply(`📄 Generating roadmap PDF for "${topic}"...`);
+    try {
+        const pdfPath = await generatePdf('roadmap', ctx.from.id, p.targetLanguage, p.currentLevel, p.mediatorLanguage, topic);
+        await ctx.replyWithDocument({ source: pdfPath });
+        try { fs.unlinkSync(pdfPath); } catch { }
+    } catch (e) { ctx.reply('Failed to generate PDF.'); }
+});
 bot.command('skills', async (ctx) => {
     const p = await getUserProfile(ctx.from.id);
     const skills = p.skillScores || {};
@@ -498,52 +656,79 @@ bot.command('premium', async (ctx) => {
 bot.command('skilltest', async (ctx) => {
     const skill = ctx.message.text.split(' ')[1] || 'grammar';
     const userId = ctx.from.id;
-    skillTestState[userId] = { skill, step: 0, score: 0, questions: [] };
-    await ctx.reply(`Starting ${skill} test...`);
-    const questions = await generateTestQuestions(skill, userId);
-    skillTestState[userId].questions = questions;
-    if (questions.length === 0) return ctx.reply('Could not generate questions.');
-    await sendNextQuestion(ctx);
-});
-
-async function generateTestQuestions(skill, userId) {
     const p = await getUserProfile(userId);
-    const prompt = `Generate 5 multiple-choice ${skill} questions for ${p.currentLevel} in ${p.targetLanguage}. Return ONLY JSON array: [{"question":"","options":["A","B","C","D"],"correctIndex":0}]`;
+
+    await ctx.reply(`📝 Generating ${skill} test...`);
+
     try {
-        const response = await axios.post('https://api.groq.com/openai/v1/chat/completions', {
-            model: 'llama-3.3-70b-versatile',
-            messages: [
-                { role: 'system', content: 'Return only valid JSON.' },
-                { role: 'user', content: prompt },
-            ],
-            response_format: { type: 'json_object' },
-        }, { headers: { 'Authorization': `Bearer ${GROQ_API_KEY}` }, timeout: 20000 });
-        const content = response.data.choices[0].message.content;
-        const clean = content.replace(/^```json\s*/i, '').replace(/```$/i, '').trim();
-        const parsed = JSON.parse(clean);
-        if (Array.isArray(parsed)) return parsed;
-        if (Array.isArray(parsed.questions)) return parsed.questions;
-        return [];
-    } catch (e) { console.warn('generateTestQuestions:', e.message); return []; }
-}
+        const { data } = await axios.post(`${API_BASE}/api/tests/generate-skill`, {
+            userId,
+            skill,
+            targetLanguage: p.targetLanguage,
+            userLevel: p.currentLevel,
+            mediatorLanguage: p.mediatorLanguage,
+            count: 5,
+        }, { timeout: 60000 });
+
+        if (!data.success || !data.test?.questions || data.test.questions.length === 0) {
+            return ctx.reply('Failed to generate test questions.');
+        }
+
+        skillTestState[userId] = {
+            skill,
+            step: 0,
+            score: 0,
+            questions: data.test.questions,
+        };
+
+        await sendNextQuestion(ctx);
+    } catch (e) {
+        console.error('skilltest error:', e.message);
+        ctx.reply('Failed to start skill test.');
+    }
+});
 
 async function sendNextQuestion(ctx) {
     const userId = ctx.from.id;
     const state = skillTestState[userId];
     if (!state) return;
+
     if (state.step >= state.questions.length) {
-        const finalScore = state.score;
-        axios.post(`${API_BASE}/api/user/skill-test`, { userId, skillType: state.skill, score: finalScore }, { timeout: 8000 }).catch(() => { });
+        // Финальный результат
+        const total = state.questions.length;
+        const score = state.score || 0;
+        const percent = Math.round((score / total) * 100);
+        const scoreDelta = Math.round((score / total) * 20);   // макс +20
+
+        try {
+            await axios.post(`${API_BASE}/api/user/skill-test`, {
+                userId,
+                skill: state.skill,
+                scoreDelta,
+            }, { timeout: 8000 });
+        } catch (e) { /* ignore */ }
+
         delete skillTestState[userId];
-        return ctx.reply(`Test finished! Score: ${finalScore}/${state.questions.length}`);
+        return ctx.reply(
+            `✅ Test finished!\n\n` +
+            `Score: ${score}/${total} (${percent}%)\n` +
+            `Skill boost: +${scoreDelta}% to ${state.skill}`
+        );
     }
+
     const q = state.questions[state.step];
     const opts = q.options.map((o, i) => `${i + 1}. ${o}`).join('\n');
-    await ctx.reply(`Q${state.step + 1}/${state.questions.length}: ${q.question}\n\n${opts}\n\nReply with 1-4.`);
+    const num = state.step + 1;
+
+    let msg = `Q${num}/${state.questions.length}: ${q.question}\n\n${opts}\n\nReply with 1-4.`;
+    if (q.audioText) {
+        msg = `🔊 Audio: "${q.audioText}"\n\n` + msg;
+    }
+
+    await ctx.reply(msg);
 }
 
 // Games
-
 bot.command('games', async (ctx) => {
     await ctx.reply(
         '🎮 Choose a game — it will open in the Mini App:',
@@ -670,7 +855,17 @@ bot.on('message', async (ctx) => {
         const state = skillTestState[userId];
         const q = state.questions[state.step];
         const answerIndex = parseInt(ctx.message.text) - 1;
-        if (answerIndex === q.correctIndex) state.score++;
+
+        if (answerIndex === q.correctIndex) {
+            state.score = (state.score || 0) + 1;
+            await ctx.reply('✅ Correct!');
+        } else {
+            const correctOpt = q.options[q.correctIndex] || '';
+            await ctx.reply(
+                `❌ Wrong.\n\n✅ Correct: ${q.correctIndex + 1}. ${correctOpt}` +
+                (q.explanation ? `\n\n💡 ${q.explanation}` : '')
+            );
+        }
         state.step++;
         return sendNextQuestion(ctx);
     }
