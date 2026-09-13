@@ -5726,18 +5726,6 @@ async function startServer() {
     });
 }
 
-if (process.env.TELEGRAM_BOT_TOKEN) {
-    try {
-        const require2 = createRequire(import.meta.url);
-        const botPath = path.join(process.cwd(), "bot.cjs");
-        if (fs.existsSync(botPath)) {
-            require2(botPath);
-            console.log("[Telegram Bot] Started inside server process");
-        }
-    } catch (e) {
-        console.error("[Telegram Bot] Failed:", e.message);
-    }
-}
 startServer();
 // ═══════════════════════════════════════════════════════════════
 // TELEGRAM BOT — embedded in server process
