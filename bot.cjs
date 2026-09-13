@@ -342,52 +342,6 @@ function detectIntent(text) {
     return 'tutor';
 }
 
-// ==================== SHARED STARTERS ====================
-async function startCubeWord(ctx) {
-    const userId = ctx.from.id;
-    const profile = await getUserProfile(userId);
-    try {
-        const { data } = await axios.get(`${API_BASE}/api/cubeword/target-words`, {
-            params: { targetLanguage: profile.targetLanguage }, timeout: 8000,
-        });
-        const word = data.targetWords[0];
-        activeGames[userId] = { game: 'cubeword', targetWord: word.word };
-        return ctx.reply(`🧩 Find the word: ${word.clue}\n\nUse /cubeword <answer>`);
-    } catch (e) {
-        console.error('startCubeWord failed:', e.message);
-        return ctx.reply('Failed to start CubeWord.');
-    }
-}
-
-async function startMemoryMatch(ctx) {
-    const userId = ctx.from.id;
-    const profile = await getUserProfile(userId);
-    try {
-        const { data } = await axios.post(`${API_BASE}/api/games/memory/start`, {
-            userId, targetLanguage: profile.targetLanguage,
-        }, { timeout: 8000 });
-        if (!data || !Array.isArray(data.cards)) return ctx.reply('Memory Match could not be started.');
-        const cardIds = data.cards.map(c => c.id).join(', ');
-        return ctx.reply(`🎴 Memory Match started!\nCards: ${cardIds}\n\nUse /flip <id> and /match <id1> <id2>`);
-    } catch (e) {
-        console.error('startMemoryMatch failed:', e.message);
-        return ctx.reply('Memory Match failed to start.');
-    }
-}
-
-async function startWordBuilder(ctx) {
-    const userId = ctx.from.id;
-    try {
-        const { data } = await axios.post(`${API_BASE}/api/games/wordbuilder/start`, {
-            userId, targetWord: 'LANGUAGE',
-        }, { timeout: 8000 });
-        return ctx.reply(`🔨 Word Builder started!\nTarget: ${data.targetWord}\n\nUse /word <word>`);
-    } catch (e) {
-        console.error('startWordBuilder failed:', e.message);
-        return ctx.reply('Word Builder failed to start.');
-    }
-}
-
 // ==================== COMMANDS ====================
 bot.start(async (ctx) => {
     const userId = ctx.from.id;
@@ -583,18 +537,17 @@ async function sendNextQuestion(ctx) {
 }
 
 // Games
-bot.command('games', async (ctx) => {
-    const arg = ctx.message.text.split(' ')[1];
-    if (arg === '1' || arg === 'cubeword') return startCubeWord(ctx);
-    if (arg === '2' || arg === 'memory') return startMemoryMatch(ctx);
-    if (arg === '3' || arg === 'wordbuilder') return startWordBuilder(ctx);
 
-    return ctx.reply('🎮 Available Games:', Markup.inlineKeyboard([
-        [Markup.button.callback('🧩 CubeWord', 'start_cubeword')],
-        [Markup.button.callback('🎴 Memory Match', 'start_memory')],
-        [Markup.button.callback('🔨 Word Builder', 'start_wordbuilder')],
-        [Markup.button.callback('⬅ Back', 'back_to_main')],
-    ]));
+bot.command('games', async (ctx) => {
+    await ctx.reply(
+        '🎮 Choose a game — it will open in the Mini App:',
+        Markup.inlineKeyboard([
+            [Markup.button.webApp('🧩 CubeWord', `${API_BASE}/?game=cubeword`)],
+            [Markup.button.webApp('🎴 Memory Match', `${API_BASE}/?game=memory`),
+            Markup.button.webApp('🔨 Word Builder', `${API_BASE}/?game=wordbuilder`)],
+            [Markup.button.webApp('📚 All Games', `${API_BASE}/?tab=games`)],
+        ])
+    );
 });
 
 bot.action('start_cubeword', async (ctx) => { await ctx.answerCbQuery(); return startCubeWord(ctx); });
@@ -612,9 +565,23 @@ bot.action('back_to_main', async (ctx) => {
     ]));
 });
 
-bot.command('cubeword', (ctx) => startCubeWord(ctx));
-bot.command('memory', (ctx) => startMemoryMatch(ctx));
-bot.command('wordbuilder', (ctx) => startWordBuilder(ctx));
+bot.command('cubeword', async (ctx) => {
+    await ctx.reply('🧩 CubeWord — opening...', Markup.inlineKeyboard([
+        [Markup.button.webApp('🧩 Play CubeWord', `${MINIAPP_BASE}/?game=cubeword`)],
+    ]));
+});
+
+bot.command('memory', async (ctx) => {
+    await ctx.reply('🎴 Memory Match — opening...', Markup.inlineKeyboard([
+        [Markup.button.webApp('🎴 Play Memory', `${MINIAPP_BASE}/?game=memory`)],
+    ]));
+});
+
+bot.command('wordbuilder', async (ctx) => {
+    await ctx.reply('🔨 Word Builder — opening...', Markup.inlineKeyboard([
+        [Markup.button.webApp('🔨 Play WordBuilder', `${MINIAPP_BASE}/?game=wordbuilder`)],
+    ]));
+});
 
 bot.command('flip', async (ctx) => {
     const userId = ctx.from.id;

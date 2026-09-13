@@ -94,13 +94,29 @@ function MainApp() {
     lastSyncedAt: (/* @__PURE__ */ new Date()).toISOString()
   });
   const [isSyncing, setIsSyncing] = useState(false);
-  const [activeTab, setActiveTab] = useState("home");
   const [isMiniAppMode, setIsMiniAppMode] = useState(false);
   const [storyLaunchConfig, setStoryLaunchConfig] = useState({ mode: "all" });
   const [savedVocabulary, setSavedVocabulary] = useState([]);
   const [allVocabularies, setAllVocabularies] = useState({});
   const [countsByLanguage, setCountsByLanguage] = useState({});
+  const [activeTab, setActiveTab] = useState("home");
   const [activeGameId, setActiveGameId] = useState(null);
+
+  // Читаем URL-параметры при загрузке (Telegram WebApp передаёт query)
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const tabParam = params.get('tab');
+    const gameParam = params.get('game');
+
+    if (tabParam && ['home', 'roadmaps', 'games', 'grammar-pdfs', 'saved-vocabulary', 'stories', 'placement-test', 'skill-tests', 'nlp-analyzer'].includes(tabParam)) {
+      setActiveTab(tabParam);
+    }
+
+    if (gameParam) {
+      setActiveTab('games');
+      setActiveGameId(gameParam);
+    }
+  }, []); // один раз при загрузке
 
   const normalizeUserProfile = (data, prev) => {
     const rawAny = data;
@@ -121,6 +137,7 @@ function MainApp() {
       }
     };
   };
+
   const [roadmaps, setRoadmaps] = useState(() => {
     try {
       const cached = localStorage.getItem("speakbot_roadmaps");
@@ -545,7 +562,8 @@ function MainApp() {
             onSelectToken={(token) => setInspectedToken(token)}
             asSection={false}
             themeColors={themeColors}
-          />
+            initialGameId={activeGameId}
+            onCloseGame={handleCloseGame} />
         )}
 
         {activeTab === "grammar-pdfs" && (
