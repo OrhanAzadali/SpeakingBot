@@ -49,17 +49,6 @@ async function saveUser(userId, user) {
     }
 }
 
-// ==================== TTS WITH CACHE ====================
-(async () => {
-    try {
-        await redis.connect();
-        redisReady = true;
-        console.log('[Redis] Connected');
-    } catch (e) {
-        console.error('[Redis] Connect failed:', e.message);
-    }
-})();
-
 // ==================== CONFIG ====================
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 const API_BASE = process.env.MINIAPP_URL || 'https://speakingbot.onrender.com';
@@ -647,8 +636,17 @@ bot.command('profile', async (ctx) => {
 bot.command('memory', async (ctx) => {
     const userId = ctx.from.id;
     const targetLanguage = (await getUserProfile(userId)).targetLanguage || 'en';
-    const { data } = await axios.post(`${API_BASE}/api/games/memory/start`, { userId, targetLanguage });
-    ctx.reply(`Memory Match started! Cards: ${data.pairs.map(p => p.id).join(', ')}. Use /flip <id> to see a card, /match <id1> <id2> to match.`);
+    try {
+        const { data } = await axios.post(`${API_BASE}/api/games/memory/start`, { userId, targetLanguage });
+        if (!data || !Array.isArray(data.cards)) {
+            return ctx.reply('Memory Match could not be started. Try again later.');
+        }
+        const cardIds = data.cards.map(c => c.id).join(', ');
+        ctx.reply(`Memory Match started! Cards: ${cardIds}. Use /flip <id> to see a card, /match <id1> <id2> to match.`);
+    } catch (err) {
+        console.error('Memory start error:', err.message);
+        ctx.reply('Memory Match failed to start.');
+    }
 });
 
 bot.command('flip', async (ctx) => {

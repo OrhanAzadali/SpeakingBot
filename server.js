@@ -3124,7 +3124,6 @@ Return ONLY valid JSON matching this schema:
         targetLanguage,
         mediatorLanguage: effectiveMediator,
         userLevel,
-        userLevel,
         excerptSlice: rawStory.excerpt,
         isSimulated: false,
     });
@@ -3893,23 +3892,6 @@ Return ONLY valid JSON matching:
     }
 });
 
-// =====================================================
-// ROUTE: SOCRATIC CHAT
-// =====================================================
-const res = await fetch("/api/socratic/chat", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-        bookTitle: activeStory.title,
-        author: activeStory.author,
-        excerpt,
-        userMessage: text,
-        targetLanguage: activeStory.targetLanguage || targetLanguage,
-        mediatorLanguage,
-        level: userLevel || "B1",
-        userRequestedTranslation: /\b(translate|translation|what does .* mean|переведи|перевод|tərcümə)\b/i.test(text)
-    })
-});
 
 // ═══════════════════════════════════════════════════════════════
 // ДОПОЛНЕНИЕ SOCRATIC-ВОПРОСОВ НА ЛЕТУ (Variant B)
