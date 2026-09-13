@@ -4890,6 +4890,177 @@ app.post("/api/user/skill-test", (req, res) => {
 
     res.json({ success: true, skillScores: user.skillScores, targetLanguage: activeLang });
 });
+// =====================================================
+// ROUTE: AI SKILL TEST GENERATION
+// =====================================================
+app.post("/api/tests/generate-skill", async (req, res) => {
+    try {
+        const {
+            userId = "default-user",
+            skill = "grammar",           // grammar | vocabulary | reading | listening | writing | speaking
+            targetLanguage = "English",
+            userLevel = "B1",
+            mediatorLanguage = "en",
+            count = 5,
+        } = req.body;
+
+        const validSkills = ["grammar", "vocabulary", "reading", "listening", "writing", "speaking"];
+        if (!validSkills.includes(skill)) {
+            return res.status(400).json({ success: false, error: `Invalid skill. Use one of: ${validSkills.join(", ")}` });
+        }
+
+        // §5.25 Mediator gating: mediator only for A1/A2 explanations
+        const useMediator = (userLevel === "A1" || userLevel === "A2");
+        const effectiveMediator = useMediator ? mediatorLanguage : targetLanguage;
+
+        const prompt = `You are an expert language test designer. Generate ${count} multiple-choice questions for a ${userLevel} CEFR learner in ${targetLanguage}, testing the skill: ${skill.toUpperCase()}.
+
+STRICT REQUIREMENTS — the test is INVALID if any minimum is not met:
+- Exactly ${count} questions.
+- Each question must test ${skill} specifically, not general grammar.
+- Each question must have 4 options (A/B/C/D) with exactly one correct answer.
+- Each question must include a short explanation in ${effectiveMediator} explaining WHY the answer is correct.
+- Questions must be UNIQUE and require real reasoning, not just pattern-matching.
+- Do NOT repeat the same sub-topic more than twice.
+
+${skill === "listening" ? `- Include an "audioText" field: a short 1-2 sentence script that the learner would hear (in ${targetLanguage}).`
+                : skill === "writing" ? `- Each question should present a short writing task or error-correction exercise.`
+                    : skill === "speaking" ? `- Each question should present a short spoken-response scenario with 4 possible replies.`
+                        : ""}
+
+Return ONLY valid JSON with this exact shape:
+{
+  "skill": "${skill}",
+  "level": "${userLevel}",
+  "targetLanguage": "${targetLanguage}",
+  "questions": [
+    {
+      "id": "q1",
+      "question": "Question text in ${targetLanguage}",
+      ${skill === "listening" ? `"audioText": "Text the learner hears (in ${targetLanguage})",` : ""}
+      "options": ["Option A", "Option B", "Option C", "Option D"],
+      "correctIndex": 0,
+      "explanation": "Explanation in ${effectiveMediator}"
+    }
+  ]
+}
+
+CRITICAL: Return ONLY raw JSON. No markdown. Start with { and end with }.`;
+
+        let parsed = null;
+        for (let attempt = 1; attempt <= 3 && !parsed; attempt++) {
+            const raw = await callGeminiWithResilience(prompt, null, [], true, userId);
+            if (!raw) {
+                console.warn(`[SkillTest] AI null (attempt ${attempt}/3)`);
+                continue;
+            }
+            const candidate = await repairJson(raw);
+            if (!candidate || !Array.isArray(candidate.questions) || candidate.questions.length === 0) {
+                console.warn(`[SkillTest] Invalid JSON (attempt ${attempt}/3)`);
+                continue;
+            }
+            parsed = candidate;
+        }
+
+        if (!parsed) {
+            return res.status(502).json({
+                success: false,
+                error: "AI failed to generate valid questions after 3 attempts",
+            });
+        }
+
+        // Нормализация
+        parsed.questions = parsed.questions.slice(0, count).map((q, i) => ({
+            id: q.id || `q${i + 1}`,
+            question: q.question || `Question ${i + 1}`,
+            audioText: q.audioText || null,
+            options: Array.isArray(q.options) && q.options.length === 4
+                ? q.options
+                : ["Option A", "Option B", "Option C", "Option D"],
+            correctIndex: typeof q.correctIndex === "number"
+                ? Math.max(0, Math.min(q.correctIndex, 3))
+                : 0,
+            explanation: q.explanation || "",
+        }));
+
+        console.log(`[SkillTest] Generated ${parsed.questions.length} questions for ${skill} / ${targetLanguage} / ${userLevel}`);
+
+        res.json({ success: true, test: parsed });
+    } catch (err) {
+        console.error("[SkillTest] Error:", err);
+        res.status(500).json({ success: false, error: err.message });
+    }
+});
+
+// =====================================================
+// ROUTE: AI PLACEMENT TEST GENERATION
+// =====================================================
+app.post("/api/tests/generate-placement", async (req, res) => {
+    try {
+        const {
+            userId = "default-user",
+            targetLanguage = "English",
+            mediatorLanguage = "en",
+            count = 10,
+        } = req.body;
+
+        const prompt = `You are a CEFR placement test designer. Generate ${count} multiple-choice questions that span CEFR levels A1 through C2 in ${targetLanguage}.
+
+STRICT REQUIREMENTS:
+- ${count} questions total, distributed across all 6 levels (A1, A2, B1, B2, C1, C2).
+- Easy questions come first (A1), hard ones last (C2).
+- Each question has 4 options with exactly one correct answer.
+- Each question includes: level (CEFR), topic, options, correctIndex, explanation in ${mediatorLanguage}.
+
+Return ONLY valid JSON:
+{
+  "targetLanguage": "${targetLanguage}",
+  "questions": [
+    {
+      "id": "q1",
+      "cefrLevel": "A1",
+      "topic": "Basic verbs",
+      "question": "Question text",
+      "options": ["A", "B", "C", "D"],
+      "correctIndex": 0,
+      "explanation": "Explanation in ${mediatorLanguage}"
+    }
+  ]
+}
+
+CRITICAL: Return ONLY raw JSON. No markdown.`;
+
+        let parsed = null;
+        for (let attempt = 1; attempt <= 3 && !parsed; attempt++) {
+            const raw = await callGeminiWithResilience(prompt, null, [], true, userId);
+            if (!raw) continue;
+            const candidate = await repairJson(raw);
+            if (candidate && Array.isArray(candidate.questions) && candidate.questions.length > 0) {
+                parsed = candidate;
+            }
+        }
+
+        if (!parsed) {
+            return res.status(502).json({ success: false, error: "AI failed after 3 attempts" });
+        }
+
+        parsed.questions = parsed.questions.slice(0, count).map((q, i) => ({
+            id: q.id || `q${i + 1}`,
+            cefrLevel: q.cefrLevel || "B1",
+            topic: q.topic || `Question ${i + 1}`,
+            question: q.question || "",
+            options: Array.isArray(q.options) && q.options.length === 4 ? q.options : ["A", "B", "C", "D"],
+            correctIndex: typeof q.correctIndex === "number" ? Math.max(0, Math.min(q.correctIndex, 3)) : 0,
+            explanation: q.explanation || "",
+        }));
+
+        console.log(`[Placement] Generated ${parsed.questions.length} questions for ${targetLanguage}`);
+        res.json({ success: true, test: parsed });
+    } catch (err) {
+        console.error("[Placement] Error:", err);
+        res.status(500).json({ success: false, error: err.message });
+    }
+});
 
 // =====================================================
 // ROUTE: BOT SYNC
