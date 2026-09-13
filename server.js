@@ -316,6 +316,7 @@ if (redis) {
     console.warn('[Redis] Not configured, using memory fallback');
 }
 
+
 // =====================================================
 // SUPABASE SCHEMA CHECK
 // =====================================================

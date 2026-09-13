@@ -28,7 +28,13 @@ const redis = process.env.UPSTASH_REDIS_URL && process.env.UPSTASH_REDIS_TOKEN
     : null;
 
 if (redis) {
-    redis.on('connect', () => console.log('[Redis] Connected'));
+    let redisFirstConnect = true;
+    redis.on('connect', () => {
+        if (redisFirstConnect) {
+            console.log('[Redis] Connected to Upstash');
+            redisFirstConnect = false;
+        }
+    });
     redis.on('error', (err) => console.error('[Redis] Error:', err.message));
 }
 
@@ -543,17 +549,16 @@ bot.command('games', async (ctx) => {
         '🎮 Choose a game — it will open in the Mini App:',
         Markup.inlineKeyboard([
             [Markup.button.webApp('🧩 CubeWord', `${API_BASE}/?game=cubeword`)],
-            [Markup.button.webApp('🎴 Memory Match', `${API_BASE}/?game=memory`),
-            Markup.button.webApp('🔨 Word Builder', `${API_BASE}/?game=wordbuilder`)],
-            [Markup.button.webApp('📚 All Games', `${API_BASE}/?tab=games`)],
+            [Markup.button.webApp('📇 Flashcards', `${API_BASE}/?game=flashcards`)],
+            [Markup.button.webApp('⚡ Word Pairs', `${API_BASE}/?game=wordpairs`)],
+            [Markup.button.webApp('🧭 Word Quest 3D', `${API_BASE}/?game=wordquest3d`)],
+            [Markup.button.webApp('🎴 Memory Match', `${API_BASE}/?game=memory`)],
+            [Markup.button.webApp('🔨 Word Builder', `${API_BASE}/?game=wordbuilder`)],
         ])
     );
 });
-
-bot.action('start_cubeword', async (ctx) => { await ctx.answerCbQuery(); return startCubeWord(ctx); });
-bot.action('start_memory', async (ctx) => { await ctx.answerCbQuery(); return startMemoryMatch(ctx); });
-bot.action('start_wordbuilder', async (ctx) => { await ctx.answerCbQuery(); return startWordBuilder(ctx); });
 bot.action('close_menu', async (ctx) => { await ctx.answerCbQuery(); ctx.deleteMessage().catch(() => { }); });
+
 bot.action('back_to_main', async (ctx) => {
     await ctx.answerCbQuery();
     await ctx.deleteMessage().catch(() => { });
@@ -563,58 +568,6 @@ bot.action('back_to_main', async (ctx) => {
         [Markup.button.callback('📄 PDF Materials', 'pdf_menu')],
         [Markup.button.callback('👤 Profile', 'show_profile')],
     ]));
-});
-
-bot.command('cubeword', async (ctx) => {
-    await ctx.reply('🧩 CubeWord — opening...', Markup.inlineKeyboard([
-        [Markup.button.webApp('🧩 Play CubeWord', `${MINIAPP_BASE}/?game=cubeword`)],
-    ]));
-});
-
-bot.command('memory', async (ctx) => {
-    await ctx.reply('🎴 Memory Match — opening...', Markup.inlineKeyboard([
-        [Markup.button.webApp('🎴 Play Memory', `${MINIAPP_BASE}/?game=memory`)],
-    ]));
-});
-
-bot.command('wordbuilder', async (ctx) => {
-    await ctx.reply('🔨 Word Builder — opening...', Markup.inlineKeyboard([
-        [Markup.button.webApp('🔨 Play WordBuilder', `${MINIAPP_BASE}/?game=wordbuilder`)],
-    ]));
-});
-
-bot.command('flip', async (ctx) => {
-    const userId = ctx.from.id;
-    const cardId = parseInt(ctx.message.text.split(' ')[1]);
-    if (isNaN(cardId)) return ctx.reply('Usage: /flip <id>');
-    try {
-        const { data } = await axios.post(`${API_BASE}/api/games/memory/flip`, { userId, cardId }, { timeout: 8000 });
-        ctx.reply(`Card ${cardId}: ${data.word}`);
-    } catch (e) { ctx.reply('Failed.'); }
-});
-
-bot.command('match', async (ctx) => {
-    const args = ctx.message.text.split(' ');
-    if (args.length < 3) return ctx.reply('Usage: /match <id1> <id2>');
-    const card1 = parseInt(args[1]);
-    const card2 = parseInt(args[2]);
-    try {
-        const { data } = await axios.post(`${API_BASE}/api/games/memory/match`, { userId: ctx.from.id, card1, card2 }, { timeout: 8000 });
-        if (data.matched) {
-            ctx.reply(`Match! ${data.matchedCount} pairs.`);
-            if (data.gameOver) ctx.reply('🎉 Game over!');
-        } else ctx.reply('❌ Not a match.');
-    } catch (e) { ctx.reply('Failed.'); }
-});
-
-bot.command('word', async (ctx) => {
-    const word = ctx.message.text.split(' ')[1];
-    if (!word) return ctx.reply('Usage: /word <word>');
-    try {
-        const { data } = await axios.post(`${API_BASE}/api/games/wordbuilder/verify`, { userId: ctx.from.id, word }, { timeout: 8000 });
-        if (data.valid) ctx.reply(`✅ "${word.toUpperCase()}" added! Found: ${data.foundWords.join(', ')}`);
-        else ctx.reply(data.message || 'Invalid.');
-    } catch (e) { ctx.reply('Failed.'); }
 });
 
 bot.command('vocab', async (ctx) => {
