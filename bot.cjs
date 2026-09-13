@@ -349,6 +349,98 @@ function detectIntent(text) {
     return 'tutor';
 }
 
+// ==================== LANGUAGE SWITCH INTENT ====================
+const LANG_NAME_MAP = {
+    // English name → canonical
+    'english': 'English',
+    'german': 'German', 'deutsch': 'German',
+    'spanish': 'Spanish', 'espanol': 'Spanish', 'español': 'Spanish',
+    'french': 'French', 'francais': 'French', 'français': 'French',
+    'italian': 'Italian', 'italiano': 'Italian',
+    'russian': 'Russian', 'русский': 'Russian',
+    'turkish': 'Turkish', 'türkçe': 'Turkish',
+    'azerbaijani': 'Azerbaijani', 'azeri': 'Azerbaijani', 'azərbaycan': 'Azerbaijani',
+};
+
+function extractLanguageFromText(text) {
+    const lower = text.toLowerCase();
+    for (const [key, canonical] of Object.entries(LANG_NAME_MAP)) {
+        // word boundary check
+        const re = new RegExp(`\\b${key}\\b`, 'i');
+        if (re.test(lower)) return canonical;
+    }
+    return null;
+}
+
+function detectLanguageSwitchIntent(text) {
+    const lower = text.toLowerCase();
+    // Should be a request, not just mentioning a language
+    const patterns = [
+        /(?:switch|change|shift|move|set).{0,20}(?:language|target)/,
+        /(?:learn|study|start).{0,20}(?:german|spanish|french|italian|russian|turkish|english|azerbaijani|deutsch|español|français|italiano)/,
+        /(?:i want|i'd like|i would like|please).{0,30}(?:learn|study|switch to|change to)\s+(\w+)/,
+        /(?:switch|change)\s+(?:to|my target to)\s+(\w+)/,
+        /(?:start learning|begin learning)\s+(\w+)/,
+    ];
+    for (const p of patterns) {
+        if (p.test(lower)) {
+            const lang = extractLanguageFromText(text);
+            if (lang) return lang;
+        }
+    }
+    return null;
+}
+
+function detectHowToIntent(text) {
+    const lower = text.toLowerCase();
+    const patterns = [
+        /what should i (do|press|click|tap)/,
+        /which (page|button|tab|menu)/,
+        /how (to|do i) (start|begin|switch|change|learn)/,
+        /where (do i|can i|to) (start|go|find|switch|change|learn)/,
+        /what to press/,
+    ];
+    return patterns.some(p => p.test(lower));
+}
+
+async function handleLanguageSwitch(ctx, newLang) {
+    const userId = ctx.from.id;
+    try {
+        const { data } = await axios.post(`${API_BASE}/api/user/target-language`, {
+            userId: String(userId),
+            targetLanguage: newLang,
+        }, { timeout: 10000 });
+
+        if (!data.success) {
+            return ctx.reply(`⚠️ Failed to switch to ${newLang}. Try again later.`);
+        }
+
+        // Обновляем кэш локально
+        const cached = await getUser(String(userId));
+        if (cached) {
+            cached.targetLanguage = newLang;
+            await saveUser(String(userId), cached);
+        }
+
+        return ctx.reply(
+            `✅ Target language switched to *${newLang}*!\n\n` +
+            `Your profile now:\n` +
+            `• Target: ${newLang}\n` +
+            `• Mediator: ${data.data?.mediatorLanguage || 'unchanged'}\n` +
+            `• Level: ${data.data?.currentLevel || 'B1'}\n\n` +
+            `Start learning — try:\n` +
+            `• /grammar — a grammar guide in ${newLang}\n` +
+            `• /read — reading test in ${newLang}\n` +
+            `• /games — vocabulary games\n` +
+            `• Or just send me a message in ${newLang}!`,
+            { parse_mode: 'Markdown' }
+        );
+    } catch (e) {
+        console.error('Language switch failed:', e.message);
+        return ctx.reply(`⚠️ Failed to switch language: ${e.message}`);
+    }
+}
+
 // ==================== COMMANDS ====================
 bot.start(async (ctx) => {
     const userId = ctx.from.id;
@@ -888,12 +980,27 @@ bot.on('message', async (ctx) => {
             const inputPath = path.join(TEMP_DIR, `voice-${Date.now()}.oga`);
             fs.writeFileSync(inputPath, buffer);
             const text = await transcribeAudio(inputPath, 'en');
-            try { fs.unlinkSync(inputPath); } catch { }
+            // Language switch detection (голосом)
+            const langSwitch = detectLanguageSwitchIntent(text);
+            if (langSwitch) {
+                await ctx.reply(`Understanding: "${text}"`);
+                return await handleLanguageSwitch(ctx, langSwitch);
+            }
+
+            // How-to detection
+            if (detectHowToIntent(text)) {
+                await ctx.reply(`Understanding: "${text}"`);
+                return await ctx.reply(
+                    `🎯 Open the Mini App and go to *Profile* to change language settings.\n\nOr just say: "switch to German" — I'll do it.`,
+                    { parse_mode: 'Markdown' }
+                );
+            }
 
             const intent = detectIntent(text);
             const p = await getUserProfile(ctx.from.id);
 
             if (['grammar', 'roadmap', 'skills', 'listening', 'reading', 'writing'].includes(intent)) {
+
                 await ctx.reply(`Understanding: "${text}"\nGenerating ${intent} PDF...`);
                 const pdfPath = await generatePdf(intent, ctx.from.id, p.targetLanguage, p.currentLevel, p.mediatorLanguage);
                 await ctx.replyWithDocument({ source: pdfPath });
@@ -918,10 +1025,43 @@ bot.on('message', async (ctx) => {
         return;
     }
 
+
     // Text
     if (ctx.message.text) {
-        const p = await getUserProfile(ctx.from.id);
-        const reply = await getTutorResponse(ctx.from.id, ctx.message.text, p.targetLanguage, p.mediatorLanguage, p.currentLevel);
+        const text = ctx.message.text;
+        const userId = ctx.from.id;
+
+        // ── INTENT: target language switch ──
+        const langSwitch = detectLanguageSwitchIntent(text);
+        if (langSwitch) {
+            return await handleLanguageSwitch(ctx, langSwitch);
+        }
+
+        // ── INTENT: how to start learning / where to go ──
+        if (detectHowToIntent(text)) {
+            return await ctx.reply(
+                `🎯 *To start learning:*\n\n` +
+                `1. Open the Mini App — tap the menu button next to the text input\n` +
+                `2. Go to *Profile* tab\n` +
+                `3. Change *Target Language* (what you learn) and *Mediator Language* (for explanations)\n` +
+                `4. Come back here and start chatting\n\n` +
+                `Or use:\n` +
+                `• /start — main menu\n` +
+                `• /profile — see your current settings\n` +
+                `• /games — play vocabulary games\n` +
+                `• /read — reading skill test`,
+                {
+                    parse_mode: 'Markdown',
+                    ...Markup.inlineKeyboard([
+                        [Markup.button.webApp('📱 Open Mini App', `${API_BASE}/`)],
+                        [Markup.button.callback('👤 Profile', 'show_profile')],
+                    ]),
+                }
+            );
+        }
+
+        const p = await getUserProfile(userId);
+        const reply = await getTutorResponse(userId, text, p.targetLanguage, p.mediatorLanguage, p.currentLevel);
         await ctx.reply(reply);
     }
 });
