@@ -4951,6 +4951,7 @@ app.post("/api/user/premium", (req, res) => {
     syncedUsersDatabase[userId].premiumExpiresAt = isPremium
         ? new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString() : null;
     saveUsersToDisk();
+    setToCache(`spk:user:${userId}`, syncedUsersDatabase[userId], 86400 * 30).catch(() => { });
     res.json({ success: true, isPremium });
 });
 
