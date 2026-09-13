@@ -764,25 +764,24 @@ bot.on('message', async (ctx) => {
             const word = data.targetWords[0];
             activeGames[userId] = { game: 'cubeword', targetWord: word.word };
             await ctx.reply(`🧩 Find the word: ${word.clue}\nUse /cubeword <answer>`);
+        } else {
+            // Normal tutor response with voice
+            const reply = await getTutorResponse(userId, text, profile.targetLanguage, profile.mediatorLanguage, profile.currentLevel);
+            const webm = await generateVoice(reply, profile.targetLanguage);
+            const ogg = await convertToOgg(webm);
+            await ctx.replyWithVoice({ source: ogg });
+            await ctx.reply(`📝 Transcribed: ${text}\n💬 Voice reply sent.`);
+            fs.unlinkSync(webm); fs.unlinkSync(ogg);
         }
-    } else {
-        // Normal tutor response with voice
-        const reply = await getTutorResponse(userId, text, profile.targetLanguage, profile.mediatorLanguage, profile.currentLevel);
-        const webm = await generateVoice(reply, profile.targetLanguage);
-        const ogg = await convertToOgg(webm);
-        await ctx.replyWithVoice({ source: ogg });
-        await ctx.reply(`📝 Transcribed: ${text}\n💬 Voice reply sent.`);
-        fs.unlinkSync(webm); fs.unlinkSync(ogg);
     }
-}
 
     // Text
     if (ctx.message.text) {
-    const userId = ctx.from.id;
-    const profile = await getUserProfile(userId);
-    const reply = await getTutorResponse(userId, ctx.message.text, profile.targetLanguage, profile.mediatorLanguage, profile.currentLevel);
-    ctx.reply(reply);
-}
+        const userId = ctx.from.id;
+        const profile = await getUserProfile(userId);
+        const reply = await getTutorResponse(userId, ctx.message.text, profile.targetLanguage, profile.mediatorLanguage, profile.currentLevel);
+        ctx.reply(reply);
+    }
 });
 
 bot.launch();
