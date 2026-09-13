@@ -70,7 +70,15 @@ function MainApp() {
 
   const { t } = useTranslation();
   const [userProfile, setUserProfile] = useState({
-    userId: "usr_84920482",
+    userId: (() => {
+      const tgUser = window.Telegram?.WebApp?.initDataUnsafe?.user;
+      if (tgUser?.id) {
+        const id = String(tgUser.id);
+        localStorage.setItem("userId", id);
+        return id;
+      }
+      return localStorage.getItem("userId") || "default-user";
+    })(),
     telegramUsername: "@speakbot_learner",
     currentLevel: "B1",
     targetLanguage: "English",

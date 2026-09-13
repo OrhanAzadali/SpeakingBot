@@ -8,6 +8,57 @@ const { MsEdgeTTS, OUTPUT_FORMAT } = require("msedge-tts");
 const { exec } = require('child_process');
 const ffmpeg = require('ffmpeg-static');
 const PDFDocument = require('pdfkit');
+// ==================== REDIS SYNC ====================
+const Redis = require('ioredis');
+
+const redis = process.env.UPSTASH_REDIS_URL && process.env.UPSTASH_REDIS_TOKEN
+    ? new Redis({
+        host: new URL(process.env.UPSTASH_REDIS_URL).hostname,
+        port: 6379,
+        password: process.env.UPSTASH_REDIS_TOKEN,
+        tls: process.env.UPSTASH_REDIS_URL.startsWith('rediss://') ? {} : undefined,
+        maxRetriesPerRequest: 2,
+        retryStrategy: (times) => times > 3 ? null : Math.min(times * 500, 2000),
+    })
+    : null;
+
+if (redis) {
+    redis.on('connect', () => console.log('[Redis] Connected to Upstash'));
+    redis.on('error', (err) => console.error('[Redis] Error:', err.message));
+}
+
+async function getUser(userId) {
+    if (!redis) return null;
+    try {
+        const raw = await redis.get(`spk:user:${userId}`);
+        return raw ? JSON.parse(raw) : null;
+    } catch (e) {
+        console.error('[Redis] getUser failed:', e.message);
+        return null;
+    }
+}
+
+async function saveUser(userId, user) {
+    if (!redis) return false;
+    try {
+        await redis.set(`spk:user:${userId}`, JSON.stringify(user), 'EX', 86400 * 30);
+        return true;
+    } catch (e) {
+        console.error('[Redis] saveUser failed:', e.message);
+        return false;
+    }
+}
+
+// ==================== TTS WITH CACHE ====================
+(async () => {
+    try {
+        await redis.connect();
+        redisReady = true;
+        console.log('[Redis] Connected');
+    } catch (e) {
+        console.error('[Redis] Connect failed:', e.message);
+    }
+})();
 
 // ==================== CONFIG ====================
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
@@ -24,7 +75,7 @@ const activeGames = {};
 const conversationHistory = {};
 const ttsCache = {};
 
-// ==================== TTS WITH CACHE ====================
+
 async function generateVoice(text, lang = 'en-US') {
     const key = `${lang}:${text}`;
     if (ttsCache[key]) return ttsCache[key];
@@ -69,24 +120,47 @@ async function transcribeAudio(filePath, lang = 'en') {
 }
 
 // ==================== LLM (Tutor) ====================
-async function getTutorResponse(userId, userMessage, targetLanguage = 'en', mediatorLanguage = 'en') {
-    // Premium check
+async function getTutorResponse(userId, userMessage, targetLanguage = 'en', mediatorLanguage = 'en', level = 'B1') {
+    // 1. Premium check
     try {
         const { data } = await axios.get(`${API_BASE}/api/user/premium`, { params: { userId } });
         if (!data.isPremium && data.usageCount >= data.limit) {
-            return "You've reached your free limit (150 queries). Upgrade to premium for unlimited access! Use /premium.";
-        }
-        // Warning at 140
-        if (!data.isPremium && data.usageCount >= 140) {
-            await bot.telegram.sendMessage(userId, "⚠️ You're approaching your free limit (140/150). Upgrade to premium to continue.", { parse_mode: 'Markdown' });
+            const text = "⚠️ You've approached your free limit (150 queries). Upgrade to premium for unlimited access! Use /premium.";
+            await bot.telegram.sendMessage(userId, text, { parse_mode: 'Markdown' });
+            return text;
         }
     } catch (err) { console.error('Premium check failed:', err.message); }
 
-    // Build conversation history
+    // 2. Try socratic endpoint (single source of truth with Mini App)
+    try {
+        const { data } = await axios.post(`${API_BASE}/api/socratic/chat`, {
+            userId: String(userId),
+            bookTitle: "Telegram Session",
+            author: "SpeakBot Mentor",
+            excerpt: "",
+            userMessage,
+            chatHistory: (conversationHistory[userId] || []).slice(-4),
+            targetLanguage,
+            mediatorLanguage,
+            level,
+            userRequestedTranslation: /\b(translate|translation|what does .* mean|переведи|перевод|tərcümə)\b/i.test(userMessage)
+        });
+        if (data.success && data.reply) {
+            if (!conversationHistory[userId]) conversationHistory[userId] = [];
+            conversationHistory[userId].push({ role: 'user', content: userMessage });
+            conversationHistory[userId].push({ role: 'assistant', content: data.reply });
+            await axios.post(`${API_BASE}/api/user/usage`, { userId }).catch(() => { });
+            return data.reply;
+        }
+    } catch (err) {
+        console.error('Socratic API failed:', err.message);
+    }
+
+    // 3. Fallback: direct Groq → OpenRouter
     if (!conversationHistory[userId]) conversationHistory[userId] = [];
     const history = conversationHistory[userId].slice(-10);
 
-    const systemPrompt = `You are a patient, insightful language tutor. Engage the learner in Socratic dialogue, explain grammar/vocabulary, ask probing questions, and encourage critical thinking. Always respond in the target language (${targetLanguage}) and keep answers concise but rich. Use ${mediatorLanguage} for explanations when needed.`;
+    const systemPrompt = `You are a patient, insightful language tutor. Engage the learner in Socratic dialogue, explain grammar/vocabulary, ask probing questions, and encourage critical thinking. Always respond in the target language (${targetLanguage}) and keep answers concise but rich. Use ${mediatorLanguage} for explanations when needed. Learner's CEFR level: ${level}.`;
 
     const messages = [
         { role: 'system', content: systemPrompt },
@@ -97,7 +171,9 @@ async function getTutorResponse(userId, userMessage, targetLanguage = 'en', medi
     let replyText = null;
     try {
         const response = await axios.post('https://api.groq.com/openai/v1/chat/completions', {
-            model: 'llama-3.3-70b-versatile', messages, temperature: 0.7
+            model: 'llama-3.3-70b-versatile',
+            messages,
+            temperature: 0.7
         }, { headers: { 'Authorization': `Bearer ${GROQ_API_KEY}` } });
         replyText = response.data.choices[0].message.content;
     } catch (err) {
@@ -105,23 +181,38 @@ async function getTutorResponse(userId, userMessage, targetLanguage = 'en', medi
         if (OPENROUTER_API_KEY) {
             try {
                 const response = await axios.post('https://openrouter.ai/api/v1/chat/completions', {
-                    model: 'openai/gpt-oss-20b:free', messages
+                    model: 'openai/gpt-oss-20b:free',
+                    messages
                 }, { headers: { 'Authorization': `Bearer ${OPENROUTER_API_KEY}` } });
                 replyText = response.data.choices[0].message.content;
-            } catch (err2) { throw new Error('All AI providers failed'); }
-        } else throw new Error('All AI providers failed');
+            } catch (err2) {
+                console.error('OpenRouter error:', err2.message);
+            }
+        }
     }
 
-    // Update conversation history
+    if (!replyText) {
+        return "Sorry, all AI providers are unavailable right now. Try again in a moment.";
+    }
+
     conversationHistory[userId].push({ role: 'user', content: userMessage });
     conversationHistory[userId].push({ role: 'assistant', content: replyText });
-
-    // Increment usage
-    if (replyText) {
-        await axios.post(`${API_BASE}/api/user/usage`, { userId }).catch(e => console.error('Usage increment failed:', e.message));
-    }
-
+    await axios.post(`${API_BASE}/api/user/usage`, { userId }).catch(e => console.error('Usage increment failed:', e.message));
     return replyText;
+}
+
+async function generateVoiceSegmented(text, targetLang, mediatorLang) {
+    // Разбить по скобкам (как в VoiceMessagePlayer)
+    const segments = splitByLanguage(text, targetLang, mediatorLang);
+    const files = [];
+    for (const seg of segments) {
+        const langCode = mapToCode(seg.language);  // English → en-US
+        const webm = await generateVoice(seg.text, langCode);
+        const ogg = await convertToOgg(webm);
+        files.push(ogg);
+    }
+    // Склеить через ffmpeg concat
+    return await concatAudio(files);
 }
 
 // ==================== ENHANCED PDF GENERATION ====================
@@ -205,7 +296,7 @@ async function generatePdf(type, userId, targetLang, level, mediatorLang = 'en',
     }
     // Fallback: generate via AI locally and create PDF
     const aiPrompt = `Generate a comprehensive ${type} study material on "${topic}" for ${targetLang} at CEFR ${level}. Include clear explanations and 5 practice exercises. Return as JSON with keys: title, modules (if applicable) or exercises.`;
-    const aiResponse = await getTutorResponse(userId, aiPrompt, targetLang, mediatorLang);
+    const aiResponse = await getTutorResponse(userId, aiPrompt, targetLang, mediatorLang, level);
     // Parse AI response as JSON (if possible) else plain text
     let data;
     try { data = JSON.parse(aiResponse); } catch (e) { data = { text: aiResponse }; }
@@ -236,14 +327,21 @@ function detectIntent(text) {
 
 // ==================== USER PROFILE HELPER ====================
 async function getUserProfile(userId) {
+    const cached = await getUser(String(userId));
+    if (cached) return cached;
+
     try {
-        const { data } = await axios.get(`${API_BASE}/api/user/profile`, { params: { userId: String(userId) } });
-        return data.data;
+        const { data } = await axios.get(`${API_BASE}/api/user/profile`, {
+            params: { userId: String(userId) }
+        });
+        const profile = data.data;
+        if (profile) await saveUser(String(userId), profile);
+        return profile;
     } catch (err) {
+        console.warn('getUserProfile failed:', err.message);
         return { targetLanguage: 'en', currentLevel: 'B1', mediatorLanguage: 'en', xp: 0, skillScores: {} };
     }
 }
-
 // ==================== INLINE KEYBOARD FOR PDFs ====================
 const pdfMenu = Markup.inlineKeyboard([
     [
@@ -452,11 +550,32 @@ bot.command('skilltest', async (ctx) => {
 });
 
 async function generateTestQuestions(skill, userId) {
-    // Use AI to generate questions or fetch from web app endpoint if exists
     const profile = await getUserProfile(userId);
-    const prompt = `Generate 5 multiple-choice ${skill} questions for a ${profile.currentLevel} learner in ${profile.targetLanguage}. Return JSON array: [{"question": "...", "options": ["A","B","C","D"], "correctIndex": 0}]`;
-    const aiResponse = await getTutorResponse(userId, prompt, profile.targetLanguage, profile.mediatorLanguage);
-    try { return JSON.parse(aiResponse); } catch (e) { return []; }
+    const prompt = `Generate 5 multiple-choice ${skill} questions for a ${profile.currentLevel} learner in ${profile.targetLanguage}. Return ONLY valid JSON array: [{"question": "...", "options": ["A","B","C","D"], "correctIndex": 0}]. No markdown.`;
+
+    // Прямой Groq — без socratic-прослойки, чтобы получить именно JSON
+    try {
+        const response = await axios.post('https://api.groq.com/openai/v1/chat/completions', {
+            model: 'llama-3.3-70b-versatile',
+            messages: [
+                { role: 'system', content: 'You return only valid JSON.' },
+                { role: 'user', content: prompt }
+            ],
+            temperature: 0.7,
+            response_format: { type: 'json_object' }
+        }, { headers: { 'Authorization': `Bearer ${GROQ_API_KEY}` } });
+
+        const content = response.data.choices[0].message.content;
+        const clean = content.replace(/^```json\s*/i, '').replace(/```$/i, '').trim();
+        const parsed = JSON.parse(clean);
+        // Groq json_object может вернуть {"questions": [...]}
+        if (Array.isArray(parsed)) return parsed;
+        if (Array.isArray(parsed.questions)) return parsed.questions;
+        return [];
+    } catch (e) {
+        console.warn('generateTestQuestions failed:', e.message);
+        return [];
+    }
 }
 
 async function sendNextQuestion(ctx) {
@@ -489,38 +608,6 @@ bot.command('cubeword', async (ctx) => {
     const word = data.targetWords[0];
     activeGames[userId] = { game: 'cubeword', targetWord: word.word };
     ctx.reply(`🧩 Find the word: ${word.clue}\nUse /cubeword <answer>`);
-});
-
-// Memory Match (simple demo - pair matching)
-let memoryGame = {};
-bot.command('memory', async (ctx) => {
-    const userId = ctx.from.id;
-    const words = ['apple', 'banana', 'cherry', 'date'];
-    memoryGame[userId] = { pairs: words.map((w, i) => ({ id: i, word: w, matched: false })), attempts: 0, flipped: [] };
-    ctx.reply('Memory Match! I will show you pairs. Send /flip <id> to flip.');
-});
-
-bot.command('flip', async (ctx) => {
-    const userId = ctx.from.id;
-    if (!memoryGame[userId]) return ctx.reply('Start Memory Match with /memory first.');
-    const id = parseInt(ctx.message.text.split(' ')[1]);
-    const game = memoryGame[userId];
-    const pair = game.pairs.find(p => p.id === id);
-    if (!pair) return ctx.reply('Invalid id');
-    if (pair.matched) return ctx.reply('Already matched.');
-    // Simulate: just tell user pair info
-    ctx.reply(`You flipped card ${id}: ${pair.word}`);
-    // For demo, we won't implement full matching logic
-});
-
-// Word Builder
-bot.command('wordbuilder', async (ctx) => {
-    const userId = ctx.from.id;
-    const profile = await getUserProfile(userId);
-    const { data } = await axios.get(`${API_BASE}/api/cubeword/target-words`, { params: { targetLanguage: profile.targetLanguage } });
-    const target = data.targetWords[0].word;
-    activeGames[userId] = { game: 'wordbuilder', targetWord: target };
-    ctx.reply(`🔨 Build words using letters from "${target}". Send your word; I'll validate.`);
 });
 
 // Vocab save
@@ -670,25 +757,32 @@ bot.on('message', async (ctx) => {
             fs.unlinkSync(pdfPath);
         } else if (intent === 'game') {
             await ctx.reply('Starting CubeWord...');
-            await bot.telegram.triggerCommand('/cubeword', ctx.chat.id);
-        } else {
-            // Normal tutor response with voice
-            const reply = await getTutorResponse(userId, text, profile.targetLanguage, profile.mediatorLanguage);
-            const webm = await generateVoice(reply, profile.targetLanguage);
-            const ogg = await convertToOgg(webm);
-            await ctx.replyWithVoice({ source: ogg });
-            await ctx.reply(`📝 Transcribed: ${text}\n💬 Voice reply sent.`);
-            fs.unlinkSync(webm); fs.unlinkSync(ogg);
+            const profile = await getUserProfile(userId);
+            const { data } = await axios.get(`${API_BASE}/api/cubeword/target-words`, {
+                params: { targetLanguage: profile.targetLanguage }
+            });
+            const word = data.targetWords[0];
+            activeGames[userId] = { game: 'cubeword', targetWord: word.word };
+            await ctx.reply(`🧩 Find the word: ${word.clue}\nUse /cubeword <answer>`);
         }
+    } else {
+        // Normal tutor response with voice
+        const reply = await getTutorResponse(userId, text, profile.targetLanguage, profile.mediatorLanguage, profile.currentLevel);
+        const webm = await generateVoice(reply, profile.targetLanguage);
+        const ogg = await convertToOgg(webm);
+        await ctx.replyWithVoice({ source: ogg });
+        await ctx.reply(`📝 Transcribed: ${text}\n💬 Voice reply sent.`);
+        fs.unlinkSync(webm); fs.unlinkSync(ogg);
     }
+}
 
     // Text
     if (ctx.message.text) {
-        const userId = ctx.from.id;
-        const profile = await getUserProfile(userId);
-        const reply = await getTutorResponse(userId, ctx.message.text, profile.targetLanguage, profile.mediatorLanguage);
-        ctx.reply(reply);
-    }
+    const userId = ctx.from.id;
+    const profile = await getUserProfile(userId);
+    const reply = await getTutorResponse(userId, ctx.message.text, profile.targetLanguage, profile.mediatorLanguage, profile.currentLevel);
+    ctx.reply(reply);
+}
 });
 
 bot.launch();
