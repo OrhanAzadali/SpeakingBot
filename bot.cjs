@@ -190,19 +190,6 @@ async function getTutorResponse(userId, userMessage, targetLanguage = 'en', medi
     return replyText;
 }
 
-async function generateVoiceSegmented(text, targetLang, mediatorLang) {
-    // Разбить по скобкам (как в VoiceMessagePlayer)
-    const segments = splitByLanguage(text, targetLang, mediatorLang);
-    const files = [];
-    for (const seg of segments) {
-        const langCode = mapToCode(seg.language);  // English → en-US
-        const webm = await generateVoice(seg.text, langCode);
-        const ogg = await convertToOgg(webm);
-        files.push(ogg);
-    }
-    // Склеить через ffmpeg concat
-    return await concatAudio(files);
-}
 
 // ==================== ENHANCED PDF GENERATION ====================
 async function generatePdfFromText(text, filename) {
@@ -540,14 +527,13 @@ bot.command('skilltest', async (ctx) => {
 
 async function generateTestQuestions(skill, userId) {
     const profile = await getUserProfile(userId);
-    const prompt = `Generate 5 multiple-choice ${skill} questions for a ${profile.currentLevel} learner in ${profile.targetLanguage}. Return ONLY valid JSON array: [{"question": "...", "options": ["A","B","C","D"], "correctIndex": 0}]. No markdown.`;
+    const prompt = `Generate 5 multiple-choice ${skill} questions for a ${profile.currentLevel} learner in ${profile.targetLanguage}. Return ONLY valid JSON array with this exact shape: [{"question": "...", "options": ["A","B","C","D"], "correctIndex": 0}]. No markdown, no explanations, start with [ and end with ].`;
 
-    // Прямой Groq — без socratic-прослойки, чтобы получить именно JSON
     try {
         const response = await axios.post('https://api.groq.com/openai/v1/chat/completions', {
             model: 'llama-3.3-70b-versatile',
             messages: [
-                { role: 'system', content: 'You return only valid JSON.' },
+                { role: 'system', content: 'You return only valid JSON. No markdown.' },
                 { role: 'user', content: prompt }
             ],
             temperature: 0.7,
@@ -557,6 +543,7 @@ async function generateTestQuestions(skill, userId) {
         const content = response.data.choices[0].message.content;
         const clean = content.replace(/^```json\s*/i, '').replace(/```$/i, '').trim();
         const parsed = JSON.parse(clean);
+
         // Groq json_object может вернуть {"questions": [...]}
         if (Array.isArray(parsed)) return parsed;
         if (Array.isArray(parsed.questions)) return parsed.questions;
@@ -781,6 +768,10 @@ bot.on('message', async (ctx) => {
         ctx.reply(reply);
     }
 });
-
-bot.launch();
-console.log('Bot is running...');
+// В самом конце bot.cjs
+if (require.main === module) {
+    bot.launch();
+    console.log('Bot is running in standalone mode...');
+} else {
+    console.log('[Telegram Bot] Loaded as module, skipping launch');
+}

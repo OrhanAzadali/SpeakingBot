@@ -5739,7 +5739,23 @@ if (process.env.TELEGRAM_BOT_TOKEN) {
     }
 }
 startServer();
-
+// ═══════════════════════════════════════════════════════════════
+// TELEGRAM BOT — embedded in server process
+// ═══════════════════════════════════════════════════════════════
+if (process.env.TELEGRAM_BOT_TOKEN) {
+    try {
+        const require2 = createRequire(import.meta.url);
+        const botPath = path.join(process.cwd(), "bot.cjs");
+        if (fs.existsSync(botPath)) {
+            require2(botPath);
+            console.log("[Telegram Bot] Started inside server process");
+        } else {
+            console.warn("[Telegram Bot] bot.cjs not found");
+        }
+    } catch (e) {
+        console.error("[Telegram Bot] Failed:", e.message);
+    }
+}
 // ═══════════════════════════════════════════════════════════════
 // SELF-PING — prevent Render Free from sleeping
 // ═══════════════════════════════════════════════════════════════
