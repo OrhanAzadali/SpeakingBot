@@ -305,13 +305,7 @@ export const redis = redisUrl && redisToken
         port: 6379,
         password: redisToken,
         tls: {},
-        retryStrategy: (times) => {
-            if (times > 3) {
-                console.warn('[Redis] Retry exhausted, memory fallback active');
-                return null;
-            }
-            return Math.min(times * 100, 3000);
-        }
+        retryStrategy: (times) => Math.min(times * 500, 5000),
     })
     : null;
 

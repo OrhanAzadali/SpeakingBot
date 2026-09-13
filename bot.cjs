@@ -17,8 +17,10 @@ const redis = process.env.UPSTASH_REDIS_URL && process.env.UPSTASH_REDIS_TOKEN
         port: 6379,
         password: process.env.UPSTASH_REDIS_TOKEN,
         tls: process.env.UPSTASH_REDIS_URL.startsWith('rediss://') ? {} : undefined,
-        maxRetriesPerRequest: 2,
-        retryStrategy: (times) => times > 3 ? null : Math.min(times * 500, 2000),
+        maxRetriesPerRequest: 20,
+        retryStrategy: (times) => Math.min(times * 500, 5000),
+        enableOfflineQueue: true,
+        connectTimeout: 10000,
     })
     : null;
 
