@@ -4312,7 +4312,6 @@ app.post("/api/user/mediator-language", (req, res) => {
         syncedUsersDatabase[userId].userId = userId;
     }
     syncedUsersDatabase[userId].mediatorLanguage = actualMediator;
-    syncedUsersDatabase[userId].mediatorLanguage = actualMediator;
     setToCache(`spk:user:${userId}`, syncedUsersDatabase[userId], 86400 * 30).catch(() => { });
     saveUsersToDisk();
 
