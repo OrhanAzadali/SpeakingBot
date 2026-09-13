@@ -8,9 +8,9 @@ const { MsEdgeTTS, OUTPUT_FORMAT } = require("msedge-tts");
 const { exec } = require('child_process');
 const ffmpeg = require('ffmpeg-static');
 const PDFDocument = require('pdfkit');
-// ==================== REDIS SYNC ====================
 const Redis = require('ioredis');
 
+// ==================== REDIS ====================
 const redis = process.env.UPSTASH_REDIS_URL && process.env.UPSTASH_REDIS_TOKEN
     ? new Redis({
         host: new URL(process.env.UPSTASH_REDIS_URL).hostname,
@@ -18,24 +18,27 @@ const redis = process.env.UPSTASH_REDIS_URL && process.env.UPSTASH_REDIS_TOKEN
         password: process.env.UPSTASH_REDIS_TOKEN,
         tls: process.env.UPSTASH_REDIS_URL.startsWith('rediss://') ? {} : undefined,
         maxRetriesPerRequest: 20,
-        retryStrategy: (times) => Math.min(times * 500, 30000),   // ← до 30 сек, не 5
+        retryStrategy: (times) => Math.min(times * 500, 30000),
         enableOfflineQueue: true,
         connectTimeout: 10000,
-        keepAlive: 30000,        // ← TCP keepalive каждые 30 сек
+        keepAlive: 30000,
         lazyConnect: false,
         enableReadyCheck: false,
     })
     : null;
 
 if (redis) {
-    redis.on('connect', () => console.log('[Redis] Connected to Upstash'));
+    redis.on('connect', () => console.log('[Redis] Connected'));
     redis.on('error', (err) => console.error('[Redis] Error:', err.message));
 }
 
 async function getUser(userId) {
     if (!redis) return null;
     try {
-        const raw = await redis.get(`spk:user:${userId}`);
+        const raw = await Promise.race([
+            redis.get(`spk:user:${userId}`),
+            new Promise((_, reject) => setTimeout(() => reject(new Error('REDIS_TIMEOUT')), 3000))
+        ]);
         return raw ? JSON.parse(raw) : null;
     } catch (e) {
         console.error('[Redis] getUser failed:', e.message);
@@ -46,7 +49,10 @@ async function getUser(userId) {
 async function saveUser(userId, user) {
     if (!redis) return false;
     try {
-        await redis.set(`spk:user:${userId}`, JSON.stringify(user), 'EX', 86400 * 30);
+        await Promise.race([
+            redis.set(`spk:user:${userId}`, JSON.stringify(user), 'EX', 86400 * 30),
+            new Promise((_, reject) => setTimeout(() => reject(new Error('REDIS_TIMEOUT')), 3000))
+        ]);
         return true;
     } catch (e) {
         console.error('[Redis] saveUser failed:', e.message);
@@ -57,50 +63,73 @@ async function saveUser(userId, user) {
 // ==================== CONFIG ====================
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 const API_BASE = (process.env.MINIAPP_URL || 'https://speakingbot.onrender.com').trim();
+const GROQ_API_KEY = process.env.GROQ_API_KEY;
+const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
 
 if (!API_BASE || !API_BASE.startsWith('http')) {
-    console.error('[Bot] FATAL: API_BASE is empty or invalid:', JSON.stringify(process.env.MINIAPP_URL));
+    console.error('[Bot] FATAL: API_BASE invalid:', JSON.stringify(process.env.MINIAPP_URL));
     process.exit(1);
 }
 console.log('[Bot] API_BASE =', API_BASE);
 
-
-const GROQ_API_KEY = process.env.GROQ_API_KEY;
-const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
 const bot = new Telegraf(TELEGRAM_BOT_TOKEN);
 const TEMP_DIR = path.join(process.cwd(), 'temp');
-if (!fs.existsSync(TEMP_DIR)) fs.mkdirSync(TEMP_DIR);
+if (!fs.existsSync(TEMP_DIR)) fs.mkdirSync(TEMP_DIR, { recursive: true });
 
-// In-memory state (for demo; use Redis/DB in production)
+// State
 const activeGames = {};
 const conversationHistory = {};
 const ttsCache = {};
+const botTtsCache = {};
+let skillTestState = {};
 
+// ==================== VOICE (MSEdge TTS) ====================
+const VOICE_MAP = {
+    'en-US': 'en-US-AriaNeural',
+    'en-GB': 'en-GB-SoniaNeural',
+    'ru-RU': 'ru-RU-SvetlanaNeural',
+    'de-DE': 'de-DE-KatjaNeural',
+    'fr-FR': 'fr-FR-DeniseNeural',
+    'es-ES': 'es-ES-ElviraNeural',
+    'it-IT': 'it-IT-ElsaNeural',
+    'tr-TR': 'tr-TR-EmelNeural',
+};
+
+function getTtsVoiceCode(profile) {
+    const isBeginner = (profile.currentLevel === 'A1' || profile.currentLevel === 'A2');
+    const voiceLangName = isBeginner
+        ? (profile.mediatorLanguage || 'en')
+        : (profile.targetLanguage || 'English');
+
+    const map = {
+        en: 'en-US', ru: 'ru-RU', az: 'az-AZ', tr: 'tr-TR',
+        de: 'de-DE', es: 'es-ES', fr: 'fr-FR', it: 'it-IT',
+        English: 'en-US', Russian: 'ru-RU', Azerbaijani: 'az-AZ',
+        Turkish: 'tr-TR', German: 'de-DE', Spanish: 'es-ES',
+        French: 'fr-FR', Italian: 'it-IT',
+    };
+    // az-AZ в MSEdge voice map отсутствует → fallback на ru-RU (фонетически ближе)
+    const code = map[voiceLangName] || 'en-US';
+    return code === 'az-AZ' ? 'ru-RU' : code;
+}
 
 async function generateVoice(text, lang = 'en-US') {
     const key = `${lang}:${text}`;
     if (ttsCache[key]) return ttsCache[key];
 
     const tts = new MsEdgeTTS();
-    const voiceMap = {
-        'en-US': 'en-US-AriaNeural', 'en-GB': 'en-GB-SoniaNeural',
-        'ru-RU': 'ru-RU-SvetlanaNeural', 'de-DE': 'de-DE-KatjaNeural',
-        'fr-FR': 'fr-FR-DeniseNeural', 'es-ES': 'es-ES-ElviraNeural',
-        'ja-JP': 'ja-JP-NanamiNeural', 'zh-CN': 'zh-CN-XiaoxiaoNeural',
-    };
-    const voice = voiceMap[lang] || 'en-US-AriaNeural';
+    const voice = VOICE_MAP[lang] || VOICE_MAP['en-US'];
     await tts.setMetadata(voice, OUTPUT_FORMAT.WEBM_24KHZ_16BIT_MONO_OPUS);
     const filePath = path.join(TEMP_DIR, `tts-${Date.now()}.webm`);
     await tts.toFile(filePath, text);
-
-    ttsCache[key] = filePath; // store for future
+    ttsCache[key] = filePath;
     return filePath;
 }
 
 async function convertToOgg(inputPath) {
     const outputPath = inputPath.replace('.webm', '.ogg');
     return new Promise((resolve, reject) => {
-        exec(`${ffmpeg} -i ${inputPath} -c:a libopus -b:a 128k ${outputPath}`, (err) => {
+        exec(`${ffmpeg} -y -i "${inputPath}" -c:a libopus -b:a 128k "${outputPath}"`, (err) => {
             if (err) reject(err);
             else resolve(outputPath);
         });
@@ -115,24 +144,37 @@ async function transcribeAudio(filePath, lang = 'en') {
     formData.append('language', lang);
     formData.append('response_format', 'json');
     const response = await axios.post('https://api.groq.com/openai/v1/audio/transcriptions', formData, {
-        headers: { 'Authorization': `Bearer ${GROQ_API_KEY}`, 'Content-Type': 'multipart/form-data' }
+        headers: { 'Authorization': `Bearer ${GROQ_API_KEY}`, 'Content-Type': 'multipart/form-data' },
+        timeout: 30000,
     });
     return response.data.text;
 }
 
-// ==================== LLM (Tutor) ====================
+// ==================== TUTOR ====================
 async function getTutorResponse(userId, userMessage, targetLanguage = 'en', mediatorLanguage = 'en', level = 'B1') {
-    // 1. Premium check
+    return Promise.race([
+        getTutorResponseInternal(userId, userMessage, targetLanguage, mediatorLanguage, level),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('TUTOR_TIMEOUT')), 60000))
+    ]).catch(err => {
+        console.error('getTutorResponse timed out:', err.message);
+        return "Sorry, the AI mentor is busy right now. Please try again in a moment.";
+    });
+}
+
+async function getTutorResponseInternal(userId, userMessage, targetLanguage = 'en', mediatorLanguage = 'en', level = 'B1') {
+    // Premium check
     try {
-        const { data } = await axios.get(`${API_BASE}/api/user/premium`, { params: { userId } });
+        const { data } = await axios.get(`${API_BASE}/api/user/premium`, {
+            params: { userId }, timeout: 8000,
+        });
         if (!data.isPremium && data.usageCount >= data.limit) {
-            const text = "⚠️ You've approached your free limit (150 queries). Upgrade to premium for unlimited access! Use /premium.";
+            const text = "⚠️ You've reached your free limit. Upgrade with /premium.";
             await bot.telegram.sendMessage(userId, text, { parse_mode: 'Markdown' });
             return text;
         }
     } catch (err) { console.error('Premium check failed:', err.message); }
 
-    // 2. Try socratic endpoint (single source of truth with Mini App)
+    // Socratic endpoint
     try {
         const { data } = await axios.post(`${API_BASE}/api/socratic/chat`, {
             userId: String(userId),
@@ -141,115 +183,110 @@ async function getTutorResponse(userId, userMessage, targetLanguage = 'en', medi
             excerpt: "",
             userMessage,
             chatHistory: (conversationHistory[userId] || []).slice(-4),
-            targetLanguage,
-            mediatorLanguage,
-            level,
-            userRequestedTranslation: /\b(translate|translation|what does .* mean|переведи|перевод|tərcümə)\b/i.test(userMessage)
-        });
+            targetLanguage, mediatorLanguage, level,
+            userRequestedTranslation: /\b(translate|translation|what does .* mean|переведи|перевод|tərcümə)\b/i.test(userMessage),
+        }, { timeout: 25000 });
         if (data.success && data.reply) {
             if (!conversationHistory[userId]) conversationHistory[userId] = [];
             conversationHistory[userId].push({ role: 'user', content: userMessage });
             conversationHistory[userId].push({ role: 'assistant', content: data.reply });
-            await axios.post(`${API_BASE}/api/user/usage`, { userId }).catch(() => { });
+            axios.post(`${API_BASE}/api/user/usage`, { userId }, { timeout: 5000 }).catch(() => { });
             return data.reply;
         }
-    } catch (err) {
-        console.error('Socratic API failed:', err.message);
-    }
+    } catch (err) { console.error('Socratic API failed:', err.message); }
 
-    // 3. Fallback: direct Groq → OpenRouter
+    // Groq → OpenRouter fallback
     if (!conversationHistory[userId]) conversationHistory[userId] = [];
     const history = conversationHistory[userId].slice(-10);
-
-    const systemPrompt = `You are a patient, insightful language tutor. Engage the learner in Socratic dialogue, explain grammar/vocabulary, ask probing questions, and encourage critical thinking. Always respond in the target language (${targetLanguage}) and keep answers concise but rich. Use ${mediatorLanguage} for explanations when needed. Learner's CEFR level: ${level}.`;
-
+    const systemPrompt = `You are a patient language tutor. Reply in ${targetLanguage}. Level: ${level}. Use ${mediatorLanguage} for brief clarifications.`;
     const messages = [
         { role: 'system', content: systemPrompt },
         ...history,
-        { role: 'user', content: userMessage }
+        { role: 'user', content: userMessage },
     ];
 
     let replyText = null;
     try {
         const response = await axios.post('https://api.groq.com/openai/v1/chat/completions', {
-            model: 'llama-3.3-70b-versatile',
-            messages,
-            temperature: 0.7
-        }, { headers: { 'Authorization': `Bearer ${GROQ_API_KEY}` } });
+            model: 'llama-3.3-70b-versatile', messages, temperature: 0.7,
+        }, { headers: { 'Authorization': `Bearer ${GROQ_API_KEY}` }, timeout: 20000 });
         replyText = response.data.choices[0].message.content;
     } catch (err) {
         console.error('Groq error:', err.message);
         if (OPENROUTER_API_KEY) {
             try {
                 const response = await axios.post('https://openrouter.ai/api/v1/chat/completions', {
-                    model: 'openai/gpt-oss-20b:free',
-                    messages
-                }, { headers: { 'Authorization': `Bearer ${OPENROUTER_API_KEY}` } });
+                    model: 'openai/gpt-oss-20b:free', messages,
+                }, { headers: { 'Authorization': `Bearer ${OPENROUTER_API_KEY}` }, timeout: 15000 });
                 replyText = response.data.choices[0].message.content;
-            } catch (err2) {
-                console.error('OpenRouter error:', err2.message);
-            }
+            } catch (err2) { console.error('OpenRouter error:', err2.message); }
         }
     }
 
-    if (!replyText) {
-        return "Sorry, all AI providers are unavailable right now. Try again in a moment.";
-    }
+    if (!replyText) return "Sorry, all AI providers are unavailable right now. Try again in a moment.";
 
     conversationHistory[userId].push({ role: 'user', content: userMessage });
     conversationHistory[userId].push({ role: 'assistant', content: replyText });
-    await axios.post(`${API_BASE}/api/user/usage`, { userId }).catch(e => console.error('Usage increment failed:', e.message));
+    axios.post(`${API_BASE}/api/user/usage`, { userId }, { timeout: 5000 }).catch(() => { });
     return replyText;
 }
 
-
-// ==================== ENHANCED PDF GENERATION ====================
-async function generatePdfFromText(text, filename) {
-    const doc = new PDFDocument();
-    const filePath = path.join(TEMP_DIR, `${filename}.pdf`);
-    const stream = fs.createWriteStream(filePath);
-    doc.pipe(stream);
-    doc.fontSize(14).font('Helvetica-Bold').text('SpeakBot Study Material', { align: 'center' });
-    doc.moveDown();
-    doc.fontSize(12).font('Helvetica').text(text);
-    doc.end();
-    return new Promise((resolve, reject) => {
-        stream.on('finish', () => resolve(filePath));
-        stream.on('error', reject);
+// ==================== PROFILE (with hard timeouts) ====================
+async function getUserProfile(userId) {
+    return Promise.race([
+        getUserProfileInternal(userId),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('PROFILE_TIMEOUT')), 8000)),
+    ]).catch(err => {
+        console.warn('getUserProfile timeout:', err.message);
+        return { targetLanguage: 'English', currentLevel: 'B1', mediatorLanguage: 'en', xp: 0, skillScores: {} };
     });
 }
 
+async function getUserProfileInternal(userId) {
+    const cached = await getUser(String(userId));
+    if (cached) return cached;
+    try {
+        const { data } = await axios.get(`${API_BASE}/api/user/profile`, {
+            params: { userId: String(userId) }, timeout: 5000,
+        });
+        const profile = data.data;
+        if (profile) saveUser(String(userId), profile).catch(() => { });
+        return profile;
+    } catch (err) {
+        console.warn('getUserProfile failed:', err.message);
+        return { targetLanguage: 'English', currentLevel: 'B1', mediatorLanguage: 'en', xp: 0, skillScores: {} };
+    }
+}
+
+// ==================== PDF GENERATION ====================
 async function generateStructuredPDF(data, filename, title) {
     const doc = new PDFDocument();
     const filePath = path.join(TEMP_DIR, `${filename}.pdf`);
     const stream = fs.createWriteStream(filePath);
     doc.pipe(stream);
-
     doc.fontSize(16).font('Helvetica-Bold').text(title, { align: 'center' });
     doc.moveDown();
-
     if (data.modules) {
-        data.modules.forEach(module => {
-            doc.fontSize(14).font('Helvetica-Bold').text(module.title);
-            doc.fontSize(12).font('Helvetica').text(module.description);
-            module.rules?.forEach(rule => {
-                doc.fontSize(12).font('Helvetica').text(`• ${rule.rule}: ${rule.explanation}`);
-                doc.fontSize(10).font('Helvetica-Oblique').text(`Example: ${rule.example}`);
+        data.modules.forEach(m => {
+            doc.fontSize(14).font('Helvetica-Bold').text(m.title || '');
+            doc.fontSize(12).font('Helvetica').text(m.description || '');
+            (m.rules || []).forEach(r => {
+                doc.fontSize(12).font('Helvetica').text(`• ${r.rule}: ${r.explanation}`);
+                doc.fontSize(10).font('Helvetica-Oblique').text(`Example: ${r.example}`);
                 doc.moveDown();
             });
             doc.moveDown();
         });
     } else if (data.exercises) {
-        data.exercises.forEach((ex, idx) => {
-            doc.fontSize(12).font('Helvetica-Bold').text(`${idx + 1}. ${ex.question}`);
-            doc.fontSize(11).font('Helvetica').text(`Options: ${ex.options.join(' | ')}`);
-            doc.fontSize(10).font('Helvetica-Oblique').text(`Answer: ${ex.options[ex.correctIndex]}`);
+        data.exercises.forEach((ex, i) => {
+            doc.fontSize(12).font('Helvetica-Bold').text(`${i + 1}. ${ex.question}`);
+            doc.fontSize(11).font('Helvetica').text(`Options: ${(ex.options || []).join(' | ')}`);
+            doc.fontSize(10).font('Helvetica-Oblique').text(`Answer: ${(ex.options || [])[ex.correctIndex]}`);
             doc.moveDown();
         });
     } else {
         doc.fontSize(12).font('Helvetica').text(JSON.stringify(data, null, 2));
     }
-
     doc.end();
     return new Promise((resolve, reject) => {
         stream.on('finish', () => resolve(filePath));
@@ -258,421 +295,64 @@ async function generateStructuredPDF(data, filename, title) {
 }
 
 async function generatePdf(type, userId, targetLang, level, mediatorLang = 'en', topic = '') {
-    // Try web app endpoints first
     const endpoints = {
         grammar: '/api/gemini/generate-grammar-guide',
         roadmap: '/api/gemini/generate-grammar-roadmap',
         listening: '/api/stories/generate-daily-excerpt',
-        speaking: '/api/gemini/generate-roadmap',
         reading: '/api/stories/generate-daily-excerpt',
         writing: '/api/gemini/generate-grammar-guide',
-        skills: '/api/user/skill-test'
     };
     const endpoint = endpoints[type];
     if (endpoint) {
         try {
             const res = await axios.post(`${API_BASE}${endpoint}`, {
-                userId, targetLanguage: targetLang, userLevel: level, mediatorLanguage: mediatorLang, topic
-            });
-            if (res.data.pdfUrl) return res.data.pdfUrl; // web app already returns PDF
-            // Format the returned data into a structured PDF
-            const data = res.data;
-            return await generateStructuredPDF(data, `speakbot_${type}_${Date.now()}`, type.toUpperCase() + ' Guide');
-        } catch (err) {
-            console.error(`PDF endpoint error for ${type}:`, err.message);
-        }
+                userId, targetLanguage: targetLang, userLevel: level, mediatorLanguage: mediatorLang, topic,
+            }, { timeout: 60000 });
+            if (res.data.pdfUrl) return res.data.pdfUrl;
+            return await generateStructuredPDF(res.data, `speakbot_${type}_${Date.now()}`, type.toUpperCase() + ' Guide');
+        } catch (err) { console.error(`PDF endpoint error ${type}:`, err.message); }
     }
-    // Fallback: generate via AI locally and create PDF
-    const aiPrompt = `Generate a comprehensive ${type} study material on "${topic}" for ${targetLang} at CEFR ${level}. Include clear explanations and 5 practice exercises. Return as JSON with keys: title, modules (if applicable) or exercises.`;
+    const aiPrompt = `Generate ${type} material on "${topic}" for ${targetLang} at CEFR ${level}. Return JSON: {title, modules or exercises}.`;
     const aiResponse = await getTutorResponse(userId, aiPrompt, targetLang, mediatorLang, level);
-    // Parse AI response as JSON (if possible) else plain text
     let data;
-    try { data = JSON.parse(aiResponse); } catch (e) { data = { text: aiResponse }; }
+    try { data = JSON.parse(aiResponse); } catch { data = { text: aiResponse }; }
     return await generateStructuredPDF(data, `speakbot_${type}_fallback_${Date.now()}`, type.toUpperCase() + ' Guide');
 }
 
-// ==================== SYNC ====================
+// ==================== SYNC / INTENT ====================
 async function syncUser(telegramId, username, language = 'en') {
-    await axios.post(`${API_BASE}/api/bot/sync`, {
-        userId: String(telegramId), telegramChatId: String(telegramId),
-        telegramUsername: `@${username}`, updates: { targetLanguage: language }
-    }).catch(e => console.error('Sync error:', e.message));
+    axios.post(`${API_BASE}/api/bot/sync`, {
+        userId: String(telegramId),
+        telegramChatId: String(telegramId),
+        telegramUsername: `@${username}`,
+        updates: { targetLanguage: language },
+    }, { timeout: 8000 }).catch(e => console.error('Sync error:', e.message));
 }
 
-// ==================== INTENT DETECTION ====================
 function detectIntent(text) {
     const lower = text.toLowerCase();
     if (lower.includes('grammar')) return 'grammar';
     if (lower.includes('roadmap') || lower.includes('plan')) return 'roadmap';
     if (lower.includes('skill') || lower.includes('test') || lower.includes('level')) return 'skills';
     if (lower.includes('listen')) return 'listening';
-    if (lower.includes('speak') || lower.includes('speaking')) return 'speaking';
+    if (lower.includes('speak')) return 'speaking';
     if (lower.includes('read')) return 'reading';
-    if (lower.includes('write') || lower.includes('writing')) return 'writing';
+    if (lower.includes('write')) return 'writing';
     if (lower.includes('game') || lower.includes('cubeword')) return 'game';
     return 'tutor';
 }
 
-// ==================== USER PROFILE HELPER ====================
-async function getUserProfile(userId) {
-    const cached = await getUser(String(userId));
-    if (cached) return cached;
-
-    try {
-        const { data } = await axios.get(`${API_BASE}/api/user/profile`, {
-            params: { userId: String(userId) }
-        });
-        const profile = data.data;
-        if (profile) await saveUser(String(userId), profile);
-        return profile;
-    } catch (err) {
-        console.warn('getUserProfile failed:', err.message);
-        return { targetLanguage: 'en', currentLevel: 'B1', mediatorLanguage: 'en', xp: 0, skillScores: {} };
-    }
-}
-// ==================== INLINE KEYBOARD FOR PDFs ====================
-const pdfMenu = Markup.inlineKeyboard([
-    [
-        Markup.button.callback('📖 Grammar', 'pdf_grammar'),
-        Markup.button.callback('🗺️ Roadmap', 'pdf_roadmap')
-    ],
-    [
-        Markup.button.callback('👂 Listening', 'pdf_listening'),
-        Markup.button.callback('🗣️ Speaking', 'pdf_speaking')
-    ],
-    [
-        Markup.button.callback('📚 Reading', 'pdf_reading'),
-        Markup.button.callback('✍️ Writing', 'pdf_writing')
-    ],
-    [Markup.button.callback('❌ Cancel', 'cancel_pdf')]
-]);
-
-// ==================== COMMANDS ====================
-bot.start(async (ctx) => {
-    const userId = ctx.from.id;
-    await syncUser(userId, ctx.from.username || 'user');
-    await ctx.reply(
-        '👋 Welcome to SpeakBot!\n\n' +
-        '🎯 **Explore literary classics** with Socratic chat\n' +
-        '🎮 **Play language games** with vocabulary\n' +
-        '📄 **Generate PDF materials** for grammar, roadmap, listening\n' +
-        '🗣 **Send voice messages** for STT + TTS\n\n' +
-        'Use buttons below to start 👇',
-        {
-            parse_mode: 'Markdown',
-            ...Markup.inlineKeyboard([
-                [Markup.button.callback('📚 Stories', 'show_stories')],
-                [Markup.button.callback('🎮 Games', 'show_games')],
-                [Markup.button.callback('📄 PDF Materials', 'pdf_menu')],
-                [Markup.button.callback('👤 Profile', 'show_profile')],
-                [Markup.button.callback('🆘 Help', 'show_help')]
-            ])
-        }
-    );
-});
-
-bot.action('show_help', async (ctx) => {
-    await ctx.answerCbQuery();
-    await ctx.reply(
-        '*Available commands:*\n\n' +
-        '`/start` — main menu\n' +
-        '`/profile` — your learning profile\n' +
-        '`/skills` — skill scores\n' +
-        '`/grammar <topic>` — grammar PDF\n' +
-        '`/roadmap <topic>` — learning roadmap PDF\n' +
-        '`/games` — play language games\n' +
-        '`/cubeword` — find the word\n' +
-        '`/memory` — memory match\n' +
-        '`/wordbuilder` — build words\n' +
-        '`/vocab <word>` — save to vocabulary\n' +
-        '`/tts <text>` — text to speech\n' +
-        '`/premium` — upgrade to premium\n\n' +
-        'Or just send text/voice to chat with AI mentor.',
-        { parse_mode: 'Markdown' }
-    );
-});
-
-bot.help((ctx) => {
-    ctx.reply(`
-**Commands:**
-/grammar <topic> - Get grammar guide PDF
-/roadmap <topic> - Get learning roadmap PDF
-/skills - View skill levels
-/listen - Get listening material PDF
-/speak - Get speaking prompts PDF
-/read - Get reading material PDF
-/write - Get writing prompts PDF
-/leveltest - Take a level placement test
-/skilltest <skill> - Take a skill test
-/games - List available games
-/cubeword - Start CubeWord game
-/memory - Start Memory Match game
-/wordbuilder - Start Word Builder game
-/vocab <word> - Save word to vocabulary
-/tts <text> - Text-to-speech
-/premium - Upgrade to premium
-/profile - Your profile
-    `, { parse_mode: 'Markdown' });
-});
-
-// PDF menu callback
-bot.action('pdf_menu', (ctx) => {
-    ctx.reply('Select PDF type:', pdfMenu);
-});
-
-// PDF callback handlers
-bot.action('pdf_grammar', async (ctx) => {
-    const userId = ctx.from.id;
-    const profile = await getUserProfile(userId);
-    await ctx.reply('Generating grammar PDF...');
-    const pdfPath = await generatePdf('grammar', userId, profile.targetLanguage, profile.currentLevel, profile.mediatorLanguage);
-    await ctx.replyWithDocument({ source: pdfPath });
-    fs.unlinkSync(pdfPath);
-});
-
-bot.action('pdf_roadmap', async (ctx) => {
-    const userId = ctx.from.id;
-    const profile = await getUserProfile(userId);
-    await ctx.reply('Generating roadmap PDF...');
-    const pdfPath = await generatePdf('roadmap', userId, profile.targetLanguage, profile.currentLevel, profile.mediatorLanguage);
-    await ctx.replyWithDocument({ source: pdfPath });
-    fs.unlinkSync(pdfPath);
-});
-
-bot.action('pdf_listening', async (ctx) => {
-    const userId = ctx.from.id;
-    const profile = await getUserProfile(userId);
-    await ctx.reply('Generating listening PDF...');
-    const pdfPath = await generatePdf('listening', userId, profile.targetLanguage, profile.currentLevel);
-    await ctx.replyWithDocument({ source: pdfPath });
-    fs.unlinkSync(pdfPath);
-});
-
-bot.action('pdf_speaking', async (ctx) => {
-    const userId = ctx.from.id;
-    const profile = await getUserProfile(userId);
-    await ctx.reply('Generating speaking PDF...');
-    const pdfPath = await generatePdf('speaking', userId, profile.targetLanguage, profile.currentLevel);
-    await ctx.replyWithDocument({ source: pdfPath });
-    fs.unlinkSync(pdfPath);
-});
-
-bot.action('pdf_reading', async (ctx) => {
-    const userId = ctx.from.id;
-    const profile = await getUserProfile(userId);
-    await ctx.reply('Generating reading PDF...');
-    const pdfPath = await generatePdf('reading', userId, profile.targetLanguage, profile.currentLevel);
-    await ctx.replyWithDocument({ source: pdfPath });
-    fs.unlinkSync(pdfPath);
-});
-
-bot.action('pdf_writing', async (ctx) => {
-    const userId = ctx.from.id;
-    const profile = await getUserProfile(userId);
-    await ctx.reply('Generating writing PDF...');
-    const pdfPath = await generatePdf('writing', userId, profile.targetLanguage, profile.currentLevel);
-    await ctx.replyWithDocument({ source: pdfPath });
-    fs.unlinkSync(pdfPath);
-});
-
-bot.action('cancel_pdf', (ctx) => ctx.reply('PDF generation cancelled.'));
-
-// Grammar PDF command
-bot.command('grammar', async (ctx) => {
-    const topic = ctx.message.text.split(' ').slice(1).join(' ') || 'Basic Grammar';
-    const userId = ctx.from.id;
-    const profile = await getUserProfile(userId);
-    try {
-        await ctx.reply('Generating grammar guide...');
-        const pdfPath = await generatePdf('grammar', userId, profile.targetLanguage, profile.currentLevel, profile.mediatorLanguage, topic);
-        await ctx.replyWithDocument({ source: pdfPath });
-        fs.unlinkSync(pdfPath);
-    } catch (err) { ctx.reply('Failed to generate grammar guide.'); }
-});
-
-// Roadmap PDF command
-bot.command('roadmap', async (ctx) => {
-    const topic = ctx.message.text.split(' ').slice(1).join(' ') || 'Comprehensive';
-    const userId = ctx.from.id;
-    const profile = await getUserProfile(userId);
-    try {
-        await ctx.reply('Generating roadmap...');
-        const pdfPath = await generatePdf('roadmap', userId, profile.targetLanguage, profile.currentLevel, profile.mediatorLanguage, topic);
-        await ctx.replyWithDocument({ source: pdfPath });
-        fs.unlinkSync(pdfPath);
-    } catch (err) { ctx.reply('Failed to generate roadmap.'); }
-});
-
-// Skills view
-bot.command('skills', async (ctx) => {
-    const userId = ctx.from.id;
-    const profile = await getUserProfile(userId);
-    const skills = profile.skillScores || {};
-    ctx.reply(`📊 Skill Scores:\n${Object.entries(skills).map(([k, v]) => `${k}: ${v}`).join('\n')}`);
-});
-
-// Listening, Speaking, Reading, Writing PDF commands (similar to grammar, we can reuse)
-bot.command('listen', async (ctx) => {
-    const userId = ctx.from.id;
-    const profile = await getUserProfile(userId);
-    await ctx.reply('Generating listening material...');
-    const pdfPath = await generatePdf('listening', userId, profile.targetLanguage, profile.currentLevel);
-    await ctx.replyWithDocument({ source: pdfPath });
-    fs.unlinkSync(pdfPath);
-});
-
-bot.command('speak', async (ctx) => {
-    const userId = ctx.from.id;
-    const profile = await getUserProfile(userId);
-    await ctx.reply('Generating speaking prompts...');
-    const pdfPath = await generatePdf('speaking', userId, profile.targetLanguage, profile.currentLevel);
-    await ctx.replyWithDocument({ source: pdfPath });
-    fs.unlinkSync(pdfPath);
-});
-
-bot.command('read', async (ctx) => {
-    const userId = ctx.from.id;
-    const profile = await getUserProfile(userId);
-    await ctx.reply('Generating reading material...');
-    const pdfPath = await generatePdf('reading', userId, profile.targetLanguage, profile.currentLevel);
-    await ctx.replyWithDocument({ source: pdfPath });
-    fs.unlinkSync(pdfPath);
-});
-
-bot.command('write', async (ctx) => {
-    const userId = ctx.from.id;
-    const profile = await getUserProfile(userId);
-    await ctx.reply('Generating writing prompts...');
-    const pdfPath = await generatePdf('writing', userId, profile.targetLanguage, profile.currentLevel);
-    await ctx.replyWithDocument({ source: pdfPath });
-    fs.unlinkSync(pdfPath);
-});
-
-// Level test (simplified - real test would need interactive questions)
-bot.command('leveltest', async (ctx) => {
-    const userId = ctx.from.id;
-    await ctx.reply('Starting level test... Send me a short paragraph in your target language and I will evaluate.');
-    // For now, we'll ask for input and evaluate later (placeholder)
-    ctx.reply('Type a paragraph and I will assess your level.');
-});
-
-// Skill test (interactive)
-let skillTestState = {};
-bot.command('skilltest', async (ctx) => {
-    const skill = ctx.message.text.split(' ')[1] || 'grammar';
-    const userId = ctx.from.id;
-    skillTestState[userId] = { skill, step: 0, score: 0, questions: [] };
-    await ctx.reply(`Starting ${skill} test... I'll ask 5 questions.`);
-    // Generate questions (fetch from web app or generate via AI)
-    const questions = await generateTestQuestions(skill, userId);
-    skillTestState[userId].questions = questions;
-    await sendNextQuestion(ctx);
-});
-
-async function generateTestQuestions(skill, userId) {
-    const profile = await getUserProfile(userId);
-    const prompt = `Generate 5 multiple-choice ${skill} questions for a ${profile.currentLevel} learner in ${profile.targetLanguage}. Return ONLY valid JSON array with this exact shape: [{"question": "...", "options": ["A","B","C","D"], "correctIndex": 0}]. No markdown, no explanations, start with [ and end with ].`;
-
-    try {
-        const response = await axios.post('https://api.groq.com/openai/v1/chat/completions', {
-            model: 'llama-3.3-70b-versatile',
-            messages: [
-                { role: 'system', content: 'You return only valid JSON. No markdown.' },
-                { role: 'user', content: prompt }
-            ],
-            temperature: 0.7,
-            response_format: { type: 'json_object' }
-        }, { headers: { 'Authorization': `Bearer ${GROQ_API_KEY}` } });
-
-        const content = response.data.choices[0].message.content;
-        const clean = content.replace(/^```json\s*/i, '').replace(/```$/i, '').trim();
-        const parsed = JSON.parse(clean);
-
-        // Groq json_object может вернуть {"questions": [...]}
-        if (Array.isArray(parsed)) return parsed;
-        if (Array.isArray(parsed.questions)) return parsed.questions;
-        return [];
-    } catch (e) {
-        console.warn('generateTestQuestions failed:', e.message);
-        return [];
-    }
-}
-
-async function sendNextQuestion(ctx) {
-    const userId = ctx.from.id;
-    const state = skillTestState[userId];
-    if (state.step >= state.questions.length) {
-        const finalScore = state.score;
-        await axios.post(`${API_BASE}/api/user/skill-test`, { userId, skillType: state.skill, score: finalScore });
-        delete skillTestState[userId];
-        return ctx.reply(`Test finished! Your score: ${finalScore}/${state.questions.length}`);
-    }
-    const q = state.questions[state.step];
-    const optionsText = q.options.map((opt, i) => `${i + 1}. ${opt}`).join('\n');
-    await ctx.reply(`Question ${state.step + 1}/${state.questions.length}:\n${q.question}\n\n${optionsText}`);
-    // Wait for answer (we'll handle in text message)
-    ctx.reply('Reply with the number (1-4) of your answer.');
-}
-
-// Handle answer for skill test (in message handler)
-// ==================== GAMES ====================
-bot.command('games', async (ctx) => {
-    const arg = ctx.message.text.split(' ')[1];
-
-    // /games 1 → CubeWord
-    if (arg === '1' || arg === 'cubeword') {
-        return startCubeWord(ctx);
-    }
-    // /games 2 → Memory Match
-    if (arg === '2' || arg === 'memory') {
-        return startMemoryMatch(ctx);
-    }
-    // /games 3 → Word Builder
-    if (arg === '3' || arg === 'wordbuilder') {
-        return startWordBuilder(ctx);
-    }
-
-    // Без аргумента → меню с кнопками
-    return ctx.reply('🎮 Available Games:', Markup.inlineKeyboard([
-        [Markup.button.callback('🧩 CubeWord', 'start_cubeword')],
-        [Markup.button.callback('🎴 Memory Match', 'start_memory')],
-        [Markup.button.callback('🔨 Word Builder', 'start_wordbuilder')],
-        [Markup.button.callback('❌ Close', 'close_menu')],
-    ]));
-});
-
-// ── Inline-кнопки запуска игр ──
-bot.action('start_cubeword', async (ctx) => {
-    await ctx.answerCbQuery();
-    return startCubeWord(ctx);
-});
-
-bot.action('start_memory', async (ctx) => {
-    await ctx.answerCbQuery();
-    return startMemoryMatch(ctx);
-});
-
-bot.action('start_wordbuilder', async (ctx) => {
-    await ctx.answerCbQuery();
-    return startWordBuilder(ctx);
-});
-
-bot.action('close_menu', async (ctx) => {
-    await ctx.answerCbQuery();
-    await ctx.deleteMessage().catch(() => { });
-});
-
-// ── Shared starters (используются и в командах, и в callback) ──
+// ==================== SHARED STARTERS ====================
 async function startCubeWord(ctx) {
     const userId = ctx.from.id;
     const profile = await getUserProfile(userId);
     try {
         const { data } = await axios.get(`${API_BASE}/api/cubeword/target-words`, {
-            params: { targetLanguage: profile.targetLanguage }
+            params: { targetLanguage: profile.targetLanguage }, timeout: 8000,
         });
         const word = data.targetWords[0];
         activeGames[userId] = { game: 'cubeword', targetWord: word.word };
-        return ctx.reply(`🧩 Find the word: ${word.clue}\nUse /cubeword <answer>`);
+        return ctx.reply(`🧩 Find the word: ${word.clue}\n\nUse /cubeword <answer>`);
     } catch (e) {
         console.error('startCubeWord failed:', e.message);
         return ctx.reply('Failed to start CubeWord.');
@@ -681,14 +361,14 @@ async function startCubeWord(ctx) {
 
 async function startMemoryMatch(ctx) {
     const userId = ctx.from.id;
-    const targetLanguage = (await getUserProfile(userId)).targetLanguage || 'en';
+    const profile = await getUserProfile(userId);
     try {
-        const { data } = await axios.post(`${API_BASE}/api/games/memory/start`, { userId, targetLanguage });
-        if (!data || !Array.isArray(data.cards)) {
-            return ctx.reply('Memory Match could not be started.');
-        }
+        const { data } = await axios.post(`${API_BASE}/api/games/memory/start`, {
+            userId, targetLanguage: profile.targetLanguage,
+        }, { timeout: 8000 });
+        if (!data || !Array.isArray(data.cards)) return ctx.reply('Memory Match could not be started.');
         const cardIds = data.cards.map(c => c.id).join(', ');
-        return ctx.reply(`🎴 Memory Match started!\nCards: ${cardIds}\nUse /flip <id> to see a card, /match <id1> <id2> to match.`);
+        return ctx.reply(`🎴 Memory Match started!\nCards: ${cardIds}\n\nUse /flip <id> and /match <id1> <id2>`);
     } catch (e) {
         console.error('startMemoryMatch failed:', e.message);
         return ctx.reply('Memory Match failed to start.');
@@ -698,115 +378,252 @@ async function startMemoryMatch(ctx) {
 async function startWordBuilder(ctx) {
     const userId = ctx.from.id;
     try {
-        const { data } = await axios.post(`${API_BASE}/api/games/wordbuilder/start`, { userId, targetWord: 'LANGUAGE' });
-        return ctx.reply(`🔨 Word Builder started!\nTarget word: ${data.targetWord}\nUse /word <word> to submit.`);
+        const { data } = await axios.post(`${API_BASE}/api/games/wordbuilder/start`, {
+            userId, targetWord: 'LANGUAGE',
+        }, { timeout: 8000 });
+        return ctx.reply(`🔨 Word Builder started!\nTarget: ${data.targetWord}\n\nUse /word <word>`);
     } catch (e) {
         console.error('startWordBuilder failed:', e.message);
         return ctx.reply('Word Builder failed to start.');
     }
 }
-bot.command('cubeword', (ctx) => startCubeWord(ctx));
-bot.command('memory', (ctx) => startMemoryMatch(ctx));
-bot.command('wordbuilder', (ctx) => startWordBuilder(ctx));
-// CubeWord
-bot.command('cubeword', async (ctx) => {
+
+// ==================== COMMANDS ====================
+bot.start(async (ctx) => {
     const userId = ctx.from.id;
-    const profile = await getUserProfile(userId);
-    const { data } = await axios.get(`${API_BASE}/api/cubeword/target-words`, { params: { targetLanguage: profile.targetLanguage } });
-    const word = data.targetWords[0];
-    activeGames[userId] = { game: 'cubeword', targetWord: word.word };
-    ctx.reply(`🧩 Find the word: ${word.clue}\nUse /cubeword <answer>`);
+    await syncUser(userId, ctx.from.username || 'user');
+    await ctx.reply(
+        '👋 Welcome to SpeakBot!\n\n' +
+        '🎯 Chat with AI about literature\n' +
+        '🎮 Play language games\n' +
+        '📄 Generate PDF materials\n' +
+        '🗣 Send voice messages for STT + TTS\n\n' +
+        'Use buttons below:',
+        Markup.inlineKeyboard([
+            [Markup.button.callback('📚 Stories', 'show_stories')],
+            [Markup.button.callback('🎮 Games', 'show_games')],
+            [Markup.button.callback('📄 PDF Materials', 'pdf_menu')],
+            [Markup.button.callback('👤 Profile', 'show_profile')],
+            [Markup.button.callback('🆘 Help', 'show_help')],
+        ])
+    );
 });
 
-// Vocab save
-bot.command('vocab', async (ctx) => {
-    const word = ctx.message.text.split(' ')[1];
-    if (!word) return ctx.reply('Please provide a word: /vocab <word>');
-    const userId = ctx.from.id;
-    const profile = await getUserProfile(userId);
-    await axios.post(`${API_BASE}/api/user/vocabulary`, { userId, targetLanguage: profile.targetLanguage, word, translation: '' });
-    ctx.reply(`Saved "${word}" to your vocabulary.`);
+bot.action('show_help', async (ctx) => {
+    await ctx.answerCbQuery();
+    await ctx.reply(
+        'Commands:\n\n' +
+        '/start — main menu\n' +
+        '/profile — learning profile\n' +
+        '/skills — skill scores\n' +
+        '/grammar <topic> — grammar PDF\n' +
+        '/roadmap <topic> — roadmap PDF\n' +
+        '/games — play games\n' +
+        '/cubeword — find the word\n' +
+        '/memory — memory match\n' +
+        '/wordbuilder — build words\n' +
+        '/vocab <word> — save to vocabulary\n' +
+        '/tts <text> — text-to-speech\n' +
+        '/premium — upgrade\n\n' +
+        'Or just send text/voice to chat.'
+    );
 });
 
-// ── Helper: определяет язык TTS по §5.25 ── 
-function getTtsVoiceCode(profile) {
-    const isBeginner = (profile.currentLevel === 'A1' || profile.currentLevel === 'A2');
-    const voiceLangName = isBeginner
-        ? (profile.mediatorLanguage || 'en')
-        : (profile.targetLanguage || 'English');
+bot.help((ctx) => {
+    ctx.reply('/start — menu\n/profile — profile\n/games — games\n/tts <text> — voice\n/help — this');
+});
 
-    // Маппинг язык → MSEdge voice code
-    const map = {
-        // ISO код (mediator language)
-        en: 'en-US', ru: 'ru-RU', az: 'az-AZ', tr: 'tr-TR',
-        de: 'de-DE', es: 'es-ES', fr: 'fr-FR', it: 'it-IT',
-        // Полное имя (target language)
-        English: 'en-US', Russian: 'ru-RU', Azerbaijani: 'az-AZ',
-        Turkish: 'tr-TR', German: 'de-DE', Spanish: 'es-ES',
-        French: 'fr-FR', Italian: 'it-IT',
-    };
-    return map[voiceLangName] || 'en-US';
-}
+bot.action('pdf_menu', async (ctx) => {
+    await ctx.answerCbQuery();
+    await ctx.reply('📄 Select PDF type:', Markup.inlineKeyboard([
+        [Markup.button.callback('📖 Grammar', 'pdf_grammar'), Markup.button.callback('🗺️ Roadmap', 'pdf_roadmap')],
+        [Markup.button.callback('👂 Listening', 'pdf_listening'), Markup.button.callback('📚 Reading', 'pdf_reading')],
+        [Markup.button.callback('✍️ Writing', 'pdf_writing')],
+        [Markup.button.callback('⬅ Back', 'back_to_main')],
+    ]));
+});
 
-bot.command('tts', async (ctx) => {
-    const text = ctx.message.text.replace('/tts', '').trim();
-    if (!text) {
-        return ctx.reply(
-            '🔊 Send text after the command:\n`/tts Hello world`\n\nVoice language follows your profile (target for B1+, mediator for A1/A2).',
-            { parse_mode: 'Markdown' }
-        );
-    }
-
-    const userId = ctx.from.id;
-    const profile = await getUserProfile(userId);
-    const langCode = getTtsVoiceCode(profile);
-
+bot.action('pdf_grammar', async (ctx) => {
+    await ctx.answerCbQuery();
+    const p = await getUserProfile(ctx.from.id);
+    await ctx.reply('Generating grammar PDF...');
     try {
-        console.log(`[TTS] user=${userId} level=${profile.currentLevel} voice=${langCode}`);
-        const webm = await generateVoice(text, langCode);
-        const ogg = await convertToOgg(webm);
-        await ctx.replyWithVoice({ source: ogg });
-        fs.unlinkSync(webm);
-        fs.unlinkSync(ogg);
-    } catch (err) {
-        console.error('TTS failed:', err.message);
-        ctx.reply('Failed to generate voice note.');
-    }
+        const pdfPath = await generatePdf('grammar', ctx.from.id, p.targetLanguage, p.currentLevel, p.mediatorLanguage);
+        await ctx.replyWithDocument({ source: pdfPath });
+        try { fs.unlinkSync(pdfPath); } catch { }
+    } catch (e) { ctx.reply('Failed: ' + e.message); }
 });
 
-// Premium
+bot.action('pdf_roadmap', async (ctx) => {
+    await ctx.answerCbQuery();
+    const p = await getUserProfile(ctx.from.id);
+    await ctx.reply('Generating roadmap PDF...');
+    try {
+        const pdfPath = await generatePdf('roadmap', ctx.from.id, p.targetLanguage, p.currentLevel, p.mediatorLanguage);
+        await ctx.replyWithDocument({ source: pdfPath });
+        try { fs.unlinkSync(pdfPath); } catch { }
+    } catch (e) { ctx.reply('Failed: ' + e.message); }
+});
+
+bot.action('pdf_listening', async (ctx) => {
+    await ctx.answerCbQuery();
+    const p = await getUserProfile(ctx.from.id);
+    await ctx.reply('Generating listening PDF...');
+    try {
+        const pdfPath = await generatePdf('listening', ctx.from.id, p.targetLanguage, p.currentLevel);
+        await ctx.replyWithDocument({ source: pdfPath });
+        try { fs.unlinkSync(pdfPath); } catch { }
+    } catch (e) { ctx.reply('Failed: ' + e.message); }
+});
+
+bot.action('pdf_reading', async (ctx) => {
+    await ctx.answerCbQuery();
+    const p = await getUserProfile(ctx.from.id);
+    await ctx.reply('Generating reading PDF...');
+    try {
+        const pdfPath = await generatePdf('reading', ctx.from.id, p.targetLanguage, p.currentLevel);
+        await ctx.replyWithDocument({ source: pdfPath });
+        try { fs.unlinkSync(pdfPath); } catch { }
+    } catch (e) { ctx.reply('Failed: ' + e.message); }
+});
+
+bot.action('pdf_writing', async (ctx) => {
+    await ctx.answerCbQuery();
+    const p = await getUserProfile(ctx.from.id);
+    await ctx.reply('Generating writing PDF...');
+    try {
+        const pdfPath = await generatePdf('writing', ctx.from.id, p.targetLanguage, p.currentLevel);
+        await ctx.replyWithDocument({ source: pdfPath });
+        try { fs.unlinkSync(pdfPath); } catch { }
+    } catch (e) { ctx.reply('Failed: ' + e.message); }
+});
+
+bot.action('cancel_pdf', async (ctx) => {
+    await ctx.answerCbQuery();
+    await ctx.reply('Cancelled.');
+});
+
+// PDF commands
+['grammar', 'roadmap', 'listen', 'read', 'write'].forEach(cmd => {
+    bot.command(cmd, async (ctx) => {
+        const topic = ctx.message.text.split(' ').slice(1).join(' ') || 'Basic';
+        const p = await getUserProfile(ctx.from.id);
+        await ctx.reply(`Generating ${cmd}...`);
+        const typeMap = { grammar: 'grammar', roadmap: 'roadmap', listen: 'listening', read: 'reading', write: 'writing' };
+        try {
+            const pdfPath = await generatePdf(typeMap[cmd], ctx.from.id, p.targetLanguage, p.currentLevel, p.mediatorLanguage, topic);
+            await ctx.replyWithDocument({ source: pdfPath });
+            try { fs.unlinkSync(pdfPath); } catch { }
+        } catch (e) { ctx.reply('Failed.'); }
+    });
+});
+
+bot.command('skills', async (ctx) => {
+    const p = await getUserProfile(ctx.from.id);
+    const skills = p.skillScores || {};
+    const text = Object.entries(skills).map(([k, v]) => `${k}: ${v}`).join('\n') || 'No skills yet';
+    ctx.reply(`📊 Skill Scores:\n${text}`);
+});
+
+bot.command('profile', async (ctx) => {
+    const p = await getUserProfile(ctx.from.id);
+    ctx.reply(`👤 Level: ${p.currentLevel}\nTarget: ${p.targetLanguage}\nMediator: ${p.mediatorLanguage}\nXP: ${p.xp || 0}`);
+});
+
 bot.command('premium', async (ctx) => {
     await ctx.telegram.sendInvoice(ctx.chat.id, 'SpeakBot Premium', 'Unlimited access', 'premium_subscription', '{}', 'XTR', [{ label: 'Premium', amount: 5 }]);
 });
 
-// Profile
-bot.command('profile', async (ctx) => {
+// Skilltest
+bot.command('skilltest', async (ctx) => {
+    const skill = ctx.message.text.split(' ')[1] || 'grammar';
     const userId = ctx.from.id;
-    const profile = await getUserProfile(userId);
-    ctx.reply(`👤 Level: ${profile.currentLevel}\nTarget: ${profile.targetLanguage}\nXP: ${profile.xp || 0}`);
+    skillTestState[userId] = { skill, step: 0, score: 0, questions: [] };
+    await ctx.reply(`Starting ${skill} test...`);
+    const questions = await generateTestQuestions(skill, userId);
+    skillTestState[userId].questions = questions;
+    if (questions.length === 0) return ctx.reply('Could not generate questions.');
+    await sendNextQuestion(ctx);
 });
 
-bot.command('memory', async (ctx) => {
-    const userId = ctx.from.id;
-    const targetLanguage = (await getUserProfile(userId)).targetLanguage || 'en';
+async function generateTestQuestions(skill, userId) {
+    const p = await getUserProfile(userId);
+    const prompt = `Generate 5 multiple-choice ${skill} questions for ${p.currentLevel} in ${p.targetLanguage}. Return ONLY JSON array: [{"question":"","options":["A","B","C","D"],"correctIndex":0}]`;
     try {
-        const { data } = await axios.post(`${API_BASE}/api/games/memory/start`, { userId, targetLanguage });
-        if (!data || !Array.isArray(data.cards)) {
-            return ctx.reply('Memory Match could not be started. Try again later.');
-        }
-        const cardIds = data.cards.map(c => c.id).join(', ');
-        ctx.reply(`Memory Match started! Cards: ${cardIds}. Use /flip <id> to see a card, /match <id1> <id2> to match.`);
-    } catch (err) {
-        console.error('Memory start error:', err.message);
-        ctx.reply('Memory Match failed to start.');
+        const response = await axios.post('https://api.groq.com/openai/v1/chat/completions', {
+            model: 'llama-3.3-70b-versatile',
+            messages: [
+                { role: 'system', content: 'Return only valid JSON.' },
+                { role: 'user', content: prompt },
+            ],
+            response_format: { type: 'json_object' },
+        }, { headers: { 'Authorization': `Bearer ${GROQ_API_KEY}` }, timeout: 20000 });
+        const content = response.data.choices[0].message.content;
+        const clean = content.replace(/^```json\s*/i, '').replace(/```$/i, '').trim();
+        const parsed = JSON.parse(clean);
+        if (Array.isArray(parsed)) return parsed;
+        if (Array.isArray(parsed.questions)) return parsed.questions;
+        return [];
+    } catch (e) { console.warn('generateTestQuestions:', e.message); return []; }
+}
+
+async function sendNextQuestion(ctx) {
+    const userId = ctx.from.id;
+    const state = skillTestState[userId];
+    if (!state) return;
+    if (state.step >= state.questions.length) {
+        const finalScore = state.score;
+        axios.post(`${API_BASE}/api/user/skill-test`, { userId, skillType: state.skill, score: finalScore }, { timeout: 8000 }).catch(() => { });
+        delete skillTestState[userId];
+        return ctx.reply(`Test finished! Score: ${finalScore}/${state.questions.length}`);
     }
+    const q = state.questions[state.step];
+    const opts = q.options.map((o, i) => `${i + 1}. ${o}`).join('\n');
+    await ctx.reply(`Q${state.step + 1}/${state.questions.length}: ${q.question}\n\n${opts}\n\nReply with 1-4.`);
+}
+
+// Games
+bot.command('games', async (ctx) => {
+    const arg = ctx.message.text.split(' ')[1];
+    if (arg === '1' || arg === 'cubeword') return startCubeWord(ctx);
+    if (arg === '2' || arg === 'memory') return startMemoryMatch(ctx);
+    if (arg === '3' || arg === 'wordbuilder') return startWordBuilder(ctx);
+
+    return ctx.reply('🎮 Available Games:', Markup.inlineKeyboard([
+        [Markup.button.callback('🧩 CubeWord', 'start_cubeword')],
+        [Markup.button.callback('🎴 Memory Match', 'start_memory')],
+        [Markup.button.callback('🔨 Word Builder', 'start_wordbuilder')],
+        [Markup.button.callback('⬅ Back', 'back_to_main')],
+    ]));
 });
+
+bot.action('start_cubeword', async (ctx) => { await ctx.answerCbQuery(); return startCubeWord(ctx); });
+bot.action('start_memory', async (ctx) => { await ctx.answerCbQuery(); return startMemoryMatch(ctx); });
+bot.action('start_wordbuilder', async (ctx) => { await ctx.answerCbQuery(); return startWordBuilder(ctx); });
+bot.action('close_menu', async (ctx) => { await ctx.answerCbQuery(); ctx.deleteMessage().catch(() => { }); });
+bot.action('back_to_main', async (ctx) => {
+    await ctx.answerCbQuery();
+    await ctx.deleteMessage().catch(() => { });
+    await ctx.reply('🏠 Main menu:', Markup.inlineKeyboard([
+        [Markup.button.callback('📚 Stories', 'show_stories')],
+        [Markup.button.callback('🎮 Games', 'show_games')],
+        [Markup.button.callback('📄 PDF Materials', 'pdf_menu')],
+        [Markup.button.callback('👤 Profile', 'show_profile')],
+    ]));
+});
+
+bot.command('cubeword', (ctx) => startCubeWord(ctx));
+bot.command('memory', (ctx) => startMemoryMatch(ctx));
+bot.command('wordbuilder', (ctx) => startWordBuilder(ctx));
 
 bot.command('flip', async (ctx) => {
     const userId = ctx.from.id;
     const cardId = parseInt(ctx.message.text.split(' ')[1]);
-    const { data } = await axios.post(`${API_BASE}/api/games/memory/flip`, { userId, cardId });
-    ctx.reply(`Card ${cardId}: ${data.word}`);
+    if (isNaN(cardId)) return ctx.reply('Usage: /flip <id>');
+    try {
+        const { data } = await axios.post(`${API_BASE}/api/games/memory/flip`, { userId, cardId }, { timeout: 8000 });
+        ctx.reply(`Card ${cardId}: ${data.word}`);
+    } catch (e) { ctx.reply('Failed.'); }
 });
 
 bot.command('match', async (ctx) => {
@@ -814,88 +631,87 @@ bot.command('match', async (ctx) => {
     if (args.length < 3) return ctx.reply('Usage: /match <id1> <id2>');
     const card1 = parseInt(args[1]);
     const card2 = parseInt(args[2]);
-    const { data } = await axios.post(`${API_BASE}/api/games/memory/match`, { userId: ctx.from.id, card1, card2 });
-    if (data.matched) {
-        ctx.reply(`Match! ${data.matchedCount} pairs found.`);
-        if (data.gameOver) ctx.reply('🎉 Game over! You found all pairs!');
-    } else {
-        ctx.reply('❌ Not a match.');
-    }
-});
-
-bot.command('wordbuilder', async (ctx) => {
-    const userId = ctx.from.id;
-    const { data } = await axios.post(`${API_BASE}/api/games/wordbuilder/start`, { userId, targetWord: 'LANGUAGE' });
-    ctx.reply(`Word Builder started! Target word: ${data.targetWord}. Use /word <word> to submit.`);
+    try {
+        const { data } = await axios.post(`${API_BASE}/api/games/memory/match`, { userId: ctx.from.id, card1, card2 }, { timeout: 8000 });
+        if (data.matched) {
+            ctx.reply(`Match! ${data.matchedCount} pairs.`);
+            if (data.gameOver) ctx.reply('🎉 Game over!');
+        } else ctx.reply('❌ Not a match.');
+    } catch (e) { ctx.reply('Failed.'); }
 });
 
 bot.command('word', async (ctx) => {
     const word = ctx.message.text.split(' ')[1];
-    const { data } = await axios.post(`${API_BASE}/api/games/wordbuilder/verify`, { userId: ctx.from.id, word });
-    if (data.valid) ctx.reply(`✅ "${word.toUpperCase()}" added! Found words: ${data.foundWords.join(', ')}`);
-    else ctx.reply(data.message || 'Invalid word.');
+    if (!word) return ctx.reply('Usage: /word <word>');
+    try {
+        const { data } = await axios.post(`${API_BASE}/api/games/wordbuilder/verify`, { userId: ctx.from.id, word }, { timeout: 8000 });
+        if (data.valid) ctx.reply(`✅ "${word.toUpperCase()}" added! Found: ${data.foundWords.join(', ')}`);
+        else ctx.reply(data.message || 'Invalid.');
+    } catch (e) { ctx.reply('Failed.'); }
 });
 
-// ==================== CALLBACKS ====================
-bot.action('show_stories', async (ctx) => {
-    await ctx.answerCbQuery();
-    const userId = ctx.from.id;
-    const profile = await getUserProfile(userId);
-
+bot.command('vocab', async (ctx) => {
+    const word = ctx.message.text.split(' ')[1];
+    if (!word) return ctx.reply('Usage: /vocab <word>');
+    const p = await getUserProfile(ctx.from.id);
     try {
-        const { data } = await axios.get(`${API_BASE}/api/stories/custom-list`, {
-            params: { userId, targetLanguage: profile.targetLanguage || 'English' }
-        });
+        await axios.post(`${API_BASE}/api/user/vocabulary`, { userId: ctx.from.id, targetLanguage: p.targetLanguage, word, translation: '' }, { timeout: 8000 });
+        ctx.reply(`Saved "${word}".`);
+    } catch (e) { ctx.reply('Failed.'); }
+});
 
-        const stories = data.customStories || [];
-        if (stories.length === 0) {
-            return ctx.reply(`📚 No stories available for ${profile.targetLanguage || 'English'}.\n\nTry another language or wait for daily feeds.`);
-        }
-
-        // Показываем первые 5 stories с кнопками
-        const topStories = stories.slice(0, 5);
-        const buttons = topStories.map(s => [
-            Markup.button.callback(
-                `📖 ${s.title.slice(0, 40)}`,
-                `story_open_${s.id}`
-            )
-        ]);
-        buttons.push([Markup.button.callback('⬅ Back', 'back_to_main')]);
-
-        await ctx.reply(
-            `📚 *Available Stories in ${profile.targetLanguage || 'English'}* (${stories.length}):`,
-            { parse_mode: 'Markdown', ...Markup.inlineKeyboard(buttons) }
-        );
-    } catch (e) {
-        console.error('show_stories failed:', e.message);
-        await ctx.reply('Failed to load stories.');
+// TTS
+bot.command('tts', async (ctx) => {
+    const text = ctx.message.text.replace('/tts', '').trim();
+    if (!text) return ctx.reply('Usage: /tts <text>');
+    const p = await getUserProfile(ctx.from.id);
+    const langCode = getTtsVoiceCode(p);
+    try {
+        const webm = await generateVoice(text, langCode);
+        const ogg = await convertToOgg(webm);
+        await ctx.replyWithVoice({ source: ogg });
+        try { fs.unlinkSync(webm); fs.unlinkSync(ogg); } catch { }
+    } catch (err) {
+        console.error('TTS failed:', err.message);
+        ctx.reply('Failed to generate voice.');
     }
 });
 
-// Открытие story → показывает детали
+bot.action('show_tts', async (ctx) => {
+    await ctx.answerCbQuery();
+    const p = await getUserProfile(ctx.from.id);
+    const isBeginner = (p.currentLevel === 'A1' || p.currentLevel === 'A2');
+    const voiceLang = isBeginner ? (p.mediatorLanguage || 'en') : (p.targetLanguage || 'English');
+    await ctx.reply(
+        `🔊 Text-to-Speech\n\nVoice language: ${voiceLang}\n(${isBeginner ? 'mediator for A1/A2' : 'target for B1+'})\n\nSend text or use /tts <text>.`
+    );
+});
+
+// Stories
+bot.action('show_stories', async (ctx) => {
+    await ctx.answerCbQuery();
+    const p = await getUserProfile(ctx.from.id);
+    try {
+        const { data } = await axios.get(`${API_BASE}/api/stories/custom-list`, {
+            params: { userId: ctx.from.id, targetLanguage: p.targetLanguage || 'English' }, timeout: 15000,
+        });
+        const stories = data.customStories || [];
+        if (stories.length === 0) return ctx.reply(`📚 No stories for ${p.targetLanguage || 'English'}.`);
+        const buttons = stories.slice(0, 5).map(s => [Markup.button.callback(`📖 ${(s.title || '').slice(0, 40)}`, `story_open_${s.id}`)]);
+        buttons.push([Markup.button.callback('⬅ Back', 'back_to_main')]);
+        await ctx.reply(`📚 Available (${stories.length}):`, Markup.inlineKeyboard(buttons));
+    } catch (e) { ctx.reply('Failed to load stories.'); }
+});
+
 bot.action(/^story_open_(.+)$/, async (ctx) => {
     await ctx.answerCbQuery();
     const storyId = ctx.match[1];
     try {
-        const { data } = await axios.get(`${API_BASE}/api/stories/custom-list`, {
-            params: { userId: ctx.from.id }
-        });
+        const { data } = await axios.get(`${API_BASE}/api/stories/custom-list`, { params: { userId: ctx.from.id }, timeout: 15000 });
         const story = (data.customStories || []).find(s => s.id === storyId);
-        if (!story) {
-            return ctx.reply('Story not found.');
-        }
-        await ctx.reply(
-            `📖 *${story.title}*\n` +
-            `by _${story.author || 'Unknown'}_\n\n` +
-            `Level: ${story.level || 'B1'}\n` +
-            `${story.culturalLinguisticContext || ''}\n\n` +
-            `_To read full content and chat about it, open the Mini App._`,
-            { parse_mode: 'Markdown' }
-        );
-    } catch (e) {
-        console.error('story_open failed:', e.message);
-        await ctx.reply('Failed to open story.');
-    }
+        if (!story) return ctx.reply('Not found.');
+        await ctx.reply(`📖 ${story.title}\nby ${story.author || 'Unknown'}\nLevel: ${story.level || 'B1'}\n\n${story.culturalLinguisticContext || ''}\n\nOpen Mini App for full content.`);
+    } catch (e) { ctx.reply('Failed.'); }
 });
 
 bot.action('show_games', async (ctx) => {
@@ -908,59 +724,27 @@ bot.action('show_games', async (ctx) => {
     ]));
 });
 
-bot.action('back_to_main', async (ctx) => {
-    await ctx.answerCbQuery();
-    await ctx.deleteMessage().catch(() => { });
-    await ctx.reply('🏠 Main menu:', Markup.inlineKeyboard([
-        [Markup.button.callback('📚 Stories', 'show_stories')],
-        [Markup.button.callback('🎮 Games', 'show_games')],
-        [Markup.button.callback('📄 PDF Materials', 'pdf_menu')],
-        [Markup.button.callback('👤 Profile', 'show_profile')],
-    ]));
-});
-
-
-bot.action('show_tts', async (ctx) => {
-    await ctx.answerCbQuery();
-    const userId = ctx.from.id;
-    const profile = await getUserProfile(userId);
-
-    const isBeginner = (profile.currentLevel === 'A1' || profile.currentLevel === 'A2');
-    const voiceLang = isBeginner
-        ? (profile.mediatorLanguage || 'en')
-        : (profile.targetLanguage || 'English');
-
-    await ctx.reply(
-        `🔊 *Text-to-Speech*\n\n` +
-        `Voice language: *${voiceLang}*\n` +
-        `_(${isBeginner ? 'mediator language for A1/A2' : 'target language for B1+'})_\n\n` +
-        `Send any text and I'll reply with voice. Or use \`/tts your text\`.\n\n` +
-        `_Change target/mediator in the Mini App._`,
-        { parse_mode: 'Markdown' }
-    );
-});
-
 bot.action('show_profile', async (ctx) => {
-    const userId = ctx.from.id;
-    const profile = await getUserProfile(userId);
-    ctx.reply(`👤 Level: ${profile.currentLevel}\nTarget: ${profile.targetLanguage}\nXP: ${profile.xp || 0}`);
+    await ctx.answerCbQuery();
+    const p = await getUserProfile(ctx.from.id);
+    ctx.reply(`👤 Level: ${p.currentLevel}\nTarget: ${p.targetLanguage}\nMediator: ${p.mediatorLanguage}\nXP: ${p.xp || 0}`);
 });
 
-// ==================== PRE-CHECKOUT ====================
+// Pre-checkout
 bot.on('pre_checkout_query', (ctx) => ctx.answerPreCheckoutQuery(true));
 
 // ==================== MAIN MESSAGE HANDLER ====================
 bot.on('message', async (ctx) => {
-    // Handle successful payment
+    // Payment
     if (ctx.message.successful_payment) {
-        await axios.post(`${API_BASE}/api/user/premium`, { userId: String(ctx.from.id), isPremium: true });
-        return ctx.reply('🎉 Premium activated! Unlimited access.');
+        axios.post(`${API_BASE}/api/user/premium`, { userId: String(ctx.from.id), isPremium: true }, { timeout: 8000 }).catch(() => { });
+        return ctx.reply('🎉 Premium activated!');
     }
 
-    // Ignore commands (already handled)
+    // Skip commands
     if (ctx.message.text && ctx.message.text.startsWith('/')) return;
 
-    // Handle text answer for skill test
+    // Skill test answer
     if (skillTestState[ctx.from.id] && ctx.message.text && /^\d+$/.test(ctx.message.text)) {
         const userId = ctx.from.id;
         const state = skillTestState[userId];
@@ -971,93 +755,62 @@ bot.on('message', async (ctx) => {
         return sendNextQuestion(ctx);
     }
 
-    // Handle plain digits outside of a test — guide user to buttons
+    // Digits outside test
     if (ctx.message.text && /^\d+$/.test(ctx.message.text) && !skillTestState[ctx.from.id]) {
-        return ctx.reply(
-            '💡 Use buttons instead of typing numbers.\n' +
-            'Try /games to see the menu.',
-            Markup.inlineKeyboard([
-                [Markup.button.callback('🎮 Open Games', 'show_games')]
-            ])
-        );
+        return ctx.reply('💡 Use buttons instead of numbers.\nTry /games.', Markup.inlineKeyboard([
+            [Markup.button.callback('🎮 Games', 'show_games')],
+        ]));
     }
 
     // Voice
     if (ctx.message.voice) {
         await ctx.reply('🎧 Processing voice...');
-        const fileId = ctx.message.voice.file_id;
-        const file = await ctx.telegram.getFile(fileId);
-        const fileUrl = `https://api.telegram.org/file/bot${TELEGRAM_BOT_TOKEN}/${file.file_path}`;
-        const buffer = (await axios.get(fileUrl, { responseType: 'arraybuffer' })).data;
-        const inputPath = path.join(TEMP_DIR, `voice-${Date.now()}.oga`);
-        fs.writeFileSync(inputPath, buffer);
-        const text = await transcribeAudio(inputPath, 'en');
-        fs.unlinkSync(inputPath);
+        try {
+            const fileId = ctx.message.voice.file_id;
+            const file = await ctx.telegram.getFile(fileId);
+            const fileUrl = `https://api.telegram.org/file/bot${TELEGRAM_BOT_TOKEN}/${file.file_path}`;
+            const buffer = (await axios.get(fileUrl, { responseType: 'arraybuffer', timeout: 30000 })).data;
+            const inputPath = path.join(TEMP_DIR, `voice-${Date.now()}.oga`);
+            fs.writeFileSync(inputPath, buffer);
+            const text = await transcribeAudio(inputPath, 'en');
+            try { fs.unlinkSync(inputPath); } catch { }
 
-        const intent = detectIntent(text);
-        const userId = ctx.from.id;
-        const profile = await getUserProfile(userId);
+            const intent = detectIntent(text);
+            const p = await getUserProfile(ctx.from.id);
 
-        if (['grammar', 'roadmap', 'skills', 'listening', 'speaking', 'reading', 'writing'].includes(intent)) {
-            await ctx.reply(`Understanding: "${text}"\nGenerating ${intent} PDF...`);
-            const pdfPath = await generatePdf(intent, userId, profile.targetLanguage, profile.currentLevel, profile.mediatorLanguage);
-            await ctx.replyWithDocument({ source: pdfPath });
-            fs.unlinkSync(pdfPath);
-        } else if (intent === 'game') {
-            await ctx.reply('Starting CubeWord...');
-            const profile = await getUserProfile(userId);
-            const { data } = await axios.get(`${API_BASE}/api/cubeword/target-words`, {
-                params: { targetLanguage: profile.targetLanguage }
-            });
-            const word = data.targetWords[0];
-            activeGames[userId] = { game: 'cubeword', targetWord: word.word };
-            await ctx.reply(`🧩 Find the word: ${word.clue}\nUse /cubeword <answer>`);
-        } else {
-            // Normal tutor response with voice — language per §5.25
-            const reply = await getTutorResponse(userId, text, profile.targetLanguage, profile.mediatorLanguage, profile.currentLevel);
-            const langCode = getTtsVoiceCode(profile);
-            console.log(`[TTS auto] level=${profile.currentLevel} voice=${langCode}`);
-            const webm = await generateVoice(reply, langCode);
-            const ogg = await convertToOgg(webm);
-            await ctx.replyWithVoice({ source: ogg });
-            await ctx.reply(`📝 Transcribed: ${text}\n💬 Voice reply sent.`);
-            fs.unlinkSync(webm); fs.unlinkSync(ogg);
+            if (['grammar', 'roadmap', 'skills', 'listening', 'reading', 'writing'].includes(intent)) {
+                await ctx.reply(`Understanding: "${text}"\nGenerating ${intent} PDF...`);
+                const pdfPath = await generatePdf(intent, ctx.from.id, p.targetLanguage, p.currentLevel, p.mediatorLanguage);
+                await ctx.replyWithDocument({ source: pdfPath });
+                try { fs.unlinkSync(pdfPath); } catch { }
+            } else {
+                const reply = await getTutorResponse(ctx.from.id, text, p.targetLanguage, p.mediatorLanguage, p.currentLevel);
+                const langCode = getTtsVoiceCode(p);
+                try {
+                    const webm = await generateVoice(reply, langCode);
+                    const ogg = await convertToOgg(webm);
+                    await ctx.replyWithVoice({ source: ogg });
+                    await ctx.reply(`📝 Heard: ${text}`);
+                    try { fs.unlinkSync(webm); fs.unlinkSync(ogg); } catch { }
+                } catch (e) {
+                    ctx.reply(reply);
+                }
+            }
+        } catch (e) {
+            console.error('Voice processing failed:', e.message);
+            await ctx.reply('Failed to process voice.');
         }
+        return;
     }
 
     // Text
     if (ctx.message.text) {
-        const userId = ctx.from.id;
-        const profile = await getUserProfile(userId);
-        const reply = await getTutorResponse(userId, ctx.message.text, profile.targetLanguage, profile.mediatorLanguage, profile.currentLevel);
-        ctx.reply(reply);
+        const p = await getUserProfile(ctx.from.id);
+        const reply = await getTutorResponse(ctx.from.id, ctx.message.text, p.targetLanguage, p.mediatorLanguage, p.currentLevel);
+        await ctx.reply(reply);
     }
 });
 
-bot.action(/^tts_play_(\d+)$/, async (ctx) => {
-    await ctx.answerCbQuery('Generating voice...');
-    const msgId = ctx.match[1];
-    const text = botTtsCache[msgId];
-
-    if (!text) {
-        return ctx.reply('Text expired, please try again.');
-    }
-
-    const userId = ctx.from.id;
-    const profile = await getUserProfile(userId);
-    const langCode = getTtsVoiceCode(profile);
-
-    try {
-        const webm = await generateVoice(text, langCode);
-        const ogg = await convertToOgg(webm);
-        await ctx.replyWithVoice({ source: ogg });
-        fs.unlinkSync(webm);
-        fs.unlinkSync(ogg);
-    } catch (err) {
-        console.error('TTS reply failed:', err.message);
-        await ctx.reply('Failed to generate voice.');
-    }
-});
-// В самом конце bot.cjs
+// ==================== LAUNCH ====================
 bot.launch();
 console.log('[Telegram Bot] Launched (mode: ' + (require.main === module ? 'standalone' : 'embedded') + ')');
