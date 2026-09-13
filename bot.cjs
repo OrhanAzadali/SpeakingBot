@@ -51,10 +51,17 @@ async function saveUser(userId, user) {
 
 // ==================== CONFIG ====================
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
-const API_BASE = process.env.MINIAPP_URL || 'https://speakingbot.onrender.com';
+const API_BASE = (process.env.MINIAPP_URL || 'https://speakingbot.onrender.com').trim();
+
+if (!API_BASE || !API_BASE.startsWith('http')) {
+    console.error('[Bot] FATAL: API_BASE is empty or invalid:', JSON.stringify(process.env.MINIAPP_URL));
+    process.exit(1);
+}
+console.log('[Bot] API_BASE =', API_BASE);
+
+
 const GROQ_API_KEY = process.env.GROQ_API_KEY;
 const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
-
 const bot = new Telegraf(TELEGRAM_BOT_TOKEN);
 const TEMP_DIR = path.join(process.cwd(), 'temp');
 if (!fs.existsSync(TEMP_DIR)) fs.mkdirSync(TEMP_DIR);
