@@ -5726,7 +5726,41 @@ async function startServer() {
     });
 }
 
+if (process.env.TELEGRAM_BOT_TOKEN) {
+    try {
+        const require2 = createRequire(import.meta.url);
+        const botPath = path.join(process.cwd(), "bot.cjs");
+        if (fs.existsSync(botPath)) {
+            require2(botPath);
+            console.log("[Telegram Bot] Started inside server process");
+        }
+    } catch (e) {
+        console.error("[Telegram Bot] Failed:", e.message);
+    }
+}
 startServer();
+
+// ═══════════════════════════════════════════════════════════════
+// SELF-PING — prevent Render Free from sleeping
+// ═══════════════════════════════════════════════════════════════
+if (process.env.NODE_ENV === "production") {
+    const SELF_PING_INTERVAL_MS = 5 * 60 * 1000;   // 5 минут — безопаснее 15
+
+    setInterval(async () => {
+        try {
+            const url = process.env.RENDER_EXTERNAL_URL
+                || "https://speakingbot.onrender.com";
+            const res = await fetch(`${url}/api/health`, {
+                signal: AbortSignal.timeout(10000)
+            });
+            console.log(`[Self-ping] ${new Date().toISOString()} — ${res.status}`);
+        } catch (e) {
+            console.warn(`[Self-ping] Failed: ${e.message}`);
+        }
+    }, SELF_PING_INTERVAL_MS);
+
+    console.log(`[Self-ping] Enabled, interval ${SELF_PING_INTERVAL_MS / 60000} min`);
+}
 
 // =====================================================
 // AUTO-FETCH FROM GUTENBERG (every 6 hours)
