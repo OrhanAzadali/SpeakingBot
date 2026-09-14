@@ -1474,15 +1474,133 @@ bot.action('show_stories', async (ctx) => {
     } catch (e) { ctx.reply('Failed to load stories.'); }
 });
 
+// ─── HTML escape helper for Telegram parse_mode="HTML" ───
+function escapeHtml(s) {
+    return String(s == null ? '' : s)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;');
+}
+
+// ─── Build a rich excerpt message (≤3800 chars) for Telegram ───
+
+function buildStoryExcerptMessage(story, fromIndex = 0, sentencesPerPage = 4) {
+    const parts = [];
+    parts.push(`📖 <b>${escapeHtml(story.title || 'Untitled')}</b>`);
+    parts.push(`<i>by ${escapeHtml(story.author || 'Unknown')}</i>`);
+    parts.push(`Level: ${escapeHtml(story.level || 'B1')} • ${escapeHtml(story.targetLanguage || 'English')}`);
+    if (story.culturalLinguisticContext) {
+        parts.push('');
+        parts.push(`🎭 <b>Context:</b> ${escapeHtml(story.culturalLinguisticContext)}`);
+    }
+
+    const allSentences = Array.isArray(story.sentences) ? story.sentences : [];
+    const slice = allSentences.slice(fromIndex, fromIndex + sentencesPerPage);
+
+    if (slice.length > 0) {
+        parts.push('');
+        parts.push(`📝 <b>Excerpt</b> (${fromIndex + 1}–${fromIndex + slice.length} of ${allSentences.length}):`);
+        for (const s of slice) {
+            parts.push('');
+            parts.push(`▸ <b>${escapeHtml(s.text || '')}</b>`);
+            if (s.translation) parts.push(`   <i>${escapeHtml(s.translation)}</i>`);
+            if (s.literaryNote) parts.push(`   💡 ${escapeHtml(s.literaryNote)}`);
+        }
+    }
+
+    // Key vocabulary — only on first page
+    if (fromIndex === 0 && Array.isArray(story.keyVocabulary) && story.keyVocabulary.length > 0) {
+        parts.push('');
+        parts.push('📚 <b>Key Vocabulary:</b>');
+        for (const v of story.keyVocabulary.slice(0, 5)) {
+            parts.push(`• <b>${escapeHtml(v.word || '')}</b> — ${escapeHtml(v.translation || v.meaning || '')}`);
+        }
+    }
+
+    let text = parts.join('\n');
+    if (text.length > 3800) text = text.slice(0, 3790) + '…';
+    return text;
+}
+
 bot.action(/^story_open_(.+)$/, async (ctx) => {
     await ctx.answerCbQuery();
     const storyId = ctx.match[1];
     try {
-        const { data } = await axios.get(`${API_BASE}/api/stories/custom-list`, { params: { userId: ctx.from.id }, timeout: 15000 });
-        const story = (data.customStories || []).find(s => s.id === storyId);
-        if (!story) return ctx.reply('Not found.');
-        await ctx.reply(`📖 ${story.title}\nby ${story.author || 'Unknown'}\nLevel: ${story.level || 'B1'}\n\n${story.culturalLinguisticContext || ''}\n\nOpen Mini App for full content.`);
-    } catch (e) { ctx.reply('Failed.'); }
+        const { data } = await axios.get(`${API_BASE}/api/stories/custom-story/${storyId}`, {
+            params: { userId: ctx.from.id },
+            timeout: 15000,
+        });
+        if (!data || !data.success || !data.story) {
+            return ctx.reply('Story not found.');
+        }
+        const story = data.story;
+
+        const text = buildStoryExcerptMessage(story, 0, 4);
+        const totalSentences = (story.sentences || []).length;
+
+        const buttons = [];
+        if (totalSentences > 4) {
+            buttons.push([
+                Markup.button.callback(
+                    `📖 Continue (5–${Math.min(8, totalSentences)})`,
+                    `story_more_${storyId}_4`
+                )
+            ]);
+        }
+        buttons.push([
+            Markup.button.webApp('📱 Full story in Mini App', `${API_BASE}/?tab=stories&storyId=${storyId}`)
+        ]);
+        buttons.push([Markup.button.callback('⬅ Back to list', 'show_stories')]);
+
+        await ctx.reply(text, {
+            parse_mode: 'HTML',
+            ...Markup.inlineKeyboard(buttons),
+        });
+    } catch (e) {
+        console.error('[story_open] failed:', e.message);
+        ctx.reply('Failed to load story.');
+    }
+});
+
+// ─── Pagination for long stories ───
+bot.action(/^story_more_(.+)_(\d+)$/, async (ctx) => {
+    await ctx.answerCbQuery();
+    const storyId = ctx.match[1];
+    const fromIndex = parseInt(ctx.match[2], 10);
+    try {
+        const { data } = await axios.get(`${API_BASE}/api/stories/custom-story/${storyId}`, {
+            params: { userId: ctx.from.id },
+            timeout: 15000,
+        });
+        if (!data || !data.success || !data.story) return ctx.reply('Story not found.');
+        const story = data.story;
+
+        const text = buildStoryExcerptMessage(story, fromIndex, 4);
+        const totalSentences = (story.sentences || []).length;
+        const nextIndex = fromIndex + 4;
+
+        const buttons = [];
+        if (nextIndex < totalSentences) {
+            buttons.push([
+                Markup.button.callback(
+                    `📖 Continue (${nextIndex + 1}–${Math.min(nextIndex + 4, totalSentences)})`,
+                    `story_more_${storyId}_${nextIndex}`
+                )
+            ]);
+        }
+        buttons.push([
+            Markup.button.webApp('📱 Full story in Mini App', `${API_BASE}/?tab=stories&storyId=${storyId}`)
+        ]);
+        buttons.push([Markup.button.callback('⬅ Back to list', 'show_stories')]);
+
+        await ctx.reply(text, {
+            parse_mode: 'HTML',
+            ...Markup.inlineKeyboard(buttons),
+        });
+    } catch (e) {
+        console.error('[story_more] failed:', e.message);
+        ctx.reply('Failed to load more.');
+    }
 });
 
 bot.action('show_games', async (ctx) => {

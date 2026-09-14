@@ -4134,7 +4134,6 @@ app.get("/api/download/server.js", (req, res) => {
 // =====================================================
 // ROUTE: STORIES
 // =====================================================
-
 app.get("/api/stories/custom-list", async (req, res) => {
     try {
         const userId = String(req.query.userId || "default-user");
@@ -4241,6 +4240,28 @@ app.delete("/api/stories/custom-story/:storyId", (req, res) => {
         saveStoriesToDisk();
     }
     res.json({ success: true, message: `Story "${storyId}" removed.`, allCustomStories: userCustomStories[userId] || [] });
+});
+
+// ─── GET one story (used by /story command and story_open callback in bot) ───
+app.get("/api/stories/custom-story/:storyId", async (req, res) => {
+    try {
+        const { storyId } = req.params;
+        const userId = String(req.query.userId || "default-user");
+
+        await ensureStoriesHydrated();
+
+        let story = null;
+        if (userCustomStories[userId]) {
+            story = userCustomStories[userId].find((s) => s.id === storyId);
+        }
+        if (!story) story = autoFetchedStories.find((s) => s.id === storyId);
+        if (!story) return res.status(404).json({ success: false, error: "Story not found" });
+
+        res.json({ success: true, story: normalizeStoryForUi(story) });
+    } catch (err) {
+        console.error("[Story/get] Error:", err);
+        res.status(500).json({ success: false, error: err.message });
+    }
 });
 
 app.get("/api/stories/custom-story/:storyId/pdf", (req, res) => {
@@ -4566,7 +4587,7 @@ app.post("/api/user/mediator-language", (req, res) => {
         syncedUsersDatabase[userId].userId = userId;
     }
     syncedUsersDatabase[userId].mediatorLanguage = actualMediator;
-    setToCache(`spk: user:${userId} `, syncedUsersDatabase[userId], 86400 * 30).catch(() => { });
+    setToCache(`spk:user:${userId}`, syncedUsersDatabase[userId], 86400 * 30).catch(() => { });
     saveUsersToDisk();
 
     res.json({ success: true, actualMediator, data: syncedUsersDatabase[userId] });
@@ -4598,7 +4619,7 @@ app.post("/api/user/target-language", (req, res) => {
 
     saveUsersToDisk();
 
-    setToCache(`spk: user:${userId} `, syncedUsersDatabase[userId], 86400 * 30).catch(() => { });
+    setToCache(`spk:user:${userId}`, syncedUsersDatabase[userId], 86400 * 30).catch(() => { });
     res.json({ success: true, targetLanguage, data: user });
 });
 

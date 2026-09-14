@@ -1,4 +1,4 @@
-import { useState, useEffect, useTransition, useMemo } from "react";
+﻿import { useState, useEffect, useTransition, useMemo } from "react";
 import { TranslationProvider, useTranslation } from "./i18n/useTranslation";
 import { Header } from "./components/Header";
 import { HomePage } from "./components/HomePage";
@@ -23,6 +23,48 @@ import {
   DIAGNOSTIC_PLACEMENT_QUESTIONS,
   getDiagnosticQuestionsByLanguage
 } from "./data/initialData";
+
+// ─── Universal user-id resolver (Telegram WebApp → localStorage → default) ───
+// ─── Universal user-id resolver (Telegram WebApp → localStorage → default) ───
+function getTelegramUserId() {
+  try {
+    const tgUser = window.Telegram?.WebApp?.initDataUnsafe?.user;
+    if (tgUser?.id) {
+      const id = String(tgUser.id);
+      localStorage.setItem("userId", id);
+      return id;
+    }
+  } catch { /* ignore */ }
+  return localStorage.getItem("userId") || "default-user";
+}
+
+// ─── fetch wrapper: auto-injects userId into GET query and POST/PUT/DELETE body ───
+async function apiFetch(url, opts = {}) {
+  const userId = getTelegramUserId();
+  const method = (opts.method || "GET").toUpperCase();
+
+  let finalUrl = url;
+  const finalOpts = { ...opts };
+
+  if (method === "GET") {
+    const sep = url.includes("?") ? "&" : "?";
+    if (!url.includes("userId=")) {
+      finalUrl = `${url}${sep}userId=${encodeURIComponent(userId)}`;
+    }
+  } else {
+    let body = {};
+    try {
+      if (typeof opts.body === "string") body = JSON.parse(opts.body || "{}");
+      else if (opts.body && typeof opts.body === "object") body = { ...opts.body };
+    } catch { body = {}; }
+    if (!body.userId) body.userId = userId;
+    finalOpts.body = JSON.stringify(body);
+    finalOpts.headers = { "Content-Type": "application/json", ...(opts.headers || {}) };
+  }
+
+  return fetch(finalUrl, finalOpts);
+}
+
 
 function MainApp() {
 
@@ -168,8 +210,8 @@ function MainApp() {
     const fetchPersistedGuidesAndRoadmaps = async () => {
       try {
         const [roadmapsRes, grammarRes] = await Promise.all([
-          fetch("/api/user/roadmaps").then((r) => (r.ok ? r.json() : null)).catch(() => null),
-          fetch("/api/user/grammar-pdfs").then((r) => (r.ok ? r.json() : null)).catch(() => null),
+          apiFetch("/api/user/roadmaps").then((r) => (r.ok ? r.json() : null)).catch(() => null),
+          apiFetch("/api/user/grammar-pdfs").then((r) => (r.ok ? r.json() : null)).catch(() => null),
         ]);
 
         if (roadmapsRes?.success && Array.isArray(roadmapsRes.data) && roadmapsRes.data.length > 0) {
@@ -196,7 +238,7 @@ function MainApp() {
   const syncWithTelegramBot = async () => {
     setIsSyncing(true);
     try {
-      const res = await fetch("/api/bot/sync");
+      const res = await apiFetch("/api/bot/sync");
       if (res.ok) {
         const json = await res.json();
         if (json.synced && json.userState) {
@@ -219,7 +261,7 @@ function MainApp() {
     const fetchProfile = async () => {
       setIsSyncing(true);
       try {
-        const res = await fetch("/api/user/profile");
+        const res = await apiFetch("/api/user/profile");
         if (res.ok) {
           const json = await res.json();
           if (json.success && json.data) {
@@ -237,13 +279,46 @@ function MainApp() {
     };
     fetchProfile();
   }, []);
+  // ─── Re-fetch profile when the user returns to Mini App (bot may have changed it) ───
+  useEffect(() => {
+    const refetch = async () => {
+      try {
+        const res = await apiFetch("/api/user/profile");
+        if (!res.ok) return;
+        const json = await res.json();
+        if (json.success && json.data) {
+          setUserProfile((prev) => normalizeUserProfile(json.data, prev));
+          if (json.data.vocabularyByLanguage) {
+            setAllVocabularies(json.data.vocabularyByLanguage);
+          }
+        }
+      } catch { /* silent */ }
+    };
 
+    const onVisible = () => {
+      if (document.visibilityState === "visible") refetch();
+    };
+
+    document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("focus", refetch);
+
+    // Telegram WebApp provides its own activation event when the mini-app is re-opened
+    const tg = window.Telegram?.WebApp;
+    if (tg && typeof tg.onEvent === "function") {
+      try { tg.onEvent("activated", refetch); } catch { /* ignore */ }
+    }
+
+    return () => {
+      document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("focus", refetch);
+    };
+  }, []);
   // Реактивная перезагрузка словаря при смене активного targetLanguage.
   // Без этого savedVocabulary/savedVocabulary.allVocabularies содержат данные СТАРОГО языка.
   useEffect(() => {
     const fetchVocab = async () => {
       try {
-        const res = await fetch(`/api/user/vocabulary?targetLanguage=${encodeURIComponent(userProfile.targetLanguage || "English")}`);
+        const res = await apiFetch(`/api/user/vocabulary?targetLanguage=${encodeURIComponent(userProfile.targetLanguage || "English")}`);
         if (res.ok) {
           const json = await res.json();
           if (json.success) {
@@ -273,7 +348,7 @@ function MainApp() {
       targetLanguage: targetL,
     };
     try {
-      const res = await fetch("/api/user/vocabulary", {
+      const res = await apiFetch("/api/user/vocabulary", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
@@ -309,7 +384,7 @@ function MainApp() {
   const handleDeleteFromVocabulary = async (id, word, targetLanguage) => {
     const targetL = targetLanguage || userProfile.targetLanguage || "English";
     try {
-      const res = await fetch("/api/user/vocabulary", {
+      const res = await apiFetch("/api/user/vocabulary", {
         method: "DELETE",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ id, word, targetLanguage: targetL }),
@@ -339,7 +414,7 @@ function MainApp() {
     }));
     setIsSyncing(true);
     try {
-      const res = await fetch("/api/user/mediator-language", {
+      const res = await apiFetch("/api/user/mediator-language", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ mediatorLanguage: newMediator })
@@ -363,7 +438,7 @@ function MainApp() {
     }));
     setIsSyncing(true);
     try {
-      const res = await fetch("/api/user/target-language", {
+      const res = await apiFetch("/api/user/target-language", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ targetLanguage: newTarget })
@@ -417,7 +492,7 @@ function MainApp() {
       return updated;
     });
 
-    fetch("/api/user/roadmaps", {
+    apiFetch("/api/user/roadmaps", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ userId: userProfile.userId, roadmap: newRoadmap })
@@ -433,7 +508,7 @@ function MainApp() {
       return updated;
     });
 
-    fetch("/api/user/grammar-pdfs", {
+    apiFetch("/api/user/grammar-pdfs", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ userId: userProfile.userId, guide: newGuide })
@@ -454,7 +529,7 @@ function MainApp() {
     }));
 
     try {
-      await fetch("/api/user/sync-game-xp", {
+      await apiFetch("/api/user/sync-game-xp", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ gameType, xp, score }),
@@ -614,7 +689,7 @@ function MainApp() {
                 skillScores: updatedSkillScores
               }));
               try {
-                await fetch("/api/stories/progress", {
+                await apiFetch("/api/stories/progress", {
                   method: "POST",
                   headers: { "Content-Type": "application/json" },
                   body: JSON.stringify({
