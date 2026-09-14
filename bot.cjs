@@ -533,18 +533,31 @@ async function syncUser(telegramId, username, language = 'en') {
 }
 
 function detectIntent(text) {
-    const lower = text.toLowerCase();
-    if (lower.includes('grammar')) return 'grammar';
-    if (lower.includes('roadmap') || lower.includes('plan')) return 'roadmap';
-    if (lower.includes('skill') || lower.includes('test') || lower.includes('level')) return 'skills';
-    if (lower.includes('listen')) return 'listening';
-    if (lower.includes('speak')) return 'speaking';
-    if (lower.includes('read')) return 'reading';
-    if (lower.includes('write')) return 'writing';
-    if (lower.includes('game') || lower.includes('cubeword')) return 'game';
+    const lower = (text || '').toLowerCase();
+
+    // Word-boundary aware matcher. Prevents "explanations" → roadmap,
+    // "already" → reading, "bespoke" → speaking, etc.
+    const has = (...words) => words.some(w => {
+        const rx = new RegExp(`(^|[^a-zà-ÿ])${w}([^a-zà-ÿ]|$)`, 'i');
+        return rx.test(lower);
+    });
+
+    // Order matters: most-specific first
+    if (has('cubeword', 'cube word')) return 'game';
+    if (has('game', 'games')) return 'game';
+
+    if (has('grammar')) return 'grammar';
+    if (has('roadmap', 'road map', 'study plan', 'learning plan', 'curriculum')) return 'roadmap';
+
+    if (has('skill test', 'skill-test', 'test my', 'take a test', 'take test')) return 'skills';
+
+    if (has('listening', 'listen')) return 'listening';
+    if (has('speaking', 'speak')) return 'speaking';
+    if (has('reading', 'read')) return 'reading';
+    if (has('writing', 'write', 'essay')) return 'writing';
+
     return 'tutor';
 }
-
 // ────────────────────────────────────────────────────────────
 // Unified text router — SAME logic for text AND voice input.
 // Returns one of:
@@ -559,19 +572,31 @@ async function classifyAndRouteText(text, userProfile) {
     const clean = (text || '').trim();
     if (!clean) return { action: 'tutor' };
 
-    const userId = userProfile?.userId || 'unknown';
     const p = userProfile || {};
 
-    // ── 0. Marker from AI tutor (belt-and-suspenders): SWITCH_REQUEST::Spanish ──
+    // ── 0. Marker from AI tutor: SWITCH_REQUEST::Spanish ──
     const markerMatch = clean.match(/^SWITCH_REQUEST::([A-Za-zÀ-ÿ]+)/i);
     if (markerMatch && markerMatch[1]) {
         const lang = markerMatch[1].charAt(0).toUpperCase() + markerMatch[1].slice(1).toLowerCase();
-        return { action: 'switch_language', lang };
+        return { action: 'switch_target', lang };
     }
 
-    // ── 1. Fast regex language switch ──
+    // ── 1. Fast regex language switch (now returns object) ──
     const fastSwitch = detectLanguageSwitchIntent(clean);
-    if (fastSwitch) return { action: 'switch_language', lang: fastSwitch };
+    if (fastSwitch) {
+        if (fastSwitch.intent === 'target_and_mediator') {
+            return {
+                action: 'switch_both',
+                targetLang: fastSwitch.targetLanguage,
+                mediatorLang: fastSwitch.mediatorLanguage,
+            };
+        }
+        if (fastSwitch.intent === 'mediator') {
+            return { action: 'switch_mediator', lang: fastSwitch.language };
+        }
+        // default: target
+        return { action: 'switch_target', lang: fastSwitch.language };
+    }
 
     // ── 2. How-to intent ──
     if (detectHowToIntent(clean)) return { action: 'howto' };
@@ -580,7 +605,7 @@ async function classifyAndRouteText(text, userProfile) {
     if (looksLikeLanguageRequest(clean)) {
         const aiIntent = await classifyIntentWithAI(clean, p.targetLanguage, p.mediatorLanguage);
         if (aiIntent?.intent === 'switch_language' && aiIntent.language) {
-            return { action: 'switch_language', lang: aiIntent.language };
+            return { action: 'switch_target', lang: aiIntent.language };
         }
         if (aiIntent?.intent === 'switch_mediator' && aiIntent.language) {
             return { action: 'switch_mediator', lang: aiIntent.language };
@@ -618,15 +643,96 @@ function extractLanguageFromText(text) {
     return null;
 }
 
+// Returns { intent: 'target'|'mediator', language: 'Russian' } or null.
 function detectLanguageSwitchIntent(text) {
     if (!text) return null;
     const lower = text.toLowerCase().trim().replace(/[.!?,]+$/g, '');
 
-    const tryExtract = (s) => extractLanguageFromText(s);
+    const tryExtractAll = (s) => {
+        // Return ALL canonical language names found, preserving order of appearance
+        const found = [];
+        const LANG_MAP_LOCAL = {
+            'english': 'English',
+            'german': 'German', 'deutsch': 'German',
+            'spanish': 'Spanish', 'espanol': 'Spanish', 'español': 'Spanish',
+            'french': 'French', 'francais': 'French', 'français': 'French',
+            'italian': 'Italian', 'italiano': 'Italian',
+            'russian': 'Russian', 'русский': 'Russian',
+            'turkish': 'Turkish', 'türkçe': 'Turkish',
+            'azerbaijani': 'Azerbaijani', 'azeri': 'Azerbaijani', 'azərbaycan': 'Azerbaijani',
+        };
+        const positions = [];
+        for (const [k, canon] of Object.entries(LANG_MAP_LOCAL)) {
+            const rx = new RegExp(`\\b${k}\\b`, 'i');
+            const m = lower.match(rx);
+            if (m) positions.push({ pos: m.index, lang: canon });
+        }
+        positions.sort((a, b) => a.pos - b.pos);
+        // Dedup while preserving order
+        const seen = new Set();
+        for (const p of positions) {
+            if (!seen.has(p.lang)) {
+                seen.add(p.lang);
+                found.push(p.lang);
+            }
+        }
+        return found;
+    };
 
-    // ── PASS 0: co-occurrence of a switch keyword + a language name ──
-    // This is the most robust check: "I want to learn Spanish",
-    // "теach me German", "давай учить французский", "switch to turkish", etc.
+    // ═══════════════════════════════════════════════════════
+    // PATTERN 0: BOTH mediator + target mentioned in one sentence
+    // "switch mediator to russian and target to spanish"
+    // "mediate in russian, teach me spanish"
+    // ═══════════════════════════════════════════════════════
+    const hasMediatorWord = /\b(mediator|native|explain(?:ed)?|explanations?|clarif\w*|translat\w*)\b/i.test(lower);
+    const hasTargetWord = /\b(target|learn|teach|study|speak|practice|master)\b/i.test(lower);
+
+    if (hasMediatorWord && hasTargetWord) {
+        const langs = tryExtractAll(lower);
+        if (langs.length >= 2) {
+            // Heuristic: mediator = the one nearest to a mediator keyword,
+            // target = the one nearest to a target keyword.
+            const medIdx = langs.findIndex(l => new RegExp(l.toLowerCase() + '|' + mapShort(l), 'i').test(
+                lower.slice(Math.max(0, lower.search(/\b(mediator|native|explain|explanations?|clarif|translat)/i)))
+            ));
+            // Simpler: first-mentioned language in "mediator…X…target…Y" is mediator, second is target.
+            // If "target…X…mediator…Y" — reverse. Detect which keyword comes first.
+            const medKeywordPos = lower.search(/\b(mediator|native|explain|explanations?|clarif|translat)/i);
+            const tgtKeywordPos = lower.search(/\b(target|learn|teach|study|speak|practice|master)/i);
+            if (medKeywordPos >= 0 && tgtKeywordPos >= 0 && medKeywordPos < tgtKeywordPos) {
+                return {
+                    intent: 'target_and_mediator',
+                    targetLanguage: langs[1],
+                    mediatorLanguage: langs[0],
+                };
+            } else if (tgtKeywordPos >= 0 && medKeywordPos >= 0 && tgtKeywordPos < medKeywordPos) {
+                return {
+                    intent: 'target_and_mediator',
+                    targetLanguage: langs[0],
+                    mediatorLanguage: langs[1],
+                };
+            }
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════
+    // PATTERN 1: MEDIATOR-only switch
+    // "switch mediator to russian", "объясняй по-русски", "in russian please"
+    // ═══════════════════════════════════════════════════════
+    const mediatorOnlyPattern = /\b(mediator|native|explanations?|explanations? (?:in|to)|clarif\w* (?:in|to)|translate (?:into|to)|speak to me in|in my (?:own|native)|по[- ]?русски|на русском|на азербайджанском|на турецком|на английском|azərbaycanca|rusca|türkcə)\b/i;
+    if (mediatorOnlyPattern.test(lower)) {
+        // If a target-switch keyword is also present, let Pattern 0 handle it.
+        if (!hasTargetWord) {
+            const langs = tryExtractAll(lower);
+            if (langs.length >= 1) {
+                return { intent: 'mediator', language: langs[0] };
+            }
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════
+    // PATTERN 2: TARGET-only switch (previous behaviour, kept)
+    // ═══════════════════════════════════════════════════════
     const SWITCH_KEYWORDS = [
         'switch', 'change', 'shift', 'move', 'instead', 'prefer',
         'learn', 'study', 'start', 'teach', 'want', 'need',
@@ -634,44 +740,52 @@ function detectLanguageSwitchIntent(text) {
         'keç', 'dəyiş', 'öyrən', 'istəyirəm', 'başla',
     ];
     if (SWITCH_KEYWORDS.some(k => lower.includes(k))) {
-        const lang = tryExtract(lower);
-        if (lang) return lang;
+        const langs = tryExtractAll(lower);
+        if (langs.length >= 1) {
+            return { intent: 'target', language: langs[0] };
+        }
     }
 
-    // ── PASS 1: bare language as a very short message ──
-    // "Spanish", "to Spanish", "in German", "auf Deutsch"
+    // ═══════════════════════════════════════════════════════
+    // PATTERN 3: bare language name as a very short message
+    // ═══════════════════════════════════════════════════════
     const BARE = /^(?:to|in|into|auf|en|по)?\s*([a-zà-ÿ]+)$/i;
     const mBare = lower.match(BARE);
     if (mBare) {
-        const lang = tryExtract(mBare[1]);
-        if (lang) return lang;
+        const langs = tryExtractAll(mBare[1]);
+        if (langs.length >= 1) return { intent: 'target', language: langs[0] };
     }
 
-    // ── PASS 2: explicit verb + language patterns ──
+    // ═══════════════════════════════════════════════════════
+    // PATTERN 4: explicit verb + language
+    // ═══════════════════════════════════════════════════════
     const VERB_PATTERNS = [
         /(?:switch|change|shift|move)\s+(?:to\s+)?([a-zà-ÿ]+)/i,
         /(?:teach|start teaching|help me (?:learn|with|study))\s+(?:me\s+)?([a-zà-ÿ]+)/i,
         /(?:learn|study|start|master|speak|practice)\s+([a-zà-ÿ]+)/i,
         /(?:i\s+(?:want|would like|'d like|need)\s+to\s+(?:learn|study|speak|master))\s+([a-zà-ÿ]+)/i,
-        /(?:i\s+(?:want|need)\s+)([a-zà-ÿ]+)\s+(?:lessons?|tutor|teacher|practice|class)/i,
     ];
     for (const p of VERB_PATTERNS) {
         const m = lower.match(p);
         if (m && m[1]) {
-            const lang = tryExtract(m[1]);
-            if (lang) return lang;
+            const langs = tryExtractAll(m[1]);
+            if (langs.length >= 1) return { intent: 'target', language: langs[0] };
         }
     }
 
-    // ── PASS 3: "I want X" / "give me X" where X is a language ──
-    const I_WANT = /(?:i\s+(?:want|need|prefer)|give\s+me)\s+([a-zà-ÿ]+)/i;
-    const mWant = lower.match(I_WANT);
-    if (mWant && mWant[1]) {
-        const lang = tryExtract(mWant[1]);
-        if (lang) return lang;
-    }
-
     return null;
+}
+
+// Tiny helper used above — maps a canonical name to short regex alternatives
+function mapShort(canon) {
+    const m = {
+        English: 'english|en', Russian: 'russian|русский|ru',
+        Azerbaijani: 'azerbaijani|azeri|azərbaycan|az',
+        Turkish: 'turkish|türkçe|tr',
+        German: 'german|deutsch|de', Spanish: 'spanish|español|es',
+        French: 'french|français|fr', Italian: 'italian|italiano|it',
+    };
+    return m[canon] || canon.toLowerCase();
 }
 function detectHowToIntent(text) {
     const lower = text.toLowerCase();
@@ -685,9 +799,15 @@ function detectHowToIntent(text) {
     return patterns.some(p => p.test(lower));
 }
 
-async function handleLanguageSwitch(ctx, newLang) {
+async function handleLanguageSwitch(ctx, newLang, opts = {}) {
     const userId = ctx.from.id;
     const requestUrl = `${API_BASE}/api/user/target-language`;
+    const silent = !!opts.silent;
+
+    // Unified responder — respects silent flag everywhere
+    const reply = silent
+        ? async () => { /* suppressed */ }
+        : (...args) => ctx.reply(...args);
 
     try {
         const { data } = await axios.post(requestUrl, {
@@ -710,7 +830,8 @@ async function handleLanguageSwitch(ctx, newLang) {
             console.warn('[LangSwitch] cache update failed:', cacheErr.message);
         }
 
-        return ctx.reply(
+        // ⚠️ ВАЖНО: reply(), а НЕ ctx.reply()
+        return reply(
             `✅ Target language switched to *${newLang}*!\n\n` +
             `Your profile now:\n` +
             `• Target: ${newLang}\n` +
@@ -733,7 +854,7 @@ async function handleLanguageSwitch(ctx, newLang) {
                 cached.targetLanguage = newLang;
                 await saveUser(String(userId), cached);
                 console.log(`[LangSwitch] local cache updated to ${newLang} (server sync failed)`);
-                return ctx.reply(
+                return reply(
                     `✅ Switched to *${newLang}* locally.\n\n` +
                     `⚠️ Server sync failed (${e.message.slice(0, 80)}), so this may not persist across restarts.\n\n` +
                     `Try: /grammar — a guide in ${newLang}`,
@@ -744,9 +865,69 @@ async function handleLanguageSwitch(ctx, newLang) {
             console.error('[LangSwitch] local cache fallback failed:', localErr.message);
         }
 
-        return ctx.reply(
+        return reply(
             `⚠️ Failed to switch to ${newLang}: ${e.message}\n\n` +
             `Diagnostic: API_BASE = ${API_BASE}`
+        );
+    }
+}
+async function handleMediatorSwitch(ctx, newLang, opts = {}) {
+    const userId = ctx.from.id;
+    const silent = !!opts.silent;
+
+    const reply = silent
+        ? async () => { /* suppressed */ }
+        : (...args) => ctx.reply(...args);
+
+    const langCodeMap = {
+        English: 'en', Russian: 'ru', Azerbaijani: 'az', azeri: 'az',
+        Turkish: 'tr', German: 'de', Spanish: 'es', French: 'fr', Italian: 'it',
+    };
+    const code = langCodeMap[newLang] || String(newLang).toLowerCase().slice(0, 2);
+
+    try {
+        const { data } = await axios.post(`${API_BASE}/api/user/mediator-language`, {
+            userId: String(userId),
+            mediatorLanguage: code,
+        }, { timeout: 10000 });
+
+        if (!data || !data.success) {
+            throw new Error((data && data.error) || 'server refused');
+        }
+
+        try {
+            const cached = await getUser(String(userId));
+            if (cached) {
+                cached.mediatorLanguage = code;
+                await saveUser(String(userId), cached);
+            }
+        } catch (cacheErr) {
+            console.warn('[MediatorSwitch] cache update failed:', cacheErr.message);
+        }
+
+        return reply(
+            `✅ Mediator language switched to *${newLang}*.\n\n` +
+            `Explanations will now be in ${newLang}.`,
+            { parse_mode: 'Markdown' }
+        );
+    } catch (e) {
+        console.error('[MediatorSwitch] failed:', e.message);
+
+        try {
+            const cached = await getUser(String(userId));
+            if (cached) {
+                cached.mediatorLanguage = code;
+                await saveUser(String(userId), cached);
+                return reply(
+                    `✅ Mediator set to *${newLang}* locally.\n\n` +
+                    `⚠️ Server sync failed (${e.message.slice(0, 80)}).`,
+                    { parse_mode: 'Markdown' }
+                );
+            }
+        } catch { /* ignore */ }
+
+        return reply(
+            `⚠️ Failed to switch mediator to ${newLang}: ${e.message}`
         );
     }
 }
@@ -1418,28 +1599,25 @@ bot.on('message', async (ctx) => {
 
     // ── 4. Dispatch ──
     switch (route.action) {
-        case 'switch_language':
+        case 'switch_target':
             return await handleLanguageSwitch(ctx, route.lang);
 
         case 'switch_mediator': {
-            try {
-                await axios.post(`${API_BASE}/api/user/mediator-language`, {
-                    userId: String(userId),
-                    mediatorLanguage: route.lang.toLowerCase().slice(0, 2),
-                }, { timeout: 8000 });
-                const cached = await getUser(String(userId));
-                if (cached) {
-                    cached.mediatorLanguage = route.lang;
-                    await saveUser(String(userId), cached);
-                }
-                return await respond(
-                    `✅ Mediator language switched to *${route.lang}*.\n\nExplanations will now be in ${route.lang}.`,
-                    { parse_mode: 'Markdown' }
-                );
-            } catch (e) {
-                console.error('Mediator switch failed:', e.message);
-                return ctx.reply('Failed to switch mediator language.');
-            }
+            return await handleMediatorSwitch(ctx, route.lang);
+        }
+
+        case 'switch_both': {
+            // target first (server has to accept), then mediator
+            await handleLanguageSwitch(ctx, route.targetLang, { silent: true });
+            await handleMediatorSwitch(ctx, route.mediatorLang, { silent: true });
+            return ctx.reply(
+                `✅ Switched!\n\n` +
+                `• Target language: *${route.targetLang}*\n` +
+                `• Mediator language: *${route.mediatorLang}*\n\n` +
+                `Explanations will now be in ${route.mediatorLang}, and you'll be learning ${route.targetLang}.\n` +
+                `Try: /grammar — a guide in ${route.targetLang}`,
+                { parse_mode: 'Markdown' }
+            );
         }
 
         case 'howto':
