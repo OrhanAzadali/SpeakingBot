@@ -5412,6 +5412,153 @@ CRITICAL: Return ONLY raw JSON. No markdown. Start with { and end with }.`;
     }
 });
 
+
+// ═══════════════════════════════════════════════════════════════
+// SPEAKING TEST — open prompts + AI assessment of transcribed speech
+// ═══════════════════════════════════════════════════════════════
+
+// ── 1. Generate N speaking prompts ──
+app.post("/api/tests/generate-speaking-prompts", async (req, res) => {
+    try {
+        const {
+            userId = "default-user",
+            targetLanguage = "English",
+            userLevel = "B1",
+            mediatorLanguage = "en",
+            count = 5,
+            previousPrompts = [],
+        } = req.body || {};
+
+        const mediatorName = langCodeToName(mediatorLanguage);
+        const targetName = langCodeToName(targetLanguage);
+
+        const prompt = `You are designing a SPOKEN ${targetName} test for a CEFR ${userLevel} learner.
+Generate exactly ${count} OPEN speaking prompts. The learner will answer each aloud.
+
+Rules:
+- Each prompt must be an OPEN question / scenario / task — NOT multiple choice.
+- Length appropriate for CEFR ${userLevel} (A1: 1 simple sentence; C1: complex debate topic).
+- Vary the topic: daily life, opinion, description, past experience, plans.
+- Provide a rough time budget for each (15s / 30s / 60s).
+- Do NOT repeat any of these previously used prompts:
+  ${JSON.stringify(previousPrompts.slice(-15))}
+
+Return ONLY valid JSON:
+{
+  "skill": "speaking",
+  "level": "${userLevel}",
+  "targetLanguage": "${targetName}",
+  "prompts": [
+    {
+      "id": "sp1",
+      "prompt": "question/scenario in ${targetName}",
+      "promptTranslation": "translation to ${mediatorName}",
+      "timeBudgetSec": 30,
+      "expectedElements": ["sub-point 1", "sub-point 2"]
+    }
+  ]
+}`;
+
+        const raw = await callGeminiWithResilience(prompt, null, [], true, userId);
+        const parsed = raw ? await repairJson(raw) : null;
+
+        if (!parsed || !Array.isArray(parsed.prompts) || parsed.prompts.length === 0) {
+            return res.status(502).json({ success: false, error: "AI failed to generate speaking prompts" });
+        }
+
+        // Normalize
+        parsed.prompts = parsed.prompts.slice(0, count).map((p, i) => ({
+            id: p.id || `sp${i + 1}`,
+            prompt: String(p.prompt || '').trim(),
+            promptTranslation: String(p.promptTranslation || '').trim(),
+            timeBudgetSec: Math.max(15, Math.min(120, Number(p.timeBudgetSec) || 30)),
+            expectedElements: Array.isArray(p.expectedElements) ? p.expectedElements.slice(0, 5) : [],
+        }));
+
+        res.json({ success: true, test: parsed });
+    } catch (err) {
+        console.error("[SpeakingPrompts] Error:", err);
+        res.status(500).json({ success: false, error: err.message });
+    }
+});
+
+// ── 2. Assess a spoken answer (from transcription) ──
+app.post("/api/tests/evaluate-speaking", async (req, res) => {
+    try {
+        const {
+            userId = "default-user",
+            promptText = "",
+            expectedElements = [],
+            transcription = "",
+            targetLanguage = "English",
+            userLevel = "B1",
+            mediatorLanguage = "en",
+            durationSec = 0,
+        } = req.body || {};
+
+        if (!transcription || transcription.trim().length < 2) {
+            return res.status(400).json({ success: false, error: "transcription is required" });
+        }
+
+        const mediatorName = langCodeToName(mediatorLanguage);
+        const targetName = langCodeToName(targetLanguage);
+
+        const assessPrompt = `You are assessing a SPOKEN ${targetName} answer from a CEFR ${userLevel} learner.
+
+Prompt given to learner:
+"""${promptText}"""
+
+Expected elements:
+${JSON.stringify(expectedElements)}
+
+Learner's transcription (from voice, automatic — may have ASR errors):
+"""${transcription}"""
+
+Duration: ~${durationSec}s
+
+Evaluate the learner's answer. Be encouraging but accurate.
+
+Scoring criteria (total 100):
+- Task completion (did they answer the question?) — 30
+- Vocabulary range for CEFR ${userLevel} — 25
+- Grammar accuracy for CEFR ${userLevel} — 25
+- Fluency (based on sentence length, connectors, hedging) — 20
+
+Return ONLY valid JSON:
+{
+  "score": 0-100,
+  "cefrEstimate": "A1|A2|B1|B2|C1|C2",
+  "feedback": "2–3 sentences in ${mediatorName}: what was good, what to improve",
+  "strengths": ["short bullet in ${mediatorName}", "..."],
+  "improvements": ["short bullet in ${mediatorName}", "..."],
+  "correctedVersion": "a clean version of what the learner tried to say, in ${targetName}",
+  "grammarNotes": [
+    {"issue": "what was wrong (in ${mediatorName})", "fix": "correct version", "example": "in ${targetName}"}
+  ]
+}`;
+
+        const raw = await callGeminiWithResilience(assessPrompt, null, [], true, userId);
+        const parsed = raw ? await repairJson(raw) : null;
+
+        if (!parsed || typeof parsed.score !== 'number') {
+            return res.status(502).json({ success: false, error: "AI failed to evaluate answer" });
+        }
+
+        res.json({
+            success: true,
+            score: Math.max(0, Math.min(100, Math.round(parsed.score))),
+            cefrEstimate: parsed.cefrEstimate || userLevel,
+            feedback: String(parsed.feedback || '').trim(),
+            strengths: Array.isArray(parsed.strengths) ? parsed.strengths.slice(0, 5) : [],
+            improvements: Array.isArray(parsed.improvements) ? parsed.improvements.slice(0, 5) : [],
+            correctedVersion: String(parsed.correctedVersion || '').trim(),
+            grammarNotes: Array.isArray(parsed.grammarNotes) ? parsed.grammarNotes.slice(0, 5) : [],
+        });
+    } catch (err) {
+        console.error("[EvaluateSpeaking] Error:", err);
+        res.status(500).json({ success: false, error: err.message });
+    }
+});
 // =====================================================
 // ROUTE: AI PLACEMENT TEST GENERATION
 // =====================================================

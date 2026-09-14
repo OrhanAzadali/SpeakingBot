@@ -600,33 +600,166 @@ async function getUserProfileInternal(userId) {
 
 // ==================== PDF GENERATION ====================
 async function generateStructuredPDF(data, filename, title) {
-    const doc = new PDFDocument();
+    const doc = new PDFDocument({ margin: 40, size: 'A4' });
     const filePath = path.join(TEMP_DIR, `${filename}.pdf`);
     const stream = fs.createWriteStream(filePath);
     doc.pipe(stream);
-    doc.fontSize(16).font('Helvetica-Bold').text(title, { align: 'center' });
-    doc.moveDown();
-    if (data.modules) {
-        data.modules.forEach(m => {
-            doc.fontSize(14).font('Helvetica-Bold').text(m.title || '');
-            doc.fontSize(12).font('Helvetica').text(m.description || '');
-            (m.rules || []).forEach(r => {
-                doc.fontSize(12).font('Helvetica').text(`• ${r.rule}: ${r.explanation} `);
-                doc.fontSize(10).font('Helvetica-Oblique').text(`Example: ${r.example} `);
-                doc.moveDown();
-            });
-            doc.moveDown();
-        });
-    } else if (data.exercises) {
-        data.exercises.forEach((ex, i) => {
-            doc.fontSize(12).font('Helvetica-Bold').text(`${i + 1}. ${ex.question} `);
-            doc.fontSize(11).font('Helvetica').text(`Options: ${(ex.options || []).join(' | ')} `);
-            doc.fontSize(10).font('Helvetica-Oblique').text(`Answer: ${(ex.options || [])[ex.correctIndex]} `);
-            doc.moveDown();
-        });
-    } else {
-        doc.fontSize(12).font('Helvetica').text(JSON.stringify(data, null, 2));
+
+    // ═══════════ Header ═══════════
+    doc.fontSize(18).font('Helvetica-Bold').fillColor('#0f172a').text(title, { align: 'center' });
+    doc.moveDown(0.3);
+    if (data?.level) {
+        doc.fontSize(10).font('Helvetica').fillColor('#64748b')
+            .text(`Level: ${data.level}${data.category ? ' • ' + data.category : ''}`, { align: 'center' });
     }
+    doc.moveDown(1);
+
+    // ═══════════ Summary ═══════════
+    if (data?.summary) {
+        doc.fontSize(11).font('Helvetica').fillColor('#1e293b').text(data.summary, { align: 'justify' });
+        doc.moveDown(1);
+    }
+
+    // ═══════════ coreRules (grammar guides) ═══════════
+    if (Array.isArray(data?.coreRules) && data.coreRules.length) {
+        doc.fontSize(13).font('Helvetica-Bold').fillColor('#0f172a').text('Core Rules');
+        doc.moveDown(0.5);
+        data.coreRules.forEach((rule, i) => {
+            doc.fontSize(12).font('Helvetica-Bold').fillColor('#1e293b')
+                .text(`${i + 1}. ${rule.ruleTitle || 'Rule'}`);
+            doc.moveDown(0.2);
+            if (rule.explanationInMediator) {
+                doc.fontSize(10).font('Helvetica').fillColor('#334155')
+                    .text(rule.explanationInMediator, { align: 'justify' });
+            }
+            if (rule.formula) {
+                doc.fontSize(10).font('Helvetica-Oblique').fillColor('#0284c7').text(`Formula: ${rule.formula}`);
+            }
+            if (rule.example) {
+                doc.fontSize(10).font('Helvetica-Oblique').fillColor('#059669').text(`Example: ${rule.example}`);
+            }
+            doc.moveDown(0.6);
+        });
+    }
+
+    // ═══════════ milestones (roadmaps) ═══════════
+    if (Array.isArray(data?.milestones) && data.milestones.length) {
+        doc.fontSize(13).font('Helvetica-Bold').fillColor('#0f172a').text('Milestones');
+        doc.moveDown(0.5);
+        data.milestones.forEach((m, i) => {
+            doc.fontSize(12).font('Helvetica-Bold').fillColor('#1e293b')
+                .text(`Step ${m.step || i + 1}: ${m.title || ''}`);
+            doc.moveDown(0.2);
+            if (m.description) doc.fontSize(10).font('Helvetica').fillColor('#334155').text(m.description, { align: 'justify' });
+            if (m.grammarPoint) doc.fontSize(10).font('Helvetica-Oblique').fillColor('#0284c7').text(`Grammar: ${m.grammarPoint}`);
+            if (m.sampleSentence) doc.fontSize(10).font('Helvetica-Oblique').fillColor('#059669').text(`Example: "${m.sampleSentence}"`);
+            doc.moveDown(0.6);
+        });
+    }
+
+    // ═══════════ paragraphs (stories) ═══════════
+    if (Array.isArray(data?.paragraphs) && data.paragraphs.length) {
+        doc.fontSize(13).font('Helvetica-Bold').fillColor('#0f172a').text('Text');
+        doc.moveDown(0.4);
+        data.paragraphs.forEach((p) => {
+            doc.fontSize(11).font('Helvetica').fillColor('#1e293b').text(p, { align: 'justify' });
+            doc.moveDown(0.4);
+        });
+    }
+
+    // ═══════════ sentences (annotated story sentences) ═══════════
+    if (Array.isArray(data?.sentences) && data.sentences.length) {
+        doc.moveDown(0.3);
+        doc.fontSize(13).font('Helvetica-Bold').fillColor('#0f172a').text('Annotated Sentences');
+        doc.moveDown(0.4);
+        data.sentences.forEach((s, i) => {
+            if (s.text) doc.fontSize(11).font('Helvetica-Bold').fillColor('#0f172a').text(`${i + 1}. ${s.text}`);
+            if (s.translation) doc.fontSize(10).font('Helvetica-Oblique').fillColor('#059669').text(s.translation);
+            if (s.literaryNote) doc.fontSize(9).font('Helvetica-Oblique').fillColor('#64748b').text(`Note: ${s.literaryNote}`);
+            doc.moveDown(0.4);
+        });
+    }
+
+    // ═══════════ keyVocabulary ═══════════
+    if (Array.isArray(data?.keyVocabulary) && data.keyVocabulary.length) {
+        doc.moveDown(0.3);
+        doc.fontSize(13).font('Helvetica-Bold').fillColor('#0f172a').text('Key Vocabulary');
+        doc.moveDown(0.4);
+        data.keyVocabulary.forEach((v, i) => {
+            const word = v.word || '';
+            const ipa = v.ipa ? ` ${v.ipa}` : '';
+            const pos = v.pos ? ` [${v.pos}]` : '';
+            const trans = v.translation || v.meaning || '';
+            doc.fontSize(10).font('Helvetica-Bold').fillColor('#0f172a').text(`${i + 1}. ${word}${ipa}${pos}`);
+            if (trans) doc.fontSize(10).font('Helvetica').fillColor('#334155').text(`   ${trans}`);
+            if (v.example) doc.fontSize(9).font('Helvetica-Oblique').fillColor('#64748b').text(`   e.g. ${v.example}`);
+            doc.moveDown(0.25);
+        });
+    }
+
+    // ═══════════ commonMistakes ═══════════
+    if (Array.isArray(data?.commonMistakes) && data.commonMistakes.length) {
+        doc.moveDown(0.3);
+        doc.fontSize(13).font('Helvetica-Bold').fillColor('#0f172a').text('Common Mistakes');
+        doc.moveDown(0.4);
+        data.commonMistakes.forEach((m) => {
+            if (m.incorrect) doc.fontSize(10).font('Helvetica-Bold').fillColor('#dc2626').text(`X  ${m.incorrect}`);
+            if (m.correct) doc.fontSize(10).font('Helvetica-Bold').fillColor('#059669').text(`OK ${m.correct}`);
+            if (m.reason) doc.fontSize(9).font('Helvetica-Oblique').fillColor('#64748b').text(`   ${m.reason}`);
+            doc.moveDown(0.3);
+        });
+    }
+
+    // ═══════════ exercises / practiceExercises / checkpointQuestions ═══════════
+    const exercises = data?.exercises || data?.practiceExercises || data?.checkpointQuestions;
+    if (Array.isArray(exercises) && exercises.length) {
+        doc.moveDown(0.3);
+        doc.fontSize(13).font('Helvetica-Bold').fillColor('#0f172a').text('Exercises');
+        doc.moveDown(0.4);
+        exercises.forEach((ex, i) => {
+            if (ex.instruction) doc.fontSize(10).font('Helvetica-Oblique').fillColor('#0284c7').text(ex.instruction);
+            doc.fontSize(11).font('Helvetica-Bold').fillColor('#1e293b').text(`${i + 1}. ${ex.question || ''}`);
+            const options = ex.options || [];
+            options.forEach((opt, oi) => {
+                const letter = String.fromCharCode(65 + oi);
+                const isCorrect = oi === ex.correctIndex;
+                doc.fontSize(10).font('Helvetica').fillColor(isCorrect ? '#059669' : '#334155')
+                    .text(`   ${letter}. ${opt}${isCorrect ? '  <-- correct' : ''}`);
+            });
+            if (ex.explanation) {
+                doc.fontSize(9).font('Helvetica-Oblique').fillColor('#64748b').text(`   Explanation: ${ex.explanation}`);
+            }
+            doc.moveDown(0.5);
+        });
+    }
+
+    // ═══════════ legacy modules ═══════════
+    if (Array.isArray(data?.modules) && data.modules.length) {
+        data.modules.forEach((m) => {
+            doc.fontSize(14).font('Helvetica-Bold').fillColor('#1e293b').text(m.title || '');
+            doc.fontSize(12).font('Helvetica').fillColor('#334155').text(m.description || '');
+            (m.rules || []).forEach((r) => {
+                doc.fontSize(11).font('Helvetica-Bold').text(`- ${r.rule}:`);
+                doc.fontSize(10).font('Helvetica').text(`  ${r.explanation}`);
+                if (r.example) doc.fontSize(9).font('Helvetica-Oblique').fillColor('#64748b').text(`  e.g. ${r.example}`);
+                doc.moveDown(0.3);
+            });
+            doc.moveDown(0.5);
+        });
+    }
+
+    // ═══════════ Last resort: если вообще ничего не распознали ═══════════
+    const hasAnyKnown =
+        Array.isArray(data?.coreRules) || Array.isArray(data?.milestones) ||
+        Array.isArray(data?.paragraphs) || Array.isArray(data?.sentences) ||
+        Array.isArray(data?.keyVocabulary) || Array.isArray(data?.commonMistakes) ||
+        Array.isArray(exercises) || Array.isArray(data?.modules);
+
+    if (!hasAnyKnown && data) {
+        doc.fontSize(11).font('Helvetica').fillColor('#334155')
+            .text(typeof data === 'string' ? data : JSON.stringify(data, null, 2));
+    }
+
     doc.end();
     return new Promise((resolve, reject) => {
         stream.on('finish', () => resolve(filePath));
@@ -643,21 +776,69 @@ async function generatePdf(type, userId, targetLang, level, mediatorLang = 'en',
         writing: '/api/gemini/generate-grammar-guide',
     };
     const endpoint = endpoints[type];
+    if (!endpoint) throw new Error(`Unknown PDF type: ${type}`);
+
     if (endpoint) {
         try {
-            const res = await axios.post(`${API_BASE}${endpoint} `, {
-                userId, targetLanguage: targetLang, userLevel: level, mediatorLanguage: mediatorLang, topic,
-            }, { timeout: 60000 });
-            if (res.data.pdfUrl) return res.data.pdfUrl;
-            const inner = res.data.guide || res.data.roadmap || res.data.story || res.data;
-            return await generateStructuredPDF(inner, `speakbot_${type}_${Date.now()} `, type.toUpperCase() + ' Guide');
-        } catch (err) { console.error(`PDF endpoint error ${type}: `, err.message); }
+            // Ask server for a ready-made PDF (pdfServerGenerator.js).
+            // Use arraybuffer so we can handle BOTH responses:
+            //   • application/pdf  → binary PDF
+            //   • application/json → { pdfUrl } or { guide/roadmap }
+            const res = await axios.post(`${API_BASE}${endpoint}`, {
+                userId,
+                targetLanguage: targetLang,
+                userLevel: level,
+                mediatorLanguage: mediatorLang,
+                topic,
+                format: 'pdf',        // ← server honours this branch
+            }, {
+                timeout: 60000,
+                responseType: 'arraybuffer',
+                validateStatus: () => true,
+            });
+
+            const ct = String(res.headers['content-type'] || '').toLowerCase();
+
+            // ── Case 1: PDF binary ──
+            if (ct.includes('application/pdf')) {
+                const filePath = path.join(TEMP_DIR, `speakbot_${type}_${Date.now()}.pdf`);
+                fs.writeFileSync(filePath, Buffer.from(res.data));
+                return filePath;
+            }
+
+            // ── Case 2: JSON response ──
+            let json = null;
+            try {
+                json = JSON.parse(Buffer.from(res.data).toString('utf-8'));
+            } catch { /* not JSON */ }
+
+            if (json?.pdfUrl) {
+                const dl = await axios.get(json.pdfUrl, { responseType: 'arraybuffer', timeout: 30000 });
+                const filePath = path.join(TEMP_DIR, `speakbot_${type}_${Date.now()}.pdf`);
+                fs.writeFileSync(filePath, Buffer.from(dl.data));
+                return filePath;
+            }
+
+            const inner = json?.guide || json?.roadmap || json?.story || json?.data || json;
+            if (inner && typeof inner === 'object') {
+                // Server ignored format:'pdf' — build locally from structured data
+                return await generateStructuredPDF(
+                    inner,
+                    `speakbot_${type}_${Date.now()}`,
+                    type.toUpperCase() + ' Guide'
+                );
+            }
+        } catch (err) {
+            console.error(`PDF endpoint error ${type}:`, err.message);
+        }
     }
-    const aiPrompt = `Generate ${type} material on "${topic}" for ${targetLang} at CEFR ${level}. Return JSON: { title, modules or exercises }.`;
+
+    // ── Fallback: ask AI directly and build PDF locally ──
+    const aiPrompt = `Generate ${type} material on "${topic}" for ${targetLang} at CEFR ${level}. Return ONLY JSON: {title, summary, coreRules or milestones or exercises}.`;
     const aiResponse = await getTutorResponse(userId, aiPrompt, targetLang, mediatorLang, level);
     let data;
     try { data = JSON.parse(aiResponse); } catch { data = { text: aiResponse }; }
-    return await generateStructuredPDF(data, `speakbot_${type}_fallback_${Date.now()} `, type.toUpperCase() + ' Guide');
+    return await generateStructuredPDF(data, `speakbot_${type}_fallback_${Date.now()}`, type.toUpperCase() + ' Guide');
 }
 
 // ==================== SYNC / INTENT ====================
@@ -1451,9 +1632,10 @@ bot.action('cancel_pdf', async (ctx) => {
     await ctx.reply('Cancelled.');
 });
 
-['read', 'write', 'listen', 'speak'].forEach(skill => {
+// ── Reading / Writing / Listening — MCQ flow (unchanged) ──
+['read', 'write', 'listen'].forEach(skill => {
     bot.command(skill, async (ctx) => {
-        const skillMap = { read: 'reading', write: 'writing', listen: 'listening', speak: 'speaking' };
+        const skillMap = { read: 'reading', write: 'writing', listen: 'listening' };
         const skillName = skillMap[skill];
         const userId = ctx.from.id;
         const p = await getUserProfile(userId);
@@ -1462,22 +1644,21 @@ bot.action('cancel_pdf', async (ctx) => {
 
         try {
             const { data } = await axios.post(`${API_BASE}/api/tests/generate-skill`, {
-                userId,
-                skill: skillName,
+                userId, skill: skillName,
                 targetLanguage: p.targetLanguage,
                 userLevel: p.currentLevel,
                 mediatorLanguage: p.mediatorLanguage,
                 count: 5,
             }, { timeout: 60000 });
 
-            if (!data.success || !data.test?.questions || data.test.questions.length === 0) {
+            if (!data.success || !data.test?.questions?.length) {
                 return ctx.reply('Failed to generate test.');
             }
 
             skillTestState[userId] = {
                 skill: skillName,
-                step: 0,
-                score: 0,
+                mode: 'mcq',
+                step: 0, score: 0,
                 questions: data.test.questions,
             };
 
@@ -1488,6 +1669,197 @@ bot.action('cancel_pdf', async (ctx) => {
         }
     });
 });
+
+// ── Speaking — voice-message flow ──
+bot.command('speak', async (ctx) => {
+    const userId = ctx.from.id;
+    const p = await getUserProfile(userId);
+
+    await ctx.reply('🎤 Preparing speaking test...\n\nYou will answer with VOICE messages. Speak naturally — no need to be perfect.');
+
+    try {
+        const { data } = await axios.post(`${API_BASE}/api/tests/generate-speaking-prompts`, {
+            userId,
+            targetLanguage: p.targetLanguage,
+            userLevel: p.currentLevel,
+            mediatorLanguage: p.mediatorLanguage,
+            count: 5,
+        }, { timeout: 60000 });
+
+        if (!data.success || !data.test?.prompts?.length) {
+            return ctx.reply('Failed to generate speaking prompts.');
+        }
+
+        skillTestState[userId] = {
+            skill: 'speaking',
+            mode: 'voice',
+            step: 0,
+            score: 0,
+            totalScore: 0,
+            prompts: data.test.prompts,
+        };
+
+        await sendNextSpeakingPrompt(ctx);
+    } catch (e) {
+        console.error('speak test error:', e.message);
+        ctx.reply('Failed to start speaking test.');
+    }
+});
+
+async function sendNextQuestion(ctx) {
+    const userId = ctx.from.id;
+    const state = skillTestState[userId];
+    if (!state) return;
+
+    if (state.paused) {
+        return ctx.reply(
+            `⏸ Test is paused (Q${state.step + 1}/${state.questions.length}).\n` +
+            `Use /resume to continue or /abort to discard.`
+        );
+    }
+
+    if (state.step >= state.questions.length) {
+        const total = state.questions.length;
+        const score = state.score || 0;
+        const percent = Math.round((score / total) * 100);
+        const scoreDelta = Math.round((score / total) * 20);
+
+        try {
+            await axios.post(`${API_BASE}/api/user/skill-test`, {
+                userId, skill: state.skill, scoreDelta,
+            }, { timeout: 8000 });
+        } catch { /* ignore */ }
+
+        delete skillTestState[userId];
+        return ctx.reply(
+            `✅ Test finished!\n\n` +
+            `Score: ${score}/${total} (${percent}%)\n` +
+            `Skill boost: +${scoreDelta}% to ${state.skill}`
+        );
+    }
+
+    const q = state.questions[state.step];
+    const num = state.step + 1;
+
+    // ══════════════════════════════════════════════════════════
+    // LISTENING TEST — send AUDIO, not transcript
+    // ══════════════════════════════════════════════════════════
+    if (state.skill === 'listening' && q.audioText) {
+        const p = await getUserProfile(userId);
+        const langCode = getTtsVoiceCode(p);
+
+        try {
+            const webm = await generateVoice(q.audioText, langCode);
+            const ogg = await convertToOgg(webm);
+            await ctx.replyWithVoice(
+                { source: ogg },
+                { caption: `🔊 Q${num}/${state.questions.length} — listen carefully` }
+            );
+            try { fs.unlinkSync(webm); fs.unlinkSync(ogg); } catch { }
+
+            // Small delay so the voice message arrives before the question text
+            await new Promise((r) => setTimeout(r, 400));
+        } catch (e) {
+            console.error('[listening TTS] failed:', e.message);
+            // Fallback: send as text (but warn)
+            await ctx.reply(
+                `⚠️ Audio generation failed. For your reference:\n\n_${q.audioText}_`,
+                { parse_mode: 'Markdown' }
+            );
+        }
+
+        // Send only the question + options — NOT the audio transcript
+        const opts = q.options.map((o, i) => `${i + 1}. ${o}`).join('\n');
+        return ctx.reply(
+            `Q${num}/${state.questions.length}: ${q.question || 'What did you hear?'}\n\n` +
+            `${opts}\n\n` +
+            `Reply with 1-4.`
+        );
+    }
+
+    // ══════════════════════════════════════════════════════════
+    // ALL OTHER TESTS — text-based MCQ (unchanged)
+    // ══════════════════════════════════════════════════════════
+    const opts = q.options.map((o, i) => `${i + 1}. ${o}`).join('\n');
+    const msg = `Q${num}/${state.questions.length}: ${q.question}\n\n${opts}\n\nReply with 1-4.`;
+    await ctx.reply(msg);
+}
+// Handler for voice-message replies during speaking test
+async function handleSpeakingVoiceReply(ctx) {
+    const userId = ctx.from.id;
+    const state = skillTestState[userId];
+    if (!state || state.mode !== 'voice' || state.skill !== 'speaking') return false;
+
+    await ctx.reply('🎧 Processing your answer...');
+
+    try {
+        const fileId = ctx.message.voice.file_id;
+        const file = await ctx.telegram.getFile(fileId);
+        const fileUrl = `https://api.telegram.org/file/bot${TELEGRAM_BOT_TOKEN}/${file.file_path}`;
+        const buffer = (await axios.get(fileUrl, { responseType: 'arraybuffer', timeout: 30000 })).data;
+        const inputPath = path.join(TEMP_DIR, `speak-${Date.now()}.oga`);
+        fs.writeFileSync(inputPath, buffer);
+
+        const p = await getUserProfile(userId);
+        const whisperLang = (p.targetLanguage || 'English').slice(0, 2).toLowerCase();
+        const transcription = await transcribeAudio(inputPath, whisperLang);
+        try { fs.unlinkSync(inputPath); } catch { }
+
+        await ctx.reply(`📝 Heard: "${transcription}"`);
+
+        const pr = state.prompts[state.step];
+        const duration = ctx.message.voice.duration || 0;
+
+        const { data } = await axios.post(`${API_BASE}/api/tests/evaluate-speaking`, {
+            userId: String(userId),
+            promptText: pr.prompt,
+            expectedElements: pr.expectedElements || [],
+            transcription,
+            targetLanguage: p.targetLanguage,
+            userLevel: p.currentLevel,
+            mediatorLanguage: p.mediatorLanguage,
+            durationSec: duration,
+        }, { timeout: 45000 });
+
+        if (!data.success) {
+            await ctx.reply(`⚠️ Assessment failed: ${data.error || 'unknown'}`);
+        } else {
+            state.totalScore = (state.totalScore || 0) + data.score;
+            state.step++;
+
+            const lines = [
+                `📊 *Score: ${data.score}/100*  (estimated ${data.cefrEstimate})`,
+                '',
+                data.feedback || '',
+            ];
+            if (data.strengths?.length) {
+                lines.push('', '*Strengths:*');
+                data.strengths.forEach((s) => lines.push(`• ${s}`));
+            }
+            if (data.improvements?.length) {
+                lines.push('', '*Improve:*');
+                data.improvements.forEach((s) => lines.push(`• ${s}`));
+            }
+            if (data.correctedVersion) {
+                lines.push('', '*Polished version:*', `_${data.correctedVersion}_`);
+            }
+            if (data.grammarNotes?.length) {
+                lines.push('', '*Grammar notes:*');
+                data.grammarNotes.forEach((n) => lines.push(`• ${n.issue} → ${n.fix}`));
+            }
+
+            await safeMarkdownReply(ctx, lines.join('\n'), { parse_mode: 'Markdown' });
+        }
+
+        // Next prompt
+        await sendNextSpeakingPrompt(ctx);
+    } catch (e) {
+        console.error('[speaking reply] failed:', e.message);
+        await ctx.reply(`⚠️ Failed to process your answer: ${e.message}`);
+    }
+
+    return true;
+}
 // PDF commands
 bot.command('grammar', async (ctx) => {
     const topic = ctx.message.text.split(' ').slice(1).join(' ') || 'Basic Grammar';
@@ -1679,29 +2051,43 @@ bot.command('skilltest', async (ctx) => {
 // ────────────────────────────────────────────────────────────
 bot.command('cancel', async (ctx) => {
     const userId = ctx.from.id;
-    if (skillTestState[userId]) {
-        skillTestState[userId].paused = true;
-        skillTestState[userId].pausedAt = Date.now();
-        const st = skillTestState[userId];
+    const st = skillTestState[userId];
+    if (!st) return ctx.reply('No active test to cancel.');
+
+    // Voice tests cannot be paused mid-turn — offer abort only
+    if (st.mode === 'voice') {
         return ctx.reply(
-            `⏸ Skill test paused.\n\n` +
-            `Progress saved: Q${st.step + 1}/${st.questions.length}\n\n` +
-            `• /resume — continue where you stopped\n` +
-            `• /abort — discard this test`
+            `🎤 Speaking test — cannot be paused.\n\n` +
+            `• /abort — discard and start over later`
         );
     }
-    return ctx.reply('No active test to cancel.');
+
+    st.paused = true;
+    st.pausedAt = Date.now();
+    const total = Array.isArray(st.questions) ? st.questions.length : '?';
+    return ctx.reply(
+        `⏸ Skill test paused.\n\n` +
+        `Progress saved: Q${st.step + 1}/${total}\n\n` +
+        `• /resume — continue where you stopped\n` +
+        `• /abort — discard this test`
+    );
 });
 
 bot.command('resume', async (ctx) => {
     const userId = ctx.from.id;
     const state = skillTestState[userId];
     if (!state) return ctx.reply('No paused test found.');
+
+    if (state.mode === 'voice') {
+        return ctx.reply('🎤 Speaking test cannot be paused. Continue with a VOICE message, or /abort to discard.');
+    }
+
     if (!state.paused) return ctx.reply('Your test is not paused. Just answer with 1-4.');
 
     state.paused = false;
     delete state.pausedAt;
-    await ctx.reply(`▶️ Resuming ${state.skill} test at Q${state.step + 1}/${state.questions.length}.`);
+    const total = Array.isArray(state.questions) ? state.questions.length : '?';
+    await ctx.reply(`▶️ Resuming ${state.skill} test at Q${state.step + 1}/${total}.`);
     return sendNextQuestion(ctx);
 });
 
@@ -2130,18 +2516,38 @@ bot.on('message', async (ctx) => {
         const userId = ctx.from.id;
         const state = skillTestState[userId];
 
+        // ── Voice-mode test: numeric replies are invalid ──
+        if (state.mode === 'voice') {
+            return ctx.reply(
+                '🎤 This is a speaking test — please reply with a VOICE message, not text.\n\n' +
+                'Use /abort to cancel.'
+            );
+        }
+
         if (state.paused) {
             return ctx.reply('Use /resume to continue or /abort to discard.');
         }
 
+        // ── Defensive: MCQ states must have .questions ──
+        if (!Array.isArray(state.questions)) {
+            console.warn('[skilltest] state missing .questions, resetting');
+            delete skillTestState[userId];
+            return ctx.reply('⚠️ Test state was corrupted. Use /skilltest to start again.');
+        }
+
         const q = state.questions[state.step];
-        const answerIndex = parseInt(ctx.message.text) - 1;
+        if (!q) {
+            delete skillTestState[userId];
+            return ctx.reply('⚠️ Test reached end without proper completion. Starting fresh is recommended.');
+        }
+
+        const answerIndex = parseInt(ctx.message.text, 10) - 1;
 
         if (answerIndex === q.correctIndex) {
             state.score = (state.score || 0) + 1;
             await ctx.reply('✅ Correct!');
         } else {
-            const correctOpt = q.options[q.correctIndex] || '';
+            const correctOpt = (q.options || [])[q.correctIndex] || '';
             await ctx.reply(
                 `❌ Wrong.\n\n✅ Correct: ${q.correctIndex + 1}. ${correctOpt}` +
                 (q.explanation ? `\n\n💡 ${q.explanation}` : '')
@@ -2171,6 +2577,10 @@ bot.on('message', async (ctx) => {
 
     // ── 1. Acquire the text (transcribe if voice) ──
     if (isVoice) {
+        // If a speaking test is active → route to speaking handler
+        if (skillTestState[ctx.from.id]?.mode === 'voice' && skillTestState[ctx.from.id]?.skill === 'speaking') {
+            return await handleSpeakingVoiceReply(ctx);
+        }
         await ctx.reply('🎧 Processing voice...');
         try {
             const fileId = ctx.message.voice.file_id;
