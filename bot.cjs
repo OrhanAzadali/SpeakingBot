@@ -2176,53 +2176,6 @@ bot.command('abort', async (ctx) => {
     delete skillTestState[userId];
     return ctx.reply(`🗑 ${skill} test discarded.`);
 });
-async function sendNextQuestion(ctx) {
-    const userId = ctx.from.id;
-    const state = skillTestState[userId];
-    if (!state) return;
-
-    if (state.paused) {
-        return ctx.reply(
-            `⏸ Test is paused (Q${state.step + 1}/${state.questions.length}).\n` +
-            `Use /resume to continue or /abort to discard.`
-        );
-    }
-    if (!state) return;
-
-    if (state.step >= state.questions.length) {
-        // Финальный результат
-        const total = state.questions.length;
-        const score = state.score || 0;
-        const percent = Math.round((score / total) * 100);
-        const scoreDelta = Math.round((score / total) * 20);   // макс +20
-
-        try {
-            await axios.post(`${API_BASE}/api/user/skill-test`, {
-                userId,
-                skill: state.skill,
-                scoreDelta,
-            }, { timeout: 8000 });
-        } catch (e) { /* ignore */ }
-
-        delete skillTestState[userId];
-        return ctx.reply(
-            `✅ Test finished!\n\n` +
-            `Score: ${score}/${total} (${percent}%)\n` +
-            `Skill boost: +${scoreDelta}% to ${state.skill}`
-        );
-    }
-
-    const q = state.questions[state.step];
-    const opts = q.options.map((o, i) => `${i + 1}. ${o}`).join('\n');
-    const num = state.step + 1;
-
-    let msg = `Q${num}/${state.questions.length}: ${q.question}\n\n${opts}\n\nReply with 1-4.`;
-    if (q.audioText) {
-        msg = `🔊 Audio: "${q.audioText}"\n\n` + msg;
-    }
-
-    await ctx.reply(msg);
-}
 
 // Games
 bot.command('games', async (ctx) => {
