@@ -1,4 +1,4 @@
-﻿import { useState, useEffect, useTransition, useMemo, useCallback } from "react";
+﻿import React, { useState, useEffect, useTransition, useMemo, useCallback, useRef } from "react";
 import { TranslationProvider, useTranslation } from "./i18n/useTranslation";
 import { Header } from "./components/Header";
 import { HomePage } from "./components/HomePage";
@@ -154,7 +154,12 @@ function LoginGate({ onTelegramAuth }) {
   const [widgetReady, setWidgetReady] = useState(false);
   const [error, setError] = useState(null);
 
-  // Step 1: fetch bot username (non-secret) so the widget can render
+  // useRef — единственный способ безопасно дать Telegram-виджету
+  // вставить <script> + <iframe>, не конфликтуя с React.
+  const widgetSlotRef = useRef(null);
+  const scriptInjectedRef = useRef(false);
+
+  // Step 1: fetch public config (bot username, bot link)
   useEffect(() => {
     let cancelled = false;
     fetch("/api/config/public")
@@ -164,9 +169,15 @@ function LoginGate({ onTelegramAuth }) {
     return () => { cancelled = true; };
   }, []);
 
-  // Step 2: load widget once bot username is known
+  // Step 2: inject the widget ONLY ONCE into a React-managed-empty div.
+  // ⚠️ React never renders children inside widgetSlotRef — the widget
+  // owns that DOM subtree entirely. That's why we don't touch
+  // innerHTML and put "loading" text as a SIBLING, not a child.
   useEffect(() => {
     if (!botInfo?.botUsername) return;
+    if (!widgetSlotRef.current) return;
+    if (scriptInjectedRef.current) return;
+    scriptInjectedRef.current = true;
 
     window.onTelegramAuth = async (user) => {
       try {
@@ -175,10 +186,6 @@ function LoginGate({ onTelegramAuth }) {
         setError(e?.message || "Ошибка входа");
       }
     };
-
-    const container = document.getElementById("tg-login-widget-slot");
-    if (!container) return;
-    container.innerHTML = "";
 
     const script = document.createElement("script");
     script.async = true;
@@ -190,7 +197,8 @@ function LoginGate({ onTelegramAuth }) {
     script.setAttribute("data-request-access", "write");
     script.onload = () => setWidgetReady(true);
     script.onerror = () => setError("Не удалось загрузить Telegram-виджет");
-    container.appendChild(script);
+
+    widgetSlotRef.current.appendChild(script);
 
     return () => {
       try { delete window.onTelegramAuth; } catch { /* ignore */ }
@@ -203,16 +211,18 @@ function LoginGate({ onTelegramAuth }) {
         <div className="text-6xl">🤖</div>
 
         <div>
-          <h1 className="text-2xl font-bold text-white mb-1">{botInfo?.appName || "SpeakBot"}</h1>
+          <h1 className="text-2xl font-bold text-white mb-1">
+            {botInfo?.appName || "SpeakBot"}
+          </h1>
           <p className="text-sm text-slate-400">Interactive AI Language Engine</p>
         </div>
 
         <div className="space-y-3">
           <p className="text-sm text-slate-300">Выберите способ входа:</p>
 
+          {/* Option A — open the bot directly */}
           <a
             href={botInfo?.botLink || "https://t.me/Speaking213_bot"}
-
             target="_blank"
             rel="noopener noreferrer"
             className="w-full inline-flex items-center justify-center gap-2 px-6 py-3 rounded-xl bg-gradient-to-r from-sky-600 to-indigo-600 hover:from-sky-500 hover:to-indigo-500 text-white font-bold text-sm transition-all active:scale-95 shadow-lg shadow-sky-600/20"
@@ -227,12 +237,17 @@ function LoginGate({ onTelegramAuth }) {
             <div className="flex-1 h-px bg-slate-800"></div>
           </div>
 
-          <div id="tg-login-widget-slot" className="flex justify-center min-h-[50px] items-center">
-            {!botInfo && !error && <div className="text-xs text-slate-500">Загрузка…</div>}
-            {botInfo && !widgetReady && !error && (
-              <div className="text-xs text-slate-500">Загрузка виджета…</div>
-            )}
+          {/* Option B — Telegram Login Widget */}
+          {/* ⚠️ This div is INTENTIONALLY empty in JSX. Telegram's script
+              injects its own <iframe> as a child via appendChild. React
+              never touches its children, avoiding reconciliation crashes. */}
+          <div className="flex justify-center min-h-[50px] items-center">
+            <div ref={widgetSlotRef} id="tg-login-widget-slot" />
           </div>
+
+          {!widgetReady && !error && (
+            <div className="text-xs text-slate-500">Загрузка виджета…</div>
+          )}
 
           {error && (
             <div className="text-xs text-rose-400 bg-rose-950/40 border border-rose-800/40 rounded-lg p-2">
@@ -245,7 +260,7 @@ function LoginGate({ onTelegramAuth }) {
           💡 Вход сохраняется на этом устройстве. В дальнейшем вы будете автоматически авторизованы.
         </p>
       </div>
-    </div >
+    </div>
   );
 }
 
@@ -953,8 +968,50 @@ function MainApp() {
   </TelegramMiniAppFrame>
   );
 }
+class AppErrorBoundary extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+  static getDerivedStateFromError(error) {
+    return { hasError: true, error };
+  }
+  componentDidCatch(error, info) {
+    console.error("[AppErrorBoundary] crashed:", error, info);
+  }
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="min-h-screen bg-slate-950 text-slate-100 flex items-center justify-center p-6">
+          <div className="max-w-lg w-full bg-slate-900 border border-rose-800/40 rounded-3xl p-8 shadow-2xl space-y-4 text-center">
+            <div className="text-5xl">⚠️</div>
+            <h1 className="text-xl font-bold text-white">Что-то пошло не так</h1>
+            <p className="text-sm text-slate-400">
+              Приложение столкнулось с ошибкой. Попробуйте перезагрузить страницу.
+            </p>
+            <pre className="text-[11px] text-left bg-slate-950 border border-slate-800 rounded-lg p-3 overflow-auto max-h-40 text-rose-300">
+              {String(this.state.error?.message || this.state.error || "")}
+            </pre>
+            <button
+              onClick={() => window.location.reload()}
+              className="px-6 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-bold text-sm transition-all"
+            >
+              🔄 Перезагрузить
+            </button>
+          </div>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
 export default function App() {
-  return <TranslationProvider>
-    <MainApp />
-  </TranslationProvider>;
+  return (
+    <AppErrorBoundary>
+      <TranslationProvider>
+        <MainApp />
+      </TranslationProvider>
+    </AppErrorBoundary>
+  );
 }
