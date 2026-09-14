@@ -1670,6 +1670,50 @@ bot.action('cancel_pdf', async (ctx) => {
     });
 });
 
+// ────────────────────────────────────────────────────────────
+// SPEAKING TEST — send prompt, handle final results
+// ────────────────────────────────────────────────────────────
+async function sendNextSpeakingPrompt(ctx) {
+    const userId = ctx.from.id;
+    const state = skillTestState[userId];
+    if (!state || state.mode !== 'voice') return;
+
+    // ── Final results ──
+    if (state.step >= state.prompts.length) {
+        const total = state.prompts.length;
+        const avg = total > 0 ? Math.round((state.totalScore || 0) / total) : 0;
+        const scoreDelta = Math.round(avg / 5);
+
+        try {
+            await axios.post(`${API_BASE}/api/user/skill-test`, {
+                userId, skill: 'speaking', scoreDelta,
+            }, { timeout: 8000 });
+        } catch { /* ignore */ }
+
+        delete skillTestState[userId];
+
+        return ctx.reply(
+            `🎤 Speaking test complete!\n\n` +
+            `Average score: ${avg}/100\n` +
+            `Skill boost: +${scoreDelta}% to speaking\n\n` +
+            `Keep practicing daily — voice input builds muscle memory.`
+        );
+    }
+
+    const pr = state.prompts[state.step];
+    const num = state.step + 1;
+    const lines = [
+        `🎤 *Prompt ${num}/${state.prompts.length}*`,
+        '',
+        pr.prompt,
+    ];
+    if (pr.promptTranslation) lines.push('', `_${pr.promptTranslation}_`);
+    if (pr.timeBudgetSec) lines.push('', `⏱ ~${pr.timeBudgetSec}s`);
+    lines.push('', '↩ Reply with a VOICE message.');
+
+    await ctx.reply(lines.join('\n'), { parse_mode: 'Markdown' });
+}
+
 // ── Speaking — voice-message flow ──
 bot.command('speak', async (ctx) => {
     const userId = ctx.from.id;
