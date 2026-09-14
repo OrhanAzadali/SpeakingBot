@@ -1223,7 +1223,14 @@ const syncedUsersDatabase = {
         savedVocabulary: [],
         lastSyncedAt: new Date().toISOString()
     }
-};
+};// ─── Expose syncedUsersDatabase to the embedded bot ───
+// bot.cjs загружается через require2() в ТОМ ЖЕ процессе, что и server.js.
+// Через global bot сможет читать профиль напрямую из памяти сервера —
+// это единственный источник истины, всегда свежий, без Redis-раундтрипа
+// и без устаревших копий. Любая мутация через WebApp → мгновенно видна боту.
+global.__SPEAKBOT_USERS = syncedUsersDatabase;
+
+console.log('[Shared] syncedUsersDatabase exposed as global.__SPEAKBOT_USERS');
 
 // ═══ LEVEL TRACKING PER TARGET LANGUAGE ═══
 // currentLevel / overallScore / skillScores / testHistory в user — ЗЕРКАЛА активного targetLanguage.
@@ -4425,47 +4432,41 @@ app.get("/api/user/profile", async (req, res) => {
     try {
         const userId = String(req.query.userId || "default-user");
 
-        // 1. Memory first
+        // ── Hydrate from Redis if not in memory ──
         if (!syncedUsersDatabase[userId]) {
-            // 2. Try Redis
             let hydrated = null;
             if (redis) {
                 try {
                     const raw = await Promise.race([
                         redis.get(`spk:user:${userId}`),
-                        new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 4000)),
+                        new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 5000)),
                     ]);
                     if (raw) hydrated = JSON.parse(raw);
-                } catch { /* ignore */ }
+                } catch (e) {
+                    if (e.message !== 'timeout') {
+                        console.warn('[profile] Redis read failed:', e.message);
+                    }
+                }
             }
-
-            // 3. Try Supabase
-            if (!hydrated && supabase) {
-                try {
-                    const { data } = await supabase.from('users').select('*').eq('user_id', userId).maybeSingle();
-                    if (data) hydrated = data;
-                } catch { /* ignore */ }
-            }
-
-            // 4. Absolute fallback — default-user template
             if (!hydrated) {
                 hydrated = JSON.parse(JSON.stringify(syncedUsersDatabase["default-user"]));
+                hydrated.userId = userId;
             }
-
-            hydrated.userId = userId;
             syncedUsersDatabase[userId] = hydrated;
-            // Persist so next call is instant
-            if (redis) {
-                redis.set(`spk:user:${userId}`, JSON.stringify(hydrated), 'EX', 86400 * 30).catch(() => { });
-            }
         }
 
         const user = syncedUsersDatabase[userId];
         ensureLevelsByLanguage(user);
         applyLevelsToMirrors(user, user.targetLanguage || "English");
+
+        // Mirror to Redis for persistence
+        if (redis) {
+            redis.set(`spk:user:${userId}`, JSON.stringify(user), 'EX', 86400 * 30).catch(() => { });
+        }
+
         res.json({ success: true, data: user });
     } catch (err) {
-        console.error("[profile] failed:", err);
+        console.error('[profile] failed:', err);
         res.status(500).json({ success: false, error: err.message });
     }
 });

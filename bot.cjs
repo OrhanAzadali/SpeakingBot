@@ -44,22 +44,41 @@ const PROFILE_MEM_TTL = 5 * 60_000;  // 5 min
 async function getUser(userId) {
     const key = String(userId);
 
-    // 0. In-memory cache first (instant)
+    // ═══ 0. SHARED PROCESS MEMORY — the single source of truth ═══
+    // bot.cjs embedded in server.js (same process). syncedUsersDatabase
+    // is exposed as global.__SPEAKBOT_USERS. Reading from here is:
+    //   • instant (no network)
+    //   • always fresh (WebApp mutations update the same object)
+    //   • immune to Redis timeouts
+    if (global.__SPEAKBOT_USERS && global.__SPEAKBOT_USERS[key]) {
+        const profile = global.__SPEAKBOT_USERS[key];
+        // Refresh local memcache as a safety net, but never trust it first
+        profileMemCache.set(key, { profile, ts: Date.now() });
+        return profile;
+    }
+
+    // ═══ 1. Local memory cache — ONLY for the cold case ═══
+    // Used only if shared memory doesn't have the user (rare: restart before hydration).
+    // TTL shortened from 5min to 10s so we don't hold stale data long.
     const mem = profileMemCache.get(key);
-    if (mem && Date.now() - mem.ts < PROFILE_MEM_TTL) {
+    if (mem && Date.now() - mem.ts < 10_000) {
         return mem.profile;
     }
 
-    // 1. Redis (longer timeout — Upstash cold-start needs ~8s)
+    // ═══ 2. Redis — persistence layer ═══
     if (redis) {
         try {
             const raw = await Promise.race([
                 redis.get(`spk:user:${key}`),
-                new Promise((_, reject) => setTimeout(() => reject(new Error('REDIS_TIMEOUT')), 12000)),
+                new Promise((_, reject) => setTimeout(() => reject(new Error('REDIS_TIMEOUT')), 12_000)),
             ]);
             if (raw) {
                 const profile = JSON.parse(raw);
                 profileMemCache.set(key, { profile, ts: Date.now() });
+                // Promote to shared memory so server also benefits
+                if (global.__SPEAKBOT_USERS && !global.__SPEAKBOT_USERS[key]) {
+                    global.__SPEAKBOT_USERS[key] = profile;
+                }
                 return profile;
             }
         } catch (e) {
@@ -69,37 +88,43 @@ async function getUser(userId) {
         }
     }
 
-    // 2. Server API
+    // ═══ 3. Server API — last resort ═══
     try {
         const { data } = await axios.get(`${API_BASE}/api/user/profile`, {
             params: { userId: key }, timeout: 8000,
         });
         if (data && data.success && data.data) {
-            profileMemCache.set(key, { profile: data.data, ts: Date.now() });
-            // Mirror to Redis in background
-            if (redis) {
-                redis.set(`spk:user:${key}`, JSON.stringify(data.data), 'EX', 86400 * 30).catch(() => { });
+            const profile = data.data;
+            profileMemCache.set(key, { profile, ts: Date.now() });
+            if (global.__SPEAKBOT_USERS && !global.__SPEAKBOT_USERS[key]) {
+                global.__SPEAKBOT_USERS[key] = profile;
             }
-            return data.data;
+            if (redis) {
+                redis.set(`spk:user:${key}`, JSON.stringify(profile), 'EX', 86400 * 30).catch(() => { });
+            }
+            return profile;
         }
     } catch (e) {
         console.warn('[API] getUser fallback failed:', e.message);
     }
 
-    // 3. Nothing works — return null (caller decides)
     return null;
 }
-
 async function saveUser(userId, user) {
     const key = String(userId);
-    // Always update in-memory FIRST, so this process is consistent
+
+    // ── Write to shared process memory FIRST (source of truth) ──
+    if (global.__SPEAKBOT_USERS) {
+        global.__SPEAKBOT_USERS[key] = user;
+    }
     profileMemCache.set(key, { profile: user, ts: Date.now() });
 
+    // ── Persist to Redis for cross-restart survival ──
     if (redis) {
         try {
             await Promise.race([
                 redis.set(`spk:user:${key}`, JSON.stringify(user), 'EX', 86400 * 30),
-                new Promise((_, reject) => setTimeout(() => reject(new Error('REDIS_TIMEOUT')), 12000)),
+                new Promise((_, reject) => setTimeout(() => reject(new Error('REDIS_TIMEOUT')), 12_000)),
             ]);
             return true;
         } catch (e) {
