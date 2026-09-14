@@ -68,7 +68,37 @@ async function saveUser(userId, user) {
 
 // ==================== CONFIG ====================
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
-const API_BASE = (process.env.MINIAPP_URL || 'https://speakingbot.onrender.com').trim();
+const DEFAULT_API_BASE = 'https://speakingbot.onrender.com';
+
+function resolveApiBase() {
+    const raw = (process.env.MINIAPP_URL || '').trim();
+    if (!raw) {
+        console.warn('[Bot] MINIAPP_URL not set — using default:', DEFAULT_API_BASE);
+        return DEFAULT_API_BASE;
+    }
+    // Coerce into a valid URL. Common failure: missing "//" or missing scheme.
+    let candidate = raw;
+    if (!/^https?:\/\//i.test(candidate)) {
+        candidate = 'https://' + candidate.replace(/^\/+/, '');
+    }
+    try {
+        const u = new URL(candidate);
+        if (u.protocol !== 'http:' && u.protocol !== 'https:') {
+            throw new Error('bad protocol: ' + u.protocol);
+        }
+        return candidate.replace(/\/+$/, '');   // strip trailing slash
+    } catch (e) {
+        console.error(
+            '[Bot] MINIAPP_URL invalid:', JSON.stringify(raw),
+            '— reason:', e.message,
+            '— falling back to', DEFAULT_API_BASE
+        );
+        return DEFAULT_API_BASE;
+    }
+}
+
+const API_BASE = resolveApiBase();
+console.log('[Bot] API_BASE =', API_BASE);
 const GROQ_API_KEY = process.env.GROQ_API_KEY;
 const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
 
@@ -150,26 +180,130 @@ function getTtsVoiceCode(profile) {
     return code === 'az-AZ' ? 'ru-RU' : code;
 }
 
-async function generateVoice(text, lang = 'en-US') {
-    const key = `${lang}:${text}`;
-    if (ttsCache[key]) return ttsCache[key];
+// ─── Sanitize text before sending to any TTS provider ───
+function sanitizeForBotTts(text) {
+    if (!text || typeof text !== 'string') return '';
+    return text
+        .replace(/\*\*(.+?)\*\*/g, '$1')          // bold markdown
+        .replace(/\*(.+?)\*/g, '$1')              // italic markdown
+        .replace(/`(.+?)`/g, '$1')                // code
+        .replace(/\[([^\]]{1,40})\]/g, ' ')       // [tag]
+        .replace(/\s+/g, ' ')                     // collapse whitespace
+        .trim();
+}
 
-    const tts = new MsEdgeTTS();
+// ─── Provider 1: msedge-tts (2 attempts) ───
+async function tryMsEdgeTTS(text, lang, fileBase) {
     const voice = VOICE_MAP[lang] || VOICE_MAP['en-US'];
-    await tts.setMetadata(voice, OUTPUT_FORMAT.WEBM_24KHZ_16BIT_MONO_OPUS);
-    const filePath = path.join(TEMP_DIR, `tts-${Date.now()}.webm`);
-    await tts.toFile(filePath, text);
-    ttsCache[key] = filePath;
+    let lastErr = null;
+    for (let attempt = 1; attempt <= 2; attempt++) {
+        try {
+            const tts = new MsEdgeTTS();
+            await tts.setMetadata(voice, OUTPUT_FORMAT.WEBM_24KHZ_16BIT_MONO_OPUS);
+            const filePath = `${fileBase}.webm`;
+            await tts.toFile(filePath, text);
+            console.log(`[TTS] msedge OK (attempt ${attempt})`);
+            return filePath;
+        } catch (e) {
+            lastErr = e;
+            console.warn(`[TTS] msedge attempt ${attempt} failed: ${e.message}`);
+            if (attempt < 2) await new Promise(r => setTimeout(r, 800));
+        }
+    }
+    throw lastErr || new Error('msedge failed');
+}
+
+// ─── Provider 2: StreamElements (free, no key, MP3) ───
+async function tryStreamElementsTTS(text, lang, fileBase) {
+    // StreamElements voice names — use the same Neural voice IDs as msedge
+    const voiceMap = {
+        'en-US': 'Brian', 'en-GB': 'Amy',
+        'ru-RU': 'Filip', 'de-DE': 'Vicki',
+        'fr-FR': 'Celine', 'es-ES': 'Lucia',
+        'it-IT': 'Bianca', 'tr-TR': 'Filiz',
+        'az-AZ': 'Filip',   // no AZ voice — fallback to RU narrator
+    };
+    const voice = voiceMap[lang] || 'Brian';
+    const url = `https://api.streamelements.com/kappa/v2/speech?voice=${encodeURIComponent(voice)}&text=${encodeURIComponent(text.slice(0, 400))}`;
+    const res = await axios.get(url, {
+        responseType: 'arraybuffer',
+        timeout: 15000,
+        headers: { 'User-Agent': 'SpeakBot/1.0' },
+    });
+    if (res.status !== 200 || !res.data || res.data.byteLength < 500) {
+        throw new Error(`StreamElements bad response (status=${res.status})`);
+    }
+    const filePath = `${fileBase}.mp3`;
+    fs.writeFileSync(filePath, Buffer.from(res.data));
+    console.log(`[TTS] StreamElements OK (${voice}, ${res.data.byteLength} bytes)`);
     return filePath;
 }
 
+// ─── Provider 3: Google Translate TTS (free, no key, MP3, ~200 chars) ───
+async function tryGoogleTranslateTTS(text, lang, fileBase) {
+    const langCode = (lang || 'en-US').split('-')[0];   // "en-US" → "en", "az-AZ" → "az"
+    const url = `https://translate.google.com/translate_tts?ie=UTF-8&client=tw-ob&tl=${langCode}&q=${encodeURIComponent(text.slice(0, 190))}`;
+    const res = await axios.get(url, {
+        responseType: 'arraybuffer',
+        timeout: 10000,
+        headers: {
+            'User-Agent': 'Mozilla/5.0 (compatible; SpeakBot/1.0)',
+            'Referer': 'https://translate.google.com/',
+        },
+    });
+    if (res.status !== 200 || !res.data || res.data.byteLength < 500) {
+        throw new Error(`GoogleTranslate bad response (status=${res.status})`);
+    }
+    const filePath = `${fileBase}.mp3`;
+    fs.writeFileSync(filePath, Buffer.from(res.data));
+    console.log(`[TTS] GoogleTranslate OK (${langCode}, ${res.data.byteLength} bytes)`);
+    return filePath;
+}
+
+// ─── Orchestrator: cascade with cache ───
+async function generateVoice(text, lang = 'en-US') {
+    const clean = sanitizeForBotTts(text);
+    if (!clean) throw new Error('empty text after sanitize');
+
+    const cacheKey = `${lang}:${clean}`;
+    if (ttsCache[cacheKey] && fs.existsSync(ttsCache[cacheKey])) {
+        return ttsCache[cacheKey];
+    }
+
+    const fileBase = path.join(TEMP_DIR, `tts-${Date.now()}-${crypto.randomBytes(4).toString('hex')}`);
+
+    // Cascade: msedge → StreamElements → GoogleTranslate
+    const providers = [
+        { name: 'msedge', fn: tryMsEdgeTTS },
+        { name: 'stream-e', fn: tryStreamElementsTTS },
+        { name: 'gtranslate', fn: tryGoogleTranslateTTS },
+    ];
+
+    for (const p of providers) {
+        try {
+            const filePath = await p.fn(clean, lang, fileBase);
+            ttsCache[cacheKey] = filePath;
+            return filePath;
+        } catch (e) {
+            console.warn(`[TTS] ${p.name} exhausted: ${e.message}`);
+        }
+    }
+
+    // All providers failed — throw, caller (respond()) falls back to text-only
+    throw new Error('All TTS providers failed (msedge, streamelements, googletranslate)');
+}
+
 async function convertToOgg(inputPath) {
-    const outputPath = inputPath.replace('.webm', '.ogg');
+    // Handle ANY source extension (.webm, .mp3, .oga, .wav) — not just .webm
+    const outputPath = inputPath.replace(/\.[a-z0-9]+$/i, '') + '.ogg';
     return new Promise((resolve, reject) => {
-        exec(`${ffmpeg} -y -i "${inputPath}" -c:a libopus -b:a 128k "${outputPath}"`, (err) => {
-            if (err) reject(err);
-            else resolve(outputPath);
-        });
+        exec(
+            `"${ffmpeg}" -y -i "${inputPath}" -c:a libopus -b:a 96k -ac 1 "${outputPath}"`,
+            (err) => {
+                if (err) reject(new Error(`ffmpeg: ${err.message}`));
+                else resolve(outputPath);
+            }
+        );
     });
 }
 
@@ -411,6 +545,56 @@ function detectIntent(text) {
     return 'tutor';
 }
 
+// ────────────────────────────────────────────────────────────
+// Unified text router — SAME logic for text AND voice input.
+// Returns one of:
+//   { action: 'switch_language', lang }
+//   { action: 'howto' }
+//   { action: 'pdf', intent }         // grammar/roadmap/skills/listening/reading/writing
+//   { action: 'tutor' }               // freeform chat with the AI tutor
+//   { action: 'game' }                // games hint (only when text explicitly asks)
+// Caller decides whether to speak the reply or print it.
+// ────────────────────────────────────────────────────────────
+async function classifyAndRouteText(text, userProfile) {
+    const clean = (text || '').trim();
+    if (!clean) return { action: 'tutor' };
+
+    const userId = userProfile?.userId || 'unknown';
+    const p = userProfile || {};
+
+    // ── 0. Marker from AI tutor (belt-and-suspenders): SWITCH_REQUEST::Spanish ──
+    const markerMatch = clean.match(/^SWITCH_REQUEST::([A-Za-zÀ-ÿ]+)/i);
+    if (markerMatch && markerMatch[1]) {
+        const lang = markerMatch[1].charAt(0).toUpperCase() + markerMatch[1].slice(1).toLowerCase();
+        return { action: 'switch_language', lang };
+    }
+
+    // ── 1. Fast regex language switch ──
+    const fastSwitch = detectLanguageSwitchIntent(clean);
+    if (fastSwitch) return { action: 'switch_language', lang: fastSwitch };
+
+    // ── 2. How-to intent ──
+    if (detectHowToIntent(clean)) return { action: 'howto' };
+
+    // ── 3. AI classifier for suspicious short messages ──
+    if (looksLikeLanguageRequest(clean)) {
+        const aiIntent = await classifyIntentWithAI(clean, p.targetLanguage, p.mediatorLanguage);
+        if (aiIntent?.intent === 'switch_language' && aiIntent.language) {
+            return { action: 'switch_language', lang: aiIntent.language };
+        }
+        if (aiIntent?.intent === 'switch_mediator' && aiIntent.language) {
+            return { action: 'switch_mediator', lang: aiIntent.language };
+        }
+    }
+
+    // ── 4. Intent detection (PDF / games / tutor) ──
+    const intent = detectIntent(clean);
+    if (['grammar', 'roadmap', 'skills', 'listening', 'reading', 'writing'].includes(intent)) {
+        return { action: 'pdf', intent };
+    }
+    if (intent === 'game') return { action: 'game' };
+    return { action: 'tutor' };
+}
 // ==================== LANGUAGE SWITCH INTENT ====================
 const LANG_NAME_MAP = {
     // English name → canonical
@@ -435,37 +619,58 @@ function extractLanguageFromText(text) {
 }
 
 function detectLanguageSwitchIntent(text) {
+    if (!text) return null;
     const lower = text.toLowerCase().trim().replace(/[.!?,]+$/g, '');
 
-    // 0. Голые команды: "to french", "in german", "auf deutsch", "french", "fr"
-    const SHORT = [
-        /^(?:to|in|into|auf|en|по)\s+(\w+)$/i,
-        /^(?:switch|change|shift|move)\s+(?:to\s+)?(\w+)$/i,
-        /^(?:learn|study|start)\s+(\w+)$/i,
-        /^(\w+)$/i,
+    const tryExtract = (s) => extractLanguageFromText(s);
+
+    // ── PASS 0: co-occurrence of a switch keyword + a language name ──
+    // This is the most robust check: "I want to learn Spanish",
+    // "теach me German", "давай учить французский", "switch to turkish", etc.
+    const SWITCH_KEYWORDS = [
+        'switch', 'change', 'shift', 'move', 'instead', 'prefer',
+        'learn', 'study', 'start', 'teach', 'want', 'need',
+        'переключ', 'смен', 'учить', 'изучать', 'хочу', 'давай', 'надо',
+        'keç', 'dəyiş', 'öyrən', 'istəyirəm', 'başla',
     ];
-    for (const p of SHORT) {
+    if (SWITCH_KEYWORDS.some(k => lower.includes(k))) {
+        const lang = tryExtract(lower);
+        if (lang) return lang;
+    }
+
+    // ── PASS 1: bare language as a very short message ──
+    // "Spanish", "to Spanish", "in German", "auf Deutsch"
+    const BARE = /^(?:to|in|into|auf|en|по)?\s*([a-zà-ÿ]+)$/i;
+    const mBare = lower.match(BARE);
+    if (mBare) {
+        const lang = tryExtract(mBare[1]);
+        if (lang) return lang;
+    }
+
+    // ── PASS 2: explicit verb + language patterns ──
+    const VERB_PATTERNS = [
+        /(?:switch|change|shift|move)\s+(?:to\s+)?([a-zà-ÿ]+)/i,
+        /(?:teach|start teaching|help me (?:learn|with|study))\s+(?:me\s+)?([a-zà-ÿ]+)/i,
+        /(?:learn|study|start|master|speak|practice)\s+([a-zà-ÿ]+)/i,
+        /(?:i\s+(?:want|would like|'d like|need)\s+to\s+(?:learn|study|speak|master))\s+([a-zà-ÿ]+)/i,
+        /(?:i\s+(?:want|need)\s+)([a-zà-ÿ]+)\s+(?:lessons?|tutor|teacher|practice|class)/i,
+    ];
+    for (const p of VERB_PATTERNS) {
         const m = lower.match(p);
-        if (m) {
-            const lang = extractLanguageFromText(m[1] || lower);
+        if (m && m[1]) {
+            const lang = tryExtract(m[1]);
             if (lang) return lang;
         }
     }
 
-    // 1. Длинные фразы с глаголом
-    const LONG = [
-        /(?:switch|change|shift|move|set).{0,20}(?:language|target)/,
-        /(?:learn|study|start).{0,20}(?:german|spanish|french|italian|russian|turkish|english|azerbaijani|deutsch|español|français|italiano)/,
-        /(?:i want|i'd like|i would like|please).{0,30}(?:learn|study|switch to|change to)\s+(\w+)/,
-        /(?:switch|change)\s+(?:to|my target to)\s+(\w+)/,
-        /(?:start learning|begin learning)\s+(\w+)/,
-    ];
-    for (const p of LONG) {
-        if (p.test(lower)) {
-            const lang = extractLanguageFromText(text);
-            if (lang) return lang;
-        }
+    // ── PASS 3: "I want X" / "give me X" where X is a language ──
+    const I_WANT = /(?:i\s+(?:want|need|prefer)|give\s+me)\s+([a-zà-ÿ]+)/i;
+    const mWant = lower.match(I_WANT);
+    if (mWant && mWant[1]) {
+        const lang = tryExtract(mWant[1]);
+        if (lang) return lang;
     }
+
     return null;
 }
 function detectHowToIntent(text) {
@@ -482,30 +687,36 @@ function detectHowToIntent(text) {
 
 async function handleLanguageSwitch(ctx, newLang) {
     const userId = ctx.from.id;
+    const requestUrl = `${API_BASE}/api/user/target-language`;
+
     try {
-        const { data } = await axios.post(`${API_BASE} /api/user / target - language`, {
+        const { data } = await axios.post(requestUrl, {
             userId: String(userId),
             targetLanguage: newLang,
         }, { timeout: 10000 });
 
-        if (!data.success) {
-            return ctx.reply(`⚠️ Failed to switch to ${newLang}. Try again later.`);
+        if (!data || !data.success) {
+            throw new Error((data && data.error) || 'server refused switch');
         }
 
-        // Обновляем кэш локально
-        const cached = await getUser(String(userId));
-        if (cached) {
-            cached.targetLanguage = newLang;
-            await saveUser(String(userId), cached);
+        // Sync local Redis cache
+        try {
+            const cached = await getUser(String(userId));
+            if (cached) {
+                cached.targetLanguage = newLang;
+                await saveUser(String(userId), cached);
+            }
+        } catch (cacheErr) {
+            console.warn('[LangSwitch] cache update failed:', cacheErr.message);
         }
 
         return ctx.reply(
-            `✅ Target language switched to * ${newLang}* !\n\n` +
-            `Your profile now: \n` +
-            `• Target: ${newLang} \n` +
-            `• Mediator: ${data.data?.mediatorLanguage || 'unchanged'} \n` +
-            `• Level: ${data.data?.currentLevel || 'B1'} \n\n` +
-            `Start learning — try: \n` +
+            `✅ Target language switched to *${newLang}*!\n\n` +
+            `Your profile now:\n` +
+            `• Target: ${newLang}\n` +
+            `• Mediator: ${data.data?.mediatorLanguage || 'unchanged'}\n` +
+            `• Level: ${data.data?.currentLevel || 'B1'}\n\n` +
+            `Start learning — try:\n` +
             `• /grammar — a grammar guide in ${newLang}\n` +
             `• /read — reading test in ${newLang}\n` +
             `• /games — vocabulary games\n` +
@@ -513,11 +724,32 @@ async function handleLanguageSwitch(ctx, newLang) {
             { parse_mode: 'Markdown' }
         );
     } catch (e) {
-        console.error('Language switch failed:', e.message);
-        return ctx.reply(`⚠️ Failed to switch language: ${e.message}`);
+        console.error(`[LangSwitch] POST ${requestUrl} failed:`, e.message, e.code || '');
+
+        // ── FALLBACK: update local cache anyway, so at least this session switches ──
+        try {
+            const cached = await getUser(String(userId));
+            if (cached) {
+                cached.targetLanguage = newLang;
+                await saveUser(String(userId), cached);
+                console.log(`[LangSwitch] local cache updated to ${newLang} (server sync failed)`);
+                return ctx.reply(
+                    `✅ Switched to *${newLang}* locally.\n\n` +
+                    `⚠️ Server sync failed (${e.message.slice(0, 80)}), so this may not persist across restarts.\n\n` +
+                    `Try: /grammar — a guide in ${newLang}`,
+                    { parse_mode: 'Markdown' }
+                );
+            }
+        } catch (localErr) {
+            console.error('[LangSwitch] local cache fallback failed:', localErr.message);
+        }
+
+        return ctx.reply(
+            `⚠️ Failed to switch to ${newLang}: ${e.message}\n\n` +
+            `Diagnostic: API_BASE = ${API_BASE}`
+        );
     }
 }
-
 // ==================== AI INTENT CLASSIFIER ====================
 
 async function classifyIntentWithAI(text, currentTarget, currentMediator) {
@@ -1130,8 +1362,19 @@ bot.on('message', async (ctx) => {
         ]));
     }
 
-    // Voice
-    if (ctx.message.voice) {
+    // ═══════════════════════════════════════════════════════════
+    // UNIFIED HANDLER — voice + text share the SAME routing logic
+    // ═══════════════════════════════════════════════════════════
+
+    const isVoice = Boolean(ctx.message.voice);
+    const isText = Boolean(ctx.message.text);
+    if (!isVoice && !isText) return;
+
+    const userId = ctx.from.id;
+    let userText = '';
+
+    // ── 1. Acquire the text (transcribe if voice) ──
+    if (isVoice) {
         await ctx.reply('🎧 Processing voice...');
         try {
             const fileId = ctx.message.voice.file_id;
@@ -1140,78 +1383,67 @@ bot.on('message', async (ctx) => {
             const buffer = (await axios.get(fileUrl, { responseType: 'arraybuffer', timeout: 30000 })).data;
             const inputPath = path.join(TEMP_DIR, `voice-${Date.now()}.oga`);
             fs.writeFileSync(inputPath, buffer);
-            const text = await transcribeAudio(inputPath, 'en');
-            // Language switch detection (голосом)
-            await ctx.reply(`📝 Heard: "${text}"`);
 
-            const userId = ctx.from.id;
-            const p = await getUserProfile(userId);
-
-            // Fast regex
-            const langSwitch = detectLanguageSwitchIntent(text);
-            if (langSwitch) {
-                return await handleLanguageSwitch(ctx, langSwitch);
-            }
-
-            // How-to
-            if (detectHowToIntent(text)) {
-                return await ctx.reply(
-                    `🎯 Open the Mini App and go to *Profile* to change settings. Or say "switch to German".`,
-                    { parse_mode: 'Markdown' }
-                );
-            }
-
-            // AI classifier для voice тоже
-            if (looksLikeLanguageRequest(text)) {
-                const aiIntent = await classifyIntentWithAI(text, p.targetLanguage, p.mediatorLanguage);
-                if (aiIntent?.intent === 'switch_language' && aiIntent.language) {
-                    return await handleLanguageSwitch(ctx, aiIntent.language);
-                }
-            }
-
-            const intent = detectIntent(text);
-
-            if (['grammar', 'roadmap', 'skills', 'listening', 'reading', 'writing'].includes(intent)) {
-
-                await ctx.reply(`Understanding: "${text}"\nGenerating ${intent} PDF...`);
-                const pdfPath = await generatePdf(intent, ctx.from.id, p.targetLanguage, p.currentLevel, p.mediatorLanguage);
-                await ctx.replyWithDocument({ source: pdfPath });
-                try { fs.unlinkSync(pdfPath); } catch { }
-            } else {
-                const reply = await getTutorResponse(ctx.from.id, text, p.targetLanguage, p.mediatorLanguage, p.currentLevel);
-                const langCode = getTtsVoiceCode(p);
-                try {
-                    const webm = await generateVoice(reply, langCode);
-                    const ogg = await convertToOgg(webm);
-                    await ctx.replyWithVoice({ source: ogg });
-                    await ctx.reply(`📝 Heard: ${text}`);
-                    try { fs.unlinkSync(webm); fs.unlinkSync(ogg); } catch { }
-                } catch (e) {
-                    ctx.reply(reply);
-                }
-            }
+            userText = await transcribeAudio(inputPath, 'en');
+            await ctx.reply(`📝 Heard: "${userText}"`);
         } catch (e) {
-            console.error('Voice processing failed:', e.message);
-            await ctx.reply('Failed to process voice.');
+            console.error('Voice transcription failed:', e.message);
+            return ctx.reply('Failed to process voice.');
         }
-        return;
+    } else {
+        userText = ctx.message.text;
     }
 
-    // Text
-    if (ctx.message.text) {
-        const text = ctx.message.text;
-        const userId = ctx.from.id;
-        const p = await getUserProfile(userId);
+    // ── 2. Load profile (same for both) ──
+    const p = await getUserProfile(userId);
 
-        // ── 1. Fast regex check (без AI) ──
-        const fastSwitch = detectLanguageSwitchIntent(text);
-        if (fastSwitch) {
-            return await handleLanguageSwitch(ctx, fastSwitch);
+    // ── 3. Route through unified classifier ──
+    const route = await classifyAndRouteText(userText, { ...p, userId });
+
+    // Helper: send reply — voice-mode also speaks it, text-mode only prints
+    const respond = async (text, opts = {}) => {
+        await ctx.reply(text, opts);
+        if (isVoice && p) {
+            try {
+                const langCode = getTtsVoiceCode(p);
+                const webm = await generateVoice(text, langCode);
+                const ogg = await convertToOgg(webm);
+                await ctx.replyWithVoice({ source: ogg });
+                try { fs.unlinkSync(webm); fs.unlinkSync(ogg); } catch { }
+            } catch (e) {
+                console.warn('[voice reply TTS] failed:', e.message);
+            }
+        }
+    };
+
+    // ── 4. Dispatch ──
+    switch (route.action) {
+        case 'switch_language':
+            return await handleLanguageSwitch(ctx, route.lang);
+
+        case 'switch_mediator': {
+            try {
+                await axios.post(`${API_BASE}/api/user/mediator-language`, {
+                    userId: String(userId),
+                    mediatorLanguage: route.lang.toLowerCase().slice(0, 2),
+                }, { timeout: 8000 });
+                const cached = await getUser(String(userId));
+                if (cached) {
+                    cached.mediatorLanguage = route.lang;
+                    await saveUser(String(userId), cached);
+                }
+                return await respond(
+                    `✅ Mediator language switched to *${route.lang}*.\n\nExplanations will now be in ${route.lang}.`,
+                    { parse_mode: 'Markdown' }
+                );
+            } catch (e) {
+                console.error('Mediator switch failed:', e.message);
+                return ctx.reply('Failed to switch mediator language.');
+            }
         }
 
-        // ── 2. How-to intent (regex) ──
-        if (detectHowToIntent(text)) {
-            return await ctx.reply(
+        case 'howto':
+            return await respond(
                 `🎯 *To start learning:*\n\n` +
                 `1. Open the Mini App — tap the menu button next to the text input\n` +
                 `2. Go to *Profile* tab\n` +
@@ -1230,43 +1462,40 @@ bot.on('message', async (ctx) => {
                     ]),
                 }
             );
+
+        case 'pdf': {
+            await ctx.reply(`📄 Generating ${route.intent} PDF...`);
+            try {
+                const pdfPath = await generatePdf(
+                    route.intent, userId, p.targetLanguage, p.currentLevel, p.mediatorLanguage
+                );
+                await ctx.replyWithDocument({ source: pdfPath });
+                try { fs.unlinkSync(pdfPath); } catch { }
+            } catch (e) {
+                console.error(`${route.intent} PDF failed:`, e.message);
+                await ctx.reply('Failed to generate PDF.');
+            }
+            return;
         }
 
-        // ── 3. AI intent classifier (только для подозрительных коротких сообщений) ──
-        if (looksLikeLanguageRequest(text)) {
-            const aiIntent = await classifyIntentWithAI(text, p.targetLanguage, p.mediatorLanguage);
+        case 'game':
+            return ctx.reply('🎮 Open the Mini App or use /games to see interactive games.');
 
-            if (aiIntent?.intent === 'switch_language' && aiIntent.language) {
-                console.log(`[Intent] AI detected switch to ${aiIntent.language}`);
-                return await handleLanguageSwitch(ctx, aiIntent.language);
+        case 'tutor':
+        default: {
+            const reply = await getTutorResponse(
+                userId, userText, p.targetLanguage, p.mediatorLanguage, p.currentLevel
+            );
+
+            // Belt-and-suspenders: if the tutor returned SWITCH_REQUEST::X, re-route
+            const markerReply = (reply || '').match(/^SWITCH_REQUEST::([A-Za-zÀ-ÿ]+)/i);
+            if (markerReply && markerReply[1]) {
+                const lang = markerReply[1].charAt(0).toUpperCase() + markerReply[1].slice(1).toLowerCase();
+                return await handleLanguageSwitch(ctx, lang);
             }
 
-            if (aiIntent?.intent === 'switch_mediator' && aiIntent.language) {
-                // Смена mediator — отдельный endpoint
-                try {
-                    await axios.post(`${API_BASE}/api/user/mediator-language`, {
-                        userId: String(userId),
-                        mediatorLanguage: aiIntent.language.toLowerCase().slice(0, 2),
-                    }, { timeout: 8000 });
-                    const cached = await getUser(String(userId));
-                    if (cached) {
-                        cached.mediatorLanguage = aiIntent.language;
-                        await saveUser(String(userId), cached);
-                    }
-                    return await ctx.reply(
-                        `✅ Mediator language switched to *${aiIntent.language}*.\n\nExplanations will now be in ${aiIntent.language}.`,
-                        { parse_mode: 'Markdown' }
-                    );
-                } catch (e) {
-                    console.error('Mediator switch failed:', e.message);
-                    return ctx.reply('Failed to switch mediator language.');
-                }
-            }
+            return await respond(reply);
         }
-
-        // ── 4. Fallback: Socratic AI ──
-        const reply = await getTutorResponse(userId, text, p.targetLanguage, p.mediatorLanguage, p.currentLevel);
-        await ctx.reply(reply);
     }
 });
 // ==================== LAUNCH ====================
