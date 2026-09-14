@@ -118,6 +118,20 @@ function langCodeToName(code) {
     };
     return map[c] || (code.charAt(0).toUpperCase() + code.slice(1));
 }
+// ─── Compact CEFR-level contract for the Groq/OpenRouter fallback path ───
+// Mirrors server.js LEVEL_PEDAGOGY but condensed (Groq has smaller context).
+const LEVEL_CONTRACT = {
+    A1: "3-6 word single-clause sentences. Present tense only. Top-500 words (greetings, numbers, colours, family, food, objects). Listening+speaking dominate. Correct every target error. Drill: repeat / name / yes-no / translate 1 word. Opening move: sounds → greetings → self-intro → numbers → daily objects. Max 3 new items per turn, then WAIT for the learner's answer.",
+    A2: "6-10 words, 1-2 clauses. Past + future + modals (can/must/should). Top-1500 words (shopping, travel, routine, weather). Speaking-first across all 4 skills. Correct form explicitly. Drill: fill gap / short translation / answer full question. Opening move: one A1 check → pick a daily-life theme → 4-6 exchanges. 1 grammar + 3-5 words per turn.",
+    B1: "10-15 word multi-clause sentences. Present perfect, conditionals 1-2, relatives, reported speech. ~2500 words. Balanced 4 skills, expect productive output. Correct meaning first, form only when comprehension breaks. Drill: roleplay / describe / give opinion / react to short text. Opening move: 30s warm-up in target → find one weak point → 3-5 turn thread. Expect 2-3 sentence learner output.",
+    B2: "15-25 word complex sentences. Conditional 3, inversion, cleft, mixed tenses, discourse markers, hedging. ~4000 words abstract+register-appropriate. Debate, essays, film/article listening. Correct only if it breaks register. Drill: debate / summarize / rewrite register / paraphrase. Opening move: real-world topic + open question → 5-8 turn dialogue. Expect 3-5 sentence learner output.",
+    C1: "20-35 words, embedded clauses, nominalization, dense hedging. Subjunctive, impersonal passives, cleft, cohesion devices. 8000+ words including idioms and professional jargon. Register-appropriate production. Correct only register/style. Drill: paragraph in a register / 60s opinion / summarize argument / register-switch. Opening move: assume competence, start demanding, NO greetings warm-up.",
+    C2: "Any length. Rare structures, stylistic devices, archaic/formal/dialectal registers. Native-equivalent precision. Correct only factual and stylistic. Drill: essays / nuanced argumentation / prose editing / register-faithful translation. Opening move: literary or formal topic; treat learner as a peer, no scaffolding.",
+};
+
+function buildLevelContractShort(level) {
+    return LEVEL_CONTRACT[level] || LEVEL_CONTRACT.B1;
+}
 function getTtsVoiceCode(profile) {
     const isBeginner = (profile.currentLevel === 'A1' || profile.currentLevel === 'A2');
     const voiceLangName = isBeginner
@@ -226,6 +240,8 @@ async function getTutorResponseInternal(userId, userMessage, targetLanguage = 'e
     const targetName = langCodeToName(targetLanguage);
     const isBeginner = (level === 'A1' || level === 'A2');
 
+    const levelContract = buildLevelContractShort(level);
+
     const systemPrompt = isBeginner
         ? `You are SpeakBot Language Tutor — a focused ${targetName} teacher for a ${level} BEGINNER.
 ABSOLUTE RULES:
@@ -233,11 +249,24 @@ ABSOLUTE RULES:
 2. DETECT THE CONVERSATION STATE: look at the last assistant message. If it ended with a question / exercise / "translate this" / "now you say…", the learner's short reply is AN ANSWER — evaluate it (correct/wrong), praise briefly, and continue with the next small step.
 3. NEVER treat a short answer (e.g. "привет", "hello") as a new greeting. NEVER restart the lesson. NEVER say "welcome".
 4. You are a language teacher, not a chatbot. Do not discuss books or unrelated topics.
-5. End every reply with exactly ONE small next-step prompt (translate / repeat / answer / fill the gap).`
+5. End every reply with exactly ONE small next-step prompt (translate / repeat / answer / fill the gap).
+
+═══ LEVEL CONTRACT (${level}) ═══
+${levelContract}
+STAY INSIDE THIS CONTRACT. Do NOT teach above ${level}.`
         : `You are SpeakBot Language Tutor — a patient teacher of ${targetName} for a ${level} learner.
 - Reply in ${targetName}. Use ${mediatorName} only for the learner's explicit translation requests.
 - Detect whether the learner's message answers your previous question (evaluate it) or asks something new (answer it). Never restart the lesson.
-- Every reply ends with exactly ONE next-step prompt.`;
+- Every reply ends with exactly ONE next-step prompt.
+
+═══ LEVEL CONTRACT (${level}) ═══
+${levelContract}
+STAY INSIDE THIS CONTRACT. Do NOT teach above ${level}. Do NOT restart from zero — the learner is NOT a beginner at ${level}.
+1. YOUR ENTIRE REPLY MUST BE IN ${mediatorName}. The only ${targetName} words allowed are the specific words you are teaching — each immediately followed by its ${mediatorName} translation in parentheses.
+2. DETECT THE CONVERSATION STATE: look at the last assistant message.If it ended with a question / exercise / "translate this" / "now you say…", the learner's short reply is AN ANSWER — evaluate it (correct/wrong), praise briefly, and continue with the next small step.
+3. NEVER treat a short answer(e.g. "привет", "hello") as a new greeting. NEVER restart the lesson.NEVER say "welcome".
+4. You are a language teacher, not a chatbot. Do not discuss books or unrelated topics.
+5. End every reply with exactly ONE small next - step prompt(translate / repeat / answer / fill the gap).`;
 
     const messages = [
         { role: 'system', content: systemPrompt },
@@ -248,7 +277,7 @@ ABSOLUTE RULES:
     try {
         const response = await axios.post('https://api.groq.com/openai/v1/chat/completions', {
             model: 'llama-3.3-70b-versatile', messages, temperature: 0.7,
-        }, { headers: { 'Authorization': `Bearer ${GROQ_API_KEY}` }, timeout: 20000 });
+        }, { headers: { 'Authorization': `Bearer ${GROQ_API_KEY} ` }, timeout: 20000 });
         replyText = response.data.choices[0].message.content;
     } catch (err) {
         console.error('Groq error:', err.message);
@@ -256,7 +285,7 @@ ABSOLUTE RULES:
             try {
                 const response = await axios.post('https://openrouter.ai/api/v1/chat/completions', {
                     model: 'openai/gpt-oss-20b:free', messages,
-                }, { headers: { 'Authorization': `Bearer ${OPENROUTER_API_KEY}` }, timeout: 15000 });
+                }, { headers: { 'Authorization': `Bearer ${OPENROUTER_API_KEY} ` }, timeout: 15000 });
                 replyText = response.data.choices[0].message.content;
             } catch (err2) { console.error('OpenRouter error:', err2.message); }
         }
@@ -266,7 +295,7 @@ ABSOLUTE RULES:
 
     conversationHistory[userId].push({ role: 'user', content: userMessage });
     conversationHistory[userId].push({ role: 'assistant', content: replyText });
-    axios.post(`${API_BASE}/api/user/usage`, { userId }, { timeout: 5000 }).catch(() => { });
+    axios.post(`${API_BASE} /api/user / usage`, { userId }, { timeout: 5000 }).catch(() => { });
     return replyText;
 }
 
@@ -285,7 +314,7 @@ async function getUserProfileInternal(userId) {
     const cached = await getUser(String(userId));
     if (cached) return cached;
     try {
-        const { data } = await axios.get(`${API_BASE}/api/user/profile`, {
+        const { data } = await axios.get(`${API_BASE} /api/user / profile`, {
             params: { userId: String(userId) }, timeout: 5000,
         });
         const profile = data.data;
@@ -310,17 +339,17 @@ async function generateStructuredPDF(data, filename, title) {
             doc.fontSize(14).font('Helvetica-Bold').text(m.title || '');
             doc.fontSize(12).font('Helvetica').text(m.description || '');
             (m.rules || []).forEach(r => {
-                doc.fontSize(12).font('Helvetica').text(`• ${r.rule}: ${r.explanation}`);
-                doc.fontSize(10).font('Helvetica-Oblique').text(`Example: ${r.example}`);
+                doc.fontSize(12).font('Helvetica').text(`• ${r.rule}: ${r.explanation} `);
+                doc.fontSize(10).font('Helvetica-Oblique').text(`Example: ${r.example} `);
                 doc.moveDown();
             });
             doc.moveDown();
         });
     } else if (data.exercises) {
         data.exercises.forEach((ex, i) => {
-            doc.fontSize(12).font('Helvetica-Bold').text(`${i + 1}. ${ex.question}`);
-            doc.fontSize(11).font('Helvetica').text(`Options: ${(ex.options || []).join(' | ')}`);
-            doc.fontSize(10).font('Helvetica-Oblique').text(`Answer: ${(ex.options || [])[ex.correctIndex]}`);
+            doc.fontSize(12).font('Helvetica-Bold').text(`${i + 1}. ${ex.question} `);
+            doc.fontSize(11).font('Helvetica').text(`Options: ${(ex.options || []).join(' | ')} `);
+            doc.fontSize(10).font('Helvetica-Oblique').text(`Answer: ${(ex.options || [])[ex.correctIndex]} `);
             doc.moveDown();
         });
     } else {
@@ -344,27 +373,27 @@ async function generatePdf(type, userId, targetLang, level, mediatorLang = 'en',
     const endpoint = endpoints[type];
     if (endpoint) {
         try {
-            const res = await axios.post(`${API_BASE}${endpoint}`, {
+            const res = await axios.post(`${API_BASE}${endpoint} `, {
                 userId, targetLanguage: targetLang, userLevel: level, mediatorLanguage: mediatorLang, topic,
             }, { timeout: 60000 });
             if (res.data.pdfUrl) return res.data.pdfUrl;
             const inner = res.data.guide || res.data.roadmap || res.data.story || res.data;
-            return await generateStructuredPDF(inner, `speakbot_${type}_${Date.now()}`, type.toUpperCase() + ' Guide');
-        } catch (err) { console.error(`PDF endpoint error ${type}:`, err.message); }
+            return await generateStructuredPDF(inner, `speakbot_${type}_${Date.now()} `, type.toUpperCase() + ' Guide');
+        } catch (err) { console.error(`PDF endpoint error ${type}: `, err.message); }
     }
-    const aiPrompt = `Generate ${type} material on "${topic}" for ${targetLang} at CEFR ${level}. Return JSON: {title, modules or exercises}.`;
+    const aiPrompt = `Generate ${type} material on "${topic}" for ${targetLang} at CEFR ${level}. Return JSON: { title, modules or exercises }.`;
     const aiResponse = await getTutorResponse(userId, aiPrompt, targetLang, mediatorLang, level);
     let data;
     try { data = JSON.parse(aiResponse); } catch { data = { text: aiResponse }; }
-    return await generateStructuredPDF(data, `speakbot_${type}_fallback_${Date.now()}`, type.toUpperCase() + ' Guide');
+    return await generateStructuredPDF(data, `speakbot_${type}_fallback_${Date.now()} `, type.toUpperCase() + ' Guide');
 }
 
 // ==================== SYNC / INTENT ====================
 async function syncUser(telegramId, username, language = 'en') {
-    axios.post(`${API_BASE}/api/bot/sync`, {
+    axios.post(`${API_BASE} /api/bot / sync`, {
         userId: String(telegramId),
         telegramChatId: String(telegramId),
-        telegramUsername: `@${username}`,
+        telegramUsername: `@${username} `,
         updates: { targetLanguage: language },
     }, { timeout: 8000 }).catch(e => console.error('Sync error:', e.message));
 }
@@ -399,7 +428,7 @@ function extractLanguageFromText(text) {
     const lower = text.toLowerCase();
     for (const [key, canonical] of Object.entries(LANG_NAME_MAP)) {
         // word boundary check
-        const re = new RegExp(`\\b${key}\\b`, 'i');
+        const re = new RegExp(`\\b${key} \\b`, 'i');
         if (re.test(lower)) return canonical;
     }
     return null;
@@ -454,7 +483,7 @@ function detectHowToIntent(text) {
 async function handleLanguageSwitch(ctx, newLang) {
     const userId = ctx.from.id;
     try {
-        const { data } = await axios.post(`${API_BASE}/api/user/target-language`, {
+        const { data } = await axios.post(`${API_BASE} /api/user / target - language`, {
             userId: String(userId),
             targetLanguage: newLang,
         }, { timeout: 10000 });
@@ -471,12 +500,12 @@ async function handleLanguageSwitch(ctx, newLang) {
         }
 
         return ctx.reply(
-            `✅ Target language switched to *${newLang}*!\n\n` +
-            `Your profile now:\n` +
-            `• Target: ${newLang}\n` +
-            `• Mediator: ${data.data?.mediatorLanguage || 'unchanged'}\n` +
-            `• Level: ${data.data?.currentLevel || 'B1'}\n\n` +
-            `Start learning — try:\n` +
+            `✅ Target language switched to * ${newLang}* !\n\n` +
+            `Your profile now: \n` +
+            `• Target: ${newLang} \n` +
+            `• Mediator: ${data.data?.mediatorLanguage || 'unchanged'} \n` +
+            `• Level: ${data.data?.currentLevel || 'B1'} \n\n` +
+            `Start learning — try: \n` +
             `• /grammar — a grammar guide in ${newLang}\n` +
             `• /read — reading test in ${newLang}\n` +
             `• /games — vocabulary games\n` +

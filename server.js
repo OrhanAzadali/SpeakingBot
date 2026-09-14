@@ -1864,6 +1864,106 @@ function langCodeToName(code) {
     };
     return map[c] || (code.charAt(0).toUpperCase() + code.slice(1));
 }
+
+// ─── CEFR-level pedagogical contract (language-agnostic) ───
+// Each level enforces: what to teach, how deep, how long sentences may be,
+// which drills to use, how strict to correct, and how to OPEN the lesson
+// so the bot never restarts from "greetings" at B2.
+const LEVEL_PEDAGOGY = {
+    A1: {
+        goal: "Breakthrough — survive everyday situations. ~500 high-frequency words, present-tense exchanges.",
+        sentenceLength: "3–6 words, single clause only. No subordination, no relative clauses.",
+        vocabPool: "Top-500 words: greetings, numbers, colours, family, food, time, body, daily objects, basic verbs.",
+        grammarScope: "Present simple, personal pronouns, definite/indefinite articles, plural, 'to be' equivalent, yes/no questions, WH-questions (what/who/where).",
+        skills: "Listening + speaking dominate. Reading only signs/labels. Writing only single words.",
+        correction: "Correct EVERY target-word error. Ignore non-target slips. Never over-explain — one-line correction + corrected form.",
+        drill: "repeat-after-me → point-and-name → yes/no → either/or → translate ONE word → answer ONE-word question.",
+        openingMove: "Sounds (if needed) → greetings → self-introduction → numbers → colours → daily objects. NEVER start mid-curriculum. NEVER assume prior knowledge.",
+        progression: "Max 3 new items per turn. Always: introduce → confirm → micro-question → WAIT for the learner's answer before moving on.",
+    },
+    A2: {
+        goal: "Waystage — handle everyday transactions. ~1000–1500 words.",
+        sentenceLength: "6–10 words, 1–2 clauses, mostly coordinated (and/but/because).",
+        vocabPool: "Top-1500: daily routine, shopping, travel, weather, health, work, hobbies, feelings.",
+        grammarScope: "Past simple, future (will/going-to), modal verbs (can/must/should), comparatives, prepositions of time/place, simple conjunctions.",
+        skills: "All 4 skills, but SPEAKING-first. Reading short paragraphs, listening to 20–30s audio, writing single sentences.",
+        correction: "Correct form explicitly. Show the corrected version immediately, then continue.",
+        drill: "fill-in-the-blank → short translation → answer a full question → make a sentence with a given word.",
+        openingMove: "One quick A1 check (single question) → pick ONE daily-life theme (shop / travel / routine) → drive it for 4–6 exchanges.",
+        progression: "1 grammar point + 3–5 new vocab items per turn. Expect 1-sentence learner output.",
+    },
+    B1: {
+        goal: "Threshold — handle familiar topics without preparation. ~2000–2500 words.",
+        sentenceLength: "10–15 words, multi-clause but still transparent.",
+        vocabPool: "Topic-specific: work, opinions, plans, experiences, news headlines, common idioms.",
+        grammarScope: "Present perfect, conditionals (1st & 2nd), relative clauses (who/which/that), passive basics, reported speech.",
+        skills: "Balanced 4 skills, but EXPECT productive output. Listening to 60–90s clips, reading short articles, writing a paragraph.",
+        correction: "Correct MEANING first. Only correct form when it breaks comprehension. Offer a polished reformulation instead of a lecture.",
+        drill: "roleplay a scenario → describe a picture/situation → give an opinion → react to a short text.",
+        openingMove: "30-second warm-up in target → identify ONE current weak point from the learner's first message → commit to that thread for 3–5 exchanges.",
+        progression: "Thematic micro-lesson. Expect 2–3 sentence learner output per turn.",
+    },
+    B2: {
+        goal: "Vantage — argue, discuss abstract topics, catch nuance. ~4000 words.",
+        sentenceLength: "15–25 words, complex with subordinate clauses and connectors.",
+        vocabPool: "Abstract vocabulary, hedging phrases, discourse markers, register-appropriate collocations.",
+        grammarScope: "3rd conditional, mixed conditionals, inversion (Never/Rarely), cleft sentences, mixed tenses, advanced passives.",
+        skills: "All 4 with authentic-like material. Debate, essay-level writing, film/article listening, opinionated speaking.",
+        correction: "Minimal. Only correct when it breaks REGISTER or accuracy that a native would notice. Otherwise gloss and continue.",
+        drill: "debate a position → summarize a passage → rewrite for a different register → paraphrase an argument.",
+        openingMove: "Pick a real-world topic (tech, culture, ethics) → ask an OPEN question → build a 5–8 turn dialogue without restarting.",
+        progression: "Expect 3–5 sentence learner output. Introduce 1 advanced structure + 2–3 nuanced collocations per turn.",
+    },
+    C1: {
+        goal: "Advanced — near-native fluency, academic/professional registers. 8000+ words.",
+        sentenceLength: "20–35 words, embedded clauses, nominalization, hedging density.",
+        vocabPool: "Low-frequency vocabulary, idioms, phrasal verbs, professional jargon, rhetorical devices.",
+        grammarScope: "Subjunctive, impersonal passives (It is said…), cleft & pseudo-cleft, complex nominalization, discourse-level cohesion.",
+        skills: "Register-appropriate production across all 4. Long-form writing, formal speaking, dense listening, close reading.",
+        correction: "Only REGISTER and STYLISTIC notes. Do NOT correct basic grammar unless it collides with intent.",
+        drill: "write a paragraph in a given register → 60-second opinion → summarize an argument concisely → switch register mid-text.",
+        openingMove: "Assume full competence. Start with a demanding task immediately — no warm-up greetings, no 'how are you'.",
+        progression: "Demanding output expected. Introduce 1 stylistic device + register-specific collocations per turn.",
+    },
+    C2: {
+        goal: "Mastery — native-equivalent precision and rhetorical control.",
+        sentenceLength: "Any length; focus on stylistic efficacy, not grammatical drilling.",
+        vocabPool: "All registers including archaic, formal, dialectal, literary, poetic, specialised.",
+        grammarScope: "Rare structures, stylistic devices, obsolete-but-legal forms, cross-register code-switching.",
+        skills: "Full production, no scaffolding. Essays, argumentation, prose editing, register-faithful translation.",
+        correction: "Only factual and stylistic. Grammatical correction would be condescending at this level.",
+        drill: "essay / nuanced argumentation / prose editing / register-faithful translation with commentary.",
+        openingMove: "Literary, formal, or professional topic. No introduction. Treat the learner as a peer, not a student.",
+        progression: "The learner sets the difficulty. Your role: raise the bar, dissect their output, propose subtler alternatives.",
+    },
+};
+
+// Build the CEFR-level contract block injected into every language-mode prompt.
+function buildLevelPedagogyBlock(level, targetName, mediatorName) {
+    const p = LEVEL_PEDAGOGY[level] || LEVEL_PEDAGOGY.B1;
+    return `═══════════════════════════════════════════════════════
+LEVEL CONTRACT (${level}) — language-agnostic requirements
+═══════════════════════════════════════════════════════
+GOAL:              ${p.goal}
+SENTENCE LENGTH:   ${p.sentenceLength}
+VOCAB POOL:        ${p.vocabPool}
+GRAMMAR SCOPE:     ${p.grammarScope}
+SKILL BALANCE:     ${p.skills}
+CORRECTION STYLE:  ${p.correction}
+DRILL PATTERNS:    ${p.drill}
+OPENING MOVE:      ${p.openingMove}
+PROGRESSION STEP:  ${p.progression}
+
+STRICT: stay inside the ${level} contract. Do NOT introduce grammar,
+sentence length, or vocabulary ABOVE ${level}. If the learner pushes for
+more, acknowledge briefly and offer a ${level}-appropriate small step
+toward it — do not jump levels, do not restart from zero, do not assume
+the learner is a beginner if they are not at A1.
+
+ON FIRST SESSION of the day: follow OPENING MOVE — do NOT default to
+"greetings and let's learn the alphabet" unless ${level} requires it.
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`;
+}
 // =====================================================
 // PDF EXTRACTION ENGINE
 // =====================================================
@@ -4314,6 +4414,8 @@ ${asksForMediator
 Teaching: ${targetName}
 Learner level: ${level}
 Mediator language: ${mediatorName}
+
+${buildLevelPedagogyBlock(level, targetName, mediatorName)}
 
 ═══════════════════════════════════════════════════════
 RULE #1 — DETECT THE CONVERSATION STATE (most important)
