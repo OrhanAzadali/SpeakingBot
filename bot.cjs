@@ -10,11 +10,6 @@ const ffmpeg = require('ffmpeg-static');
 const PDFDocument = require('pdfkit');
 const Redis = require('ioredis');
 
-console.log('[Bot] Boot diagnostics:');
-console.log('  API_BASE =', API_BASE);
-console.log('  GROQ_API_KEY present:', !!process.env.GROQ_API_KEY);
-console.log('  GEMINI_API_KEY present:', !!process.env.GEMINI_API_KEY);
-console.log('  OPENROUTER_API_KEY present:', !!process.env.OPENROUTER_API_KEY);
 // ==================== REDIS ====================
 const redis = process.env.UPSTASH_REDIS_URL && process.env.UPSTASH_REDIS_TOKEN
     ? new Redis({
@@ -175,8 +170,14 @@ function resolveApiBase() {
 
 const API_BASE = resolveApiBase();
 console.log('[Bot] API_BASE =', API_BASE);
-const GROQ_API_KEY = process.env.GROQ_API_KEY;
-const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
+
+// Boot diagnostics — читаем process.env напрямую, без новых consts,
+// чтобы не конфликтовать с уже существующим CONFIG-блоком ниже.
+console.log('[Bot] Boot diagnostics:');
+console.log('  GROQ_API_KEY present:', !!process.env.GROQ_API_KEY);
+console.log('  GEMINI_API_KEY present:', !!process.env.GEMINI_API_KEY);
+console.log('  OPENROUTER_API_KEY present:', !!process.env.OPENROUTER_API_KEY);
+console.log('  UPSTASH_REDIS_URL present:', !!process.env.UPSTASH_REDIS_URL);
 
 if (!API_BASE || !API_BASE.startsWith('http')) {
     console.error('[Bot] FATAL: API_BASE invalid:', JSON.stringify(process.env.MINIAPP_URL));
