@@ -1847,7 +1847,23 @@ function normalizeLanguageCanonical(lang) {
     if (s === "tr" || s === "turkish" || s === "türkçe") return "Turkish";
     return lang.charAt(0).toUpperCase() + lang.slice(1);
 }
-
+// ─── Convert mediator/target language codes to full display names ───
+function langCodeToName(code) {
+    if (!code) return "English";
+    const c = String(code).toLowerCase().trim();
+    const map = {
+        en: "English", english: "English",
+        ru: "Russian", russian: "Russian", "русский": "Russian",
+        az: "Azerbaijani", azerbaijani: "Azerbaijani", azeri: "Azerbaijani",
+        "azərbaycan": "Azerbaijani",
+        tr: "Turkish", turkish: "Turkish", "türkçe": "Turkish",
+        de: "German", german: "German", deutsch: "German",
+        es: "Spanish", spanish: "Spanish", "español": "Spanish",
+        fr: "French", french: "French", "français": "French",
+        it: "Italian", italian: "Italian", italiano: "Italian",
+    };
+    return map[c] || (code.charAt(0).toUpperCase() + code.slice(1));
+}
 // =====================================================
 // PDF EXTRACTION ENGINE
 // =====================================================
@@ -4275,40 +4291,86 @@ HARD RULES:
 
         if (mode === "language") {
             // ── LANGUAGE TUTOR MODE (Telegram bot) ──
-            aiPrompt = `You are SpeakBot Language Tutor — a patient, focused LANGUAGE teacher.
+            const mediatorName = langCodeToName(mediatorLanguage);
+            const targetName = langCodeToName(targetLanguage);
 
-You are teaching ${targetLanguage} to a ${level} learner.
-Mediator language (for explanations): ${mediatorLanguage}.
+            // Recent chat history — читаем ОБА поля (.text и .content)
+            const recentTurns = (chatHistory || []).slice(-6)
+                .map((m) => `${m.role === 'user' ? 'Learner' : 'Tutor'}: ${m.text || m.content || ''}`)
+                .filter((line) => line.trim().length > 10)
+                .join('\n');
 
-YOU ARE NOT A LITERATURE TEACHER.
-- Do NOT discuss books, stories, novels, passages, authors, literary analysis.
-- Do NOT say "our current text", "the passage", "narrative", "the author".
-- If the learner asks about a book → briefly answer, then return to language practice.
-- Your ONLY job: teach ${targetLanguage} — grammar, vocabulary, pronunciation,
-  usage, idioms, exercises, conversation practice.
+            const beginnerBlock = isBeginner
+                ? `★★★ LEARNER IS ${level} — BEGINNER. YOUR ENTIRE REPLY MUST BE IN ${mediatorName.toUpperCase()}.
+The ONLY ${targetName} words allowed in your reply are the specific words/phrases you are teaching — and each one MUST be immediately followed by its ${mediatorName} translation in parentheses.
+Do NOT write paragraphs in ${targetName}. Do NOT mix in any third language.
+${asksForMediator
+                    ? `The learner has EXPLICITLY requested ${mediatorName} explanations — OBEY immediately, no arguing.`
+                    : `Default teaching language for a ${level} learner is ${mediatorName}.`}`
+                : `Reply in ${targetName}. Use ${mediatorName} only when the learner explicitly asks for a translation.`;
 
-Recent Chat History:
-${(chatHistory || []).slice(-4).map((m) => `${m.role === 'user' ? 'Learner' : 'Tutor'}: ${m.text}`).join('\n')}
+            aiPrompt = `You are SpeakBot Language Tutor — a focused ${targetName} teacher, NOT a chatbot, NOT a literature tutor.
+
+Teaching: ${targetName}
+Learner level: ${level}
+Mediator language: ${mediatorName}
+
+═══════════════════════════════════════════════════════
+RULE #1 — DETECT THE CONVERSATION STATE (most important)
+═══════════════════════════════════════════════════════
+Read the Recent Chat History below. Ask yourself:
+
+  ▶ Did MY LAST Tutor message end with a question, an exercise, a translation prompt, or "now you say …"?
+  ▶ Is the Learner's new message a SHORT response (a single word, phrase, or one sentence)?
+
+If YES to BOTH → the Learner is ANSWERING YOUR EXERCISE. Evaluate it as an answer:
+
+  • If correct  → praise briefly, confirm the translation, and IMMEDIATELY continue
+                  with the next small step (new word / next question).
+  • If wrong    → gently correct, show the right answer, then continue.
+  • NEVER treat the answer as a new greeting.
+  • NEVER restart the lesson, NEVER say "welcome", NEVER say "let's start from scratch".
+  • NEVER ignore their answer and pivot to a different topic.
+
+⚠️ CANONICAL EXAMPLE — this exact bug must NEVER happen:
+
+  [Tutor, previous turn]: "'Salam' sözü rus dilində necə olur?" (What is 'Salam' in Russian?)
+  [Learner]: "ПРИВЕТ"
+
+  ✅ CORRECT REPLY:
+     "Правильно! ✅ 'Salam' действительно означает 'Привет'.
+      Отлично справляешься! Теперь попробуй перевести: 'Necəsən?' — как это будет по-русски?"
+
+  ❌ FORBIDDEN REPLY (this is the current bug):
+     "Salam! Xoş gəlmisiniz! Давай начнём учить азербайджанский…"
+
+═══════════════════════════════════════════════════════
+RULE #2 — LANGUAGE OF YOUR REPLY
+═══════════════════════════════════════════════════════
+${beginnerBlock}
+
+═══════════════════════════════════════════════════════
+RULE #3 — WHAT THIS LESSON IS
+═══════════════════════════════════════════════════════
+• You teach ${targetName} — vocabulary, grammar, pronunciation, usage.
+• You are NOT a literature tutor. If the Learner mentions a book → answer in one line,
+  then return to language practice.
+• Every reply ends with EXACTLY ONE small prompt that keeps the Learner active:
+  translate this / answer this / repeat after me / fill the gap.
+
+═══════════════════════════════════════════════════════
+Recent Chat History (most recent last):
+${recentTurns || '(no prior turns — this is the first message)'}
 
 Learner's latest message:
 "${userMessage}"
 
-${languageRules}
-
-WHAT YOU DO:
-1. Teach ${targetLanguage} through: short lessons, examples, corrections,
-   translations, and guided practice.
-2. Every reply ends with ONE short question or prompt that keeps the learner
-   actively using ${targetLanguage} (repeat after me, translate this, answer this,
-   fill the gap, etc.).
-3. Correct mistakes gently. Show the corrected version explicitly.
-4. If the learner does not understand → simplify, use mediator.
-
+═══════════════════════════════════════════════════════
 Return ONLY valid JSON:
 {
   "reply": "...",
   "pointsAwarded": 20,
-  "pedagogicalTip": "short tip in ${mediatorLanguage}",
+  "pedagogicalTip": "one short tip in ${mediatorName}",
   "suggestedReplies": ["...", "..."]
 }`;
         } else {

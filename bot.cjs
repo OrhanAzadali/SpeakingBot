@@ -101,6 +101,23 @@ const VOICE_MAP = {
     'tr-TR': 'tr-TR-EmelNeural',
 };
 
+// ─── Language code → full display name (для промптов) ───
+function langCodeToName(code) {
+    if (!code) return "English";
+    const c = String(code).toLowerCase().trim();
+    const map = {
+        en: "English", english: "English",
+        ru: "Russian", russian: "Russian", "русский": "Russian",
+        az: "Azerbaijani", azerbaijani: "Azerbaijani", azeri: "Azerbaijani",
+        "azərbaycan": "Azerbaijani",
+        tr: "Turkish", turkish: "Turkish", "türkçe": "Turkish",
+        de: "German", german: "German", deutsch: "German",
+        es: "Spanish", spanish: "Spanish", "español": "Spanish",
+        fr: "French", french: "French", "français": "French",
+        it: "Italian", italian: "Italian", italiano: "Italian",
+    };
+    return map[c] || (code.charAt(0).toUpperCase() + code.slice(1));
+}
 function getTtsVoiceCode(profile) {
     const isBeginner = (profile.currentLevel === 'A1' || profile.currentLevel === 'A2');
     const voiceLangName = isBeginner
@@ -205,13 +222,28 @@ async function getTutorResponseInternal(userId, userMessage, targetLanguage = 'e
     // Groq → OpenRouter fallback
     if (!conversationHistory[userId]) conversationHistory[userId] = [];
     const history = conversationHistory[userId].slice(-10);
-    const systemPrompt = `You are a patient language tutor. Reply in ${targetLanguage}. Level: ${level}. Use ${mediatorLanguage} for brief clarifications.`;
+    const mediatorName = langCodeToName(mediatorLanguage);
+    const targetName = langCodeToName(targetLanguage);
+    const isBeginner = (level === 'A1' || level === 'A2');
+
+    const systemPrompt = isBeginner
+        ? `You are SpeakBot Language Tutor — a focused ${targetName} teacher for a ${level} BEGINNER.
+ABSOLUTE RULES:
+1. YOUR ENTIRE REPLY MUST BE IN ${mediatorName}. The only ${targetName} words allowed are the specific words you are teaching — each immediately followed by its ${mediatorName} translation in parentheses.
+2. DETECT THE CONVERSATION STATE: look at the last assistant message. If it ended with a question / exercise / "translate this" / "now you say…", the learner's short reply is AN ANSWER — evaluate it (correct/wrong), praise briefly, and continue with the next small step.
+3. NEVER treat a short answer (e.g. "привет", "hello") as a new greeting. NEVER restart the lesson. NEVER say "welcome".
+4. You are a language teacher, not a chatbot. Do not discuss books or unrelated topics.
+5. End every reply with exactly ONE small next-step prompt (translate / repeat / answer / fill the gap).`
+        : `You are SpeakBot Language Tutor — a patient teacher of ${targetName} for a ${level} learner.
+- Reply in ${targetName}. Use ${mediatorName} only for the learner's explicit translation requests.
+- Detect whether the learner's message answers your previous question (evaluate it) or asks something new (answer it). Never restart the lesson.
+- Every reply ends with exactly ONE next-step prompt.`;
+
     const messages = [
         { role: 'system', content: systemPrompt },
         ...history,
         { role: 'user', content: userMessage },
     ];
-
     let replyText = null;
     try {
         const response = await axios.post('https://api.groq.com/openai/v1/chat/completions', {
