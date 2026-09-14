@@ -1,8 +1,6 @@
-// SERVER2 - YOUR VERSION TO BE FIXED BASED ON THE COMPARISON WITH MINE TO DEFINE WHAT CORE FUNCTIONALITY YOUR VERSION STILL LACKS AND BREAKS
 // =====================================================
 // SPEAKBOT SERVER — COMPLETE UNIFIED VERSION
 // Features: Supabase (SECRET key) + Redis + PDF Engine
-// All original functionality preserved, no duplicates
 // =====================================================
 
 import express from "express";
@@ -3468,7 +3466,7 @@ app.get("/api/debug/reset-mediator-flags", async (req, res) => {
 // before it can even render a login screen.
 // ═══════════════════════════════════════════════════════════════
 app.get("/api/config/public", (req, res) => {
-    const botUsername = (process.env.TELEGRAM_BOT_USERNAME || "@Speaking213_bot").replace(/^@/, "");
+    const botUsername = (process.env.TELEGRAM_BOT_USERNAME || "Speaking213_bot").replace(/^@/, "");
     res.json({
         botUsername,
         botLink: `https://t.me/${botUsername}`,
