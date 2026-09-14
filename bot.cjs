@@ -10,6 +10,11 @@ const ffmpeg = require('ffmpeg-static');
 const PDFDocument = require('pdfkit');
 const Redis = require('ioredis');
 
+console.log('[Bot] Boot diagnostics:');
+console.log('  API_BASE =', API_BASE);
+console.log('  GROQ_API_KEY present:', !!process.env.GROQ_API_KEY);
+console.log('  GEMINI_API_KEY present:', !!process.env.GEMINI_API_KEY);
+console.log('  OPENROUTER_API_KEY present:', !!process.env.OPENROUTER_API_KEY);
 // ==================== REDIS ====================
 const redis = process.env.UPSTASH_REDIS_URL && process.env.UPSTASH_REDIS_TOKEN
     ? new Redis({
@@ -1781,7 +1786,7 @@ bot.action('back_to_main', async (ctx) => {
     ]));
 });
 
-// ─── local helper: language code → full name ───
+// ─── Language code → display name (local, no external deps) ───
 function _langCodeToName(code) {
     if (!code) return "English";
     const c = String(code).toLowerCase().trim();
@@ -1799,51 +1804,19 @@ function _langCodeToName(code) {
     return map[c] || (code.charAt(0).toUpperCase() + code.slice(1));
 }
 
-// ─── local helper: pick a working Groq model (no PATCH 25 needed) ───
-let _vocabModelCache = null;
-let _vocabModelCacheAt = 0;
-async function _pickGroqModelForVocab() {
-    if (_vocabModelCache && Date.now() - _vocabModelCacheAt < 30 * 60_000) {
-        return _vocabModelCache;
-    }
-    const candidates = [
-        'llama-3.3-70b-versatile',
-        'llama-3.1-70b-versatile',
-        'llama-3.1-8b-instant',
-        'gemma2-9b-it',
-    ];
-    for (const model of candidates) {
-        try {
-            const r = await axios.post(
-                'https://api.groq.com/openai/v1/chat/completions',
-                { model, messages: [{ role: 'user', content: 'ok' }], max_tokens: 1 },
-                { headers: { 'Authorization': `Bearer ${GROQ_API_KEY}` }, timeout: 5000 }
-            );
-            if (r.status === 200) {
-                _vocabModelCache = model;
-                _vocabModelCacheAt = Date.now();
-                return model;
-            }
-        } catch (e) {
-            const s = e.response?.status;
-            if (s === 404) continue;
-        }
-    }
-    return null;
-}
-
 bot.command('vocab', async (ctx) => {
     const raw = ctx.message.text.replace('/vocab', '').trim();
-    if (!raw) return ctx.reply('Usage: /vocab <word>');
+    if (!raw) return ctx.reply('Usage: /vocab <word> [= translation]');
 
-    // Allow "word" or "word = translation"
-    let word = raw;
-    let providedTranslation = '';
+    // Support "word" or "word = user-supplied translation"
+    let userWord = raw;
+    let userTranslation = '';
     if (raw.includes('=')) {
         const parts = raw.split('=');
-        word = parts[0].trim();
-        providedTranslation = parts.slice(1).join('=').trim();
+        userWord = parts[0].trim();
+        userTranslation = parts.slice(1).join('=').trim();
     }
+    if (!userWord) return ctx.reply('Usage: /vocab <word>');
 
     const userId = ctx.from.id;
     const p = await getUserProfile(userId);
@@ -1851,49 +1824,57 @@ bot.command('vocab', async (ctx) => {
     const mediatorLang = p.mediatorLanguage || 'en';
     const mediatorName = _langCodeToName(mediatorLang);
 
-    const wait = await ctx.reply(`🔍 Looking up "${word}"…`);
+    const wait = await ctx.reply(`🔍 Looking up "${userWord}"…`);
+
+    let enriched = null;
+    let enrichError = null;
 
     try {
-        // ── AI enrichment ──
-        const prompt = `Return ONLY valid JSON for the ${targetLang} word/phrase "${word}":
-{
-  "word": "${word}",
-  "translation": "translation in ${mediatorName}",
-  "ipa": "/phonetic/",
-  "pos": "noun|verb|adj|adv|idiom|phrase",
-  "cefr": "A1|A2|B1|B2|C1|C2",
-  "example": "one natural example sentence in ${targetLang}",
-  "exampleTranslation": "that sentence translated to ${mediatorName}"
-}`;
+        const resp = await axios.post(`${API_BASE}/api/ai/enrich-word`, {
+            word: userWord,
+            targetLanguage: targetLang,
+            mediatorLanguage: mediatorLang,
+            userId: String(userId),
+        }, { timeout: 30000 });
 
-        let enriched = null;
-        const model = await _pickGroqModelForVocab();
-        if (model) {
-            try {
-                const r = await axios.post(
-                    'https://api.groq.com/openai/v1/chat/completions',
-                    {
-                        model,
-                        messages: [{ role: 'user', content: prompt }],
-                        temperature: 0.2,
-                        response_format: { type: 'json_object' },
-                        max_tokens: 300,
-                    },
-                    { headers: { 'Authorization': `Bearer ${GROQ_API_KEY}` }, timeout: 15000 }
-                );
-                enriched = JSON.parse(r.data.choices[0].message.content);
-            } catch (aiErr) {
-                console.warn('[/vocab] AI enrich failed:', aiErr.message);
-            }
+        if (resp.data?.success && resp.data.data) {
+            enriched = resp.data.data;
+        } else if (resp.data?.reason === 'not_a_word') {
+            enrichError = `"${userWord}" не распознано как слово в ${targetLang}.`;
+        } else {
+            enrichError = resp.data?.error || 'AI вернул пустой ответ.';
         }
+    } catch (e) {
+        enrichError = e.response?.data?.error || e.message;
+        console.error('[/vocab] enrich failed:', enrichError);
+    }
 
-        const finalWord = enriched?.word || word;
-        const finalTranslation = providedTranslation || enriched?.translation || '';
-        const finalIpa = enriched?.ipa || '';
-        const finalPos = enriched?.pos || 'noun';
-        const finalCefr = enriched?.cefr || p.currentLevel || 'B1';
-        const finalExample = enriched?.example || '';
+    // If AI failed completely — tell the user, offer a path forward
+    if (!enriched) {
+        try {
+            await ctx.telegram.editMessageText(
+                ctx.chat.id, wait.message_id, undefined,
+                `⚠️ Не удалось обогатить "${userWord}":\n${enrichError}\n\n` +
+                `Можно сохранить слово вручную с переводом:\n` +
+                `/vocab ${userWord} = <перевод в ${mediatorName}>`,
+                { parse_mode: 'Markdown' }
+            );
+        } catch {
+            await ctx.reply(`⚠️ Не удалось обогатить "${userWord}": ${enrichError}`);
+        }
+        return;
+    }
 
+    // Persist — enriched data always stored, translation always saved
+    // (UI may hide translation for B1+, but storage keeps it for later use)
+    const finalWord = enriched.word || userWord;
+    const finalTranslation = userTranslation || enriched.translation || '';
+    const finalIpa = enriched.ipa || '';
+    const finalPos = enriched.pos || 'noun';
+    const finalCefr = enriched.cefr || p.currentLevel || 'B1';
+    const finalExample = enriched.example || '';
+
+    try {
         await axios.post(`${API_BASE}/api/user/vocabulary`, {
             userId: String(userId),
             targetLanguage: targetLang,
@@ -1904,35 +1885,38 @@ bot.command('vocab', async (ctx) => {
             cefr: finalCefr,
             example: finalExample,
         }, { timeout: 10000 });
-
-        const lines = [
-            `✅ Saved *${finalWord}* to ${targetLang} vocabulary.`,
-            '',
-            finalTranslation ? `📖 Meaning (${mediatorName}): ${finalTranslation}` : '',
-            finalIpa ? `🔊 Pronunciation: \`${finalIpa}\`` : '',
-            `🏷 Part of speech: ${finalPos} • CEFR: ${finalCefr}`,
-            finalExample ? `✏️ Example: _${finalExample}_` : '',
-        ].filter(Boolean);
-
-        try {
-            await ctx.telegram.editMessageText(
-                ctx.chat.id, wait.message_id, undefined,
-                lines.join('\n'),
-                { parse_mode: 'Markdown' }
-            );
-        } catch {
-            await ctx.reply(lines.join('\n'));
-        }
     } catch (e) {
-        console.error('[/vocab] failed:', e.message);
+        console.error('[/vocab] save failed:', e.message);
         try {
             await ctx.telegram.editMessageText(
                 ctx.chat.id, wait.message_id, undefined,
-                `⚠️ Failed to save "${word}": ${e.message}`
+                `⚠️ AI обогатил слово, но сохранить не удалось: ${e.message}`
             );
         } catch {
-            await ctx.reply(`⚠️ Failed to save "${word}": ${e.message}`);
+            await ctx.reply(`⚠️ Save failed: ${e.message}`);
         }
+        return;
+    }
+
+    // Build response card
+    const lines = [
+        `✅ *${finalWord}* сохранено в словарь ${targetLang}.`,
+        '',
+        finalTranslation ? `📖 Перевод (${mediatorName}): ${finalTranslation}` : '',
+        finalIpa ? `🔊 Произношение: \`${finalIpa}\`` : '',
+        `🏷 Часть речи: ${finalPos} • CEFR: ${finalCefr}`,
+        finalExample ? `✏️ Пример: _${finalExample}_` : '',
+        (finalExample && enriched.exampleTranslation) ? `   _→ ${enriched.exampleTranslation}_` : '',
+    ].filter(Boolean);
+
+    try {
+        await ctx.telegram.editMessageText(
+            ctx.chat.id, wait.message_id, undefined,
+            lines.join('\n'),
+            { parse_mode: 'Markdown' }
+        );
+    } catch {
+        await ctx.reply(lines.join('\n'));
     }
 });
 

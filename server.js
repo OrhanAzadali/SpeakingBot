@@ -5794,6 +5794,102 @@ CRITICAL: Return ONLY raw JSON. No markdown fences, no text before or after. Sta
         res.json({ success: true, guide });
     }
 });
+// ═══════════════════════════════════════════════════════════════
+// AI WORD ENRICHMENT — single source of truth for /vocab from bot
+// and any other place that needs full linguistic metadata.
+// Routes through the 6-provider AI gateway (Gemini → OpenRouter →
+// Groq → DeepSeek → OpenAI → Anthropic) with BYOK support.
+// ═══════════════════════════════════════════════════════════════
+app.post("/api/ai/enrich-word", async (req, res) => {
+    try {
+        const {
+            word,
+            targetLanguage = "English",
+            mediatorLanguage = "en",
+            userId = "default-user",
+        } = req.body || {};
+
+        if (!word || typeof word !== "string" || word.trim().length === 0) {
+            return res.status(400).json({ success: false, error: "word is required" });
+        }
+        if (word.length > 120) {
+            return res.status(400).json({ success: false, error: "word too long" });
+        }
+
+        const mediatorName = langCodeToName(mediatorLanguage);
+        const targetName = langCodeToName(targetLanguage);
+
+        const prompt = `You are a lexicographer. Return ONLY a valid JSON object for the ${targetName} word/phrase "${word.trim()}".
+
+Required keys:
+{
+  "word": "canonical spelling in ${targetName} with correct capitalization (e.g. German nouns capitalized, Spanish lowercase)",
+  "translation": "translation into ${mediatorName}",
+  "ipa": "/IPA phonetic transcription/",
+  "pos": "one of: noun, verb, adjective, adverb, pronoun, preposition, conjunction, idiom, phrase, interjection",
+  "cefr": "one of: A1, A2, B1, B2, C1, C2",
+  "example": "one natural example sentence in ${targetName}",
+  "exampleTranslation": "that sentence translated into ${mediatorName}"
+}
+
+Rules:
+- If "${word}" is not a real word in ${targetName}, return: {"error": "not_a_word"}
+- Do NOT include commentary, markdown, or any text outside the JSON.
+- IPA must be accurate for ${targetName} pronunciation.
+- Capitalize the "word" field per ${targetName} orthography, even if the input was lowercase.`;
+
+        console.log(`[enrich-word] "${word}" → ${targetName} / ${mediatorName} (user: ${userId})`);
+
+        const raw = await callGeminiWithResilience(prompt, null, [], true, userId);
+        if (!raw) {
+            console.warn("[enrich-word] all providers returned null");
+            return res.status(502).json({
+                success: false,
+                error: "AI providers exhausted — try again in a moment",
+            });
+        }
+
+        const parsed = await repairJson(raw);
+        if (!parsed) {
+            console.warn("[enrich-word] JSON repair failed, raw:", raw.slice(0, 300));
+            return res.status(502).json({
+                success: false,
+                error: "AI returned malformed JSON",
+                rawPreview: raw.slice(0, 200),
+            });
+        }
+
+        if (parsed.error === "not_a_word") {
+            return res.json({ success: true, data: null, reason: "not_a_word" });
+        }
+
+        if (!parsed.word || !parsed.translation) {
+            console.warn("[enrich-word] missing required fields:", parsed);
+            return res.status(502).json({
+                success: false,
+                error: "AI response missing required fields",
+                parsed,
+            });
+        }
+
+        // Normalize
+        const enriched = {
+            word: String(parsed.word).trim(),
+            translation: String(parsed.translation).trim(),
+            ipa: String(parsed.ipa || "").trim(),
+            pos: String(parsed.pos || "noun").toLowerCase().trim(),
+            cefr: String(parsed.cefr || "B1").toUpperCase().trim(),
+            example: String(parsed.example || "").trim(),
+            exampleTranslation: String(parsed.exampleTranslation || "").trim(),
+        };
+
+        console.log(`[enrich-word] ✅ ${enriched.word} (${enriched.pos}, ${enriched.cefr}) = ${enriched.translation}`);
+        res.json({ success: true, data: enriched });
+    } catch (e) {
+        console.error("[enrich-word] failed:", e);
+        res.status(500).json({ success: false, error: e.message });
+    }
+});
 
 app.post("/api/gemini/tokenize", async (req, res) => {
     try {
