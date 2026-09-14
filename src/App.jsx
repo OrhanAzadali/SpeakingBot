@@ -211,7 +211,7 @@ function LoginGate({ onTelegramAuth }) {
           <p className="text-sm text-slate-300">Выберите способ входа:</p>
 
           <a
-            href={botInfo?.botLink || "https://t.me/SpeakBotBot"}
+            href={botInfo?.botLink || "https://t.me/@Speaking213_bot"}
             target="_blank"
             rel="noopener noreferrer"
             className="w-full inline-flex items-center justify-center gap-2 px-6 py-3 rounded-xl bg-gradient-to-r from-sky-600 to-indigo-600 hover:from-sky-500 hover:to-indigo-500 text-white font-bold text-sm transition-all active:scale-95 shadow-lg shadow-sky-600/20"
@@ -244,7 +244,7 @@ function LoginGate({ onTelegramAuth }) {
           💡 Вход сохраняется на этом устройстве. В дальнейшем вы будете автоматически авторизованы.
         </p>
       </div>
-    </div>
+    </div >
   );
 }
 

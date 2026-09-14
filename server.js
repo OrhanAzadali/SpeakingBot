@@ -3468,7 +3468,7 @@ app.get("/api/debug/reset-mediator-flags", async (req, res) => {
 // before it can even render a login screen.
 // ═══════════════════════════════════════════════════════════════
 app.get("/api/config/public", (req, res) => {
-    const botUsername = (process.env.TELEGRAM_BOT_USERNAME || "SpeakBotBot").replace(/^@/, "");
+    const botUsername = (process.env.TELEGRAM_BOT_USERNAME || "@Speaking213_bot").replace(/^@/, "");
     res.json({
         botUsername,
         botLink: `https://t.me/${botUsername}`,
