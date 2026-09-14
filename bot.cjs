@@ -1684,10 +1684,16 @@ bot.command('speak', async (ctx) => {
             userLevel: p.currentLevel,
             mediatorLanguage: p.mediatorLanguage,
             count: 5,
-        }, { timeout: 60000 });
+        }, { timeout: 90000 });   // ← 90s, чтобы 3 попытки AI успели
 
-        if (!data.success || !data.test?.prompts?.length) {
-            return ctx.reply('Failed to generate speaking prompts.');
+        if (!data?.success || !data?.test?.prompts?.length) {
+            const reason = data?.error || 'unknown';
+            console.warn('[/speak] endpoint returned failure:', JSON.stringify(data).slice(0, 300));
+            return ctx.reply(
+                `⚠️ Не удалось сгенерировать speaking prompts.\n\n` +
+                `Причина: ${reason}\n\n` +
+                `Попробуй ещё раз через минуту.`
+            );
         }
 
         skillTestState[userId] = {
@@ -1701,8 +1707,36 @@ bot.command('speak', async (ctx) => {
 
         await sendNextSpeakingPrompt(ctx);
     } catch (e) {
-        console.error('speak test error:', e.message);
-        ctx.reply('Failed to start speaking test.');
+        // Log the full response if it's an axios error
+        const status = e.response?.status;
+        const bodyPreview = e.response?.data
+            ? JSON.stringify(e.response.data).slice(0, 300)
+            : '(no body)';
+
+        console.error('[/speak] request failed:', {
+            message: e.message,
+            status,
+            bodyPreview,
+        });
+
+        if (status === 502) {
+            return ctx.reply(
+                `⚠️ AI не смог сгенерировать prompts после 3 попыток.\n\n` +
+                `Попробуй через 30 секунд, обычно со второго раза получается.`
+            );
+        }
+        if (status === 404) {
+            return ctx.reply(
+                `⚠️ Endpoint не найден (404).\n\n` +
+                `Возможно, сервер ещё не задеплоен полностью. Подожди 2 минуты.`
+            );
+        }
+
+        return ctx.reply(
+            `⚠️ Ошибка при старте теста.\n\n` +
+            `Status: ${status || 'network'}\n` +
+            `Message: ${e.message.slice(0, 200)}`
+        );
     }
 });
 

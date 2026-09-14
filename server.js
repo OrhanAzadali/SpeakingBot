@@ -5432,18 +5432,9 @@ app.post("/api/tests/generate-speaking-prompts", async (req, res) => {
         const mediatorName = langCodeToName(mediatorLanguage);
         const targetName = langCodeToName(targetLanguage);
 
-        const prompt = `You are designing a SPOKEN ${targetName} test for a CEFR ${userLevel} learner.
-Generate exactly ${count} OPEN speaking prompts. The learner will answer each aloud.
+        const prompt = `Design a SPOKEN ${targetName} test for a CEFR ${userLevel} learner.
 
-Rules:
-- Each prompt must be an OPEN question / scenario / task — NOT multiple choice.
-- Length appropriate for CEFR ${userLevel} (A1: 1 simple sentence; C1: complex debate topic).
-- Vary the topic: daily life, opinion, description, past experience, plans.
-- Provide a rough time budget for each (15s / 30s / 60s).
-- Do NOT repeat any of these previously used prompts:
-  ${JSON.stringify(previousPrompts.slice(-15))}
-
-Return ONLY valid JSON:
+Return a JSON object with EXACTLY this shape — no extra commentary, no markdown:
 {
   "skill": "speaking",
   "level": "${userLevel}",
@@ -5451,23 +5442,63 @@ Return ONLY valid JSON:
   "prompts": [
     {
       "id": "sp1",
-      "prompt": "question/scenario in ${targetName}",
-      "promptTranslation": "translation to ${mediatorName}",
+      "prompt": "an open spoken question in ${targetName}",
+      "promptTranslation": "its translation in ${mediatorName}",
       "timeBudgetSec": 30,
-      "expectedElements": ["sub-point 1", "sub-point 2"]
+      "expectedElements": ["thing to mention", "another thing"]
     }
   ]
-}`;
+}
 
-        const raw = await callGeminiWithResilience(prompt, null, [], true, userId);
-        const parsed = raw ? await repairJson(raw) : null;
+STRICT RULES:
+- Provide EXACTLY ${count} prompts in the "prompts" array.
+- Prompts must be OPEN (a question or task), NEVER multiple choice.
+- Appropriate difficulty for ${userLevel}.
+- "prompt" text MUST be in ${targetName}.
+- "promptTranslation" MUST be in ${mediatorName}.
+- "timeBudgetSec" is a number: 15, 30, 45, or 60.
+- "expectedElements" has 2–4 short phrases.
+- Do NOT repeat these past prompts: ${JSON.stringify((previousPrompts || []).slice(-15))}
 
-        if (!parsed || !Array.isArray(parsed.prompts) || parsed.prompts.length === 0) {
-            return res.status(502).json({ success: false, error: "AI failed to generate speaking prompts" });
+Return ONLY the JSON object. Begin with { and end with }.`;
+
+        let parsed = null;
+        let lastRaw = null;
+
+        // ── Try up to 3 times ──
+        for (let attempt = 1; attempt <= 3 && !parsed; attempt++) {
+            console.log(`[SpeakingPrompts] attempt ${attempt}/3 (user ${userId}, level ${userLevel}, target ${targetName})`);
+            const raw = await callGeminiWithResilience(prompt, null, [], true, userId);
+            lastRaw = raw;
+
+            if (!raw) {
+                console.warn(`[SpeakingPrompts] attempt ${attempt}: AI returned null`);
+                continue;
+            }
+
+            const candidate = await repairJson(raw);
+            if (!candidate) {
+                console.warn(`[SpeakingPrompts] attempt ${attempt}: JSON repair failed. Raw head:`, raw.slice(0, 200));
+                continue;
+            }
+            if (!Array.isArray(candidate.prompts) || candidate.prompts.length === 0) {
+                console.warn(`[SpeakingPrompts] attempt ${attempt}: no prompts array. Keys:`, Object.keys(candidate));
+                continue;
+            }
+            parsed = candidate;
         }
 
-        // Normalize
-        parsed.prompts = parsed.prompts.slice(0, count).map((p, i) => ({
+        if (!parsed) {
+            console.error("[SpeakingPrompts] all 3 attempts failed. Last raw head:", (lastRaw || '').slice(0, 300));
+            return res.status(502).json({
+                success: false,
+                error: "AI failed to generate valid speaking prompts after 3 attempts",
+                rawPreview: (lastRaw || '').slice(0, 200),
+            });
+        }
+
+        // ── Normalize + guarantee count ──
+        let prompts = parsed.prompts.slice(0, count).map((p, i) => ({
             id: p.id || `sp${i + 1}`,
             prompt: String(p.prompt || '').trim(),
             promptTranslation: String(p.promptTranslation || '').trim(),
@@ -5475,7 +5506,22 @@ Return ONLY valid JSON:
             expectedElements: Array.isArray(p.expectedElements) ? p.expectedElements.slice(0, 5) : [],
         }));
 
-        res.json({ success: true, test: parsed });
+        // Drop entries with empty prompt
+        prompts = prompts.filter((p) => p.prompt.length > 0);
+
+        if (prompts.length === 0) {
+            return res.status(502).json({ success: false, error: "All prompts were empty after normalization" });
+        }
+
+        res.json({
+            success: true,
+            test: {
+                skill: 'speaking',
+                level: parsed.level || userLevel,
+                targetLanguage: parsed.targetLanguage || targetName,
+                prompts,
+            },
+        });
     } catch (err) {
         console.error("[SpeakingPrompts] Error:", err);
         res.status(500).json({ success: false, error: err.message });
