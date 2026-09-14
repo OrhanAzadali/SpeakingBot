@@ -5814,9 +5814,12 @@ Schema:
         if (req.query.format === 'pdf' || req.body.format === 'pdf') {
             const buffer = generateRoadmapPdfBuffer(roadmap);
             const filename = `roadmap-${Date.now()}.pdf`;
-            const result = await savePdfToSupabase(buffer, filename, userId || 'default-user', 'roadmap');
-            if (result.url) return res.json({ success: true, pdfUrl: result.url, filename });
+
             sendPdf(res, buffer, filename);
+
+            savePdfToSupabase(buffer, filename, userId || 'default-user', 'roadmap')
+                .catch((e) => console.warn('[roadmap] Supabase archive failed:', e.message));
+
             return;
         }
         saveUsersToDisk();
@@ -5885,6 +5888,83 @@ Schema:
             req.body.mediatorLanguage || "en"
         );
         res.json({ success: true, roadmap });
+    }
+});
+// ═══════════════════════════════════════════════════════════════
+// GENERIC STRUCTURED CONTENT — for PDF fallback when the
+// specialised endpoints fail. Uses the AI gateway directly,
+// NOT the conversational tutor. Always returns clean JSON.
+// ═══════════════════════════════════════════════════════════════
+app.post("/api/gemini/generate-structured-content", async (req, res) => {
+    try {
+        const {
+            userId = "default-user",
+            type = "grammar",
+            topic = "General",
+            targetLanguage = "English",
+            userLevel = "B1",
+            mediatorLanguage = "en",
+        } = req.body || {};
+
+        const mediatorName = langCodeToName(mediatorLanguage);
+        const targetName = langCodeToName(targetLanguage);
+
+        // Shape depends on type
+        let schemaHint;
+        if (type === 'roadmap') {
+            schemaHint = `{
+  "title": "...",
+  "level": "${userLevel}",
+  "summary": "3-4 sentences in ${mediatorName}",
+  "milestones": [
+    { "step": 1, "title": "...", "description": "in ${mediatorName}", "grammarPoint": "...", "sampleSentence": "in ${targetName}" }
+  ],
+  "checkpointQuestions": [
+    { "question": "in ${mediatorName}", "options": ["A","B","C","D"], "correctIndex": 0, "explanation": "in ${mediatorName}" }
+  ]
+}`;
+        } else {
+            schemaHint = `{
+  "title": "...",
+  "level": "${userLevel}",
+  "summary": "3-4 sentences in ${mediatorName}",
+  "coreRules": [
+    { "ruleTitle": "...", "explanationInMediator": "in ${mediatorName}", "formula": "...", "example": "in ${targetName}" }
+  ],
+  "commonMistakes": [
+    { "incorrect": "...", "correct": "...", "reason": "in ${mediatorName}" }
+  ],
+  "practiceExercises": [
+    { "instruction": "in ${mediatorName}", "question": "in ${targetName}", "options": ["A","B","C","D"], "correctIndex": 0, "explanation": "in ${mediatorName}" }
+  ]
+}`;
+        }
+
+        const prompt = `You are a curriculum designer. Generate structured ${type} material in ${targetName} at CEFR ${userLevel} on topic "${topic}".
+
+Explanations and reasoning must be in ${mediatorName}. Target-language examples and questions must be in ${targetName}.
+
+Return ONLY valid JSON in this exact shape:
+${schemaHint}
+
+Rules:
+- Minimum 4 coreRules / milestones.
+- Minimum 4 commonMistakes / checkpointQuestions.
+- Minimum 4 practiceExercises.
+- No markdown, no commentary outside JSON.
+- Begin with { and end with }.`;
+
+        const raw = await callGeminiWithResilience(prompt, null, [], true, userId);
+        const parsed = raw ? await repairJson(raw) : null;
+
+        if (!parsed) {
+            return res.status(502).json({ success: false, error: "AI returned malformed JSON" });
+        }
+
+        res.json({ success: true, content: parsed, type });
+    } catch (err) {
+        console.error("[generate-structured-content] failed:", err);
+        res.status(500).json({ success: false, error: err.message });
     }
 });
 
@@ -5969,9 +6049,15 @@ CRITICAL: Return ONLY raw JSON. No markdown fences, no text before or after. Sta
         if (req.query.format === 'pdf' || req.body.format === 'pdf') {
             const buffer = generateGrammarGuidePdfBuffer(guide);
             const filename = `grammar-guide-${Date.now()}.pdf`;
-            const result = await savePdfToSupabase(buffer, filename, userId || 'default-user', 'grammar');
-            if (result.url) return res.json({ success: true, pdfUrl: result.url, filename });
+
+            // Always return binary PDF to the caller (bot or web).
+            // Supabase upload is fire-and-forget for archival — never blocks the response.
             sendPdf(res, buffer, filename);
+
+            // Archive to Supabase in background (non-blocking). Failure is fine.
+            savePdfToSupabase(buffer, filename, userId || 'default-user', 'grammar')
+                .catch((e) => console.warn('[grammar-guide] Supabase archive failed:', e.message));
+
             return;
         }
         saveUsersToDisk();

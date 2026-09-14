@@ -139,6 +139,15 @@ async function saveUser(userId, user) {
 
 // ==================== CONFIG ====================
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
+const GROQ_API_KEY = process.env.GROQ_API_KEY;
+const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
+
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
+const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
+const DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY;
+const UPSTASH_REDIS_TOKEN = process.env.UPSTASH_REDIS_TOKEN;
+const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
+
 const DEFAULT_API_BASE = 'https://speakingbot.onrender.com';
 
 function resolveApiBase() {
@@ -813,14 +822,22 @@ async function generatePdf(type, userId, targetLang, level, mediatorLang = 'en',
             } catch { /* not JSON */ }
 
             if (json?.pdfUrl) {
-                const dl = await axios.get(json.pdfUrl, { responseType: 'arraybuffer', timeout: 30000 });
+                // Support both absolute (Supabase) and relative (/api/pdfs/...) URLs
+                let dlUrl = json.pdfUrl;
+                if (!/^https?:\/\//i.test(dlUrl)) {
+                    dlUrl = `${API_BASE}${dlUrl.startsWith('/') ? '' : '/'}${dlUrl}`;
+                }
+                const dl = await axios.get(dlUrl, {
+                    responseType: 'arraybuffer',
+                    timeout: 30000,
+                });
                 const filePath = path.join(TEMP_DIR, `speakbot_${type}_${Date.now()}.pdf`);
                 fs.writeFileSync(filePath, Buffer.from(dl.data));
                 return filePath;
             }
 
             const inner = json?.guide || json?.roadmap || json?.story || json?.data || json;
-            if (inner && typeof inner === 'object') {
+            if (inner && typeof inner === 'object' && !inner.text) {
                 // Server ignored format:'pdf' — build locally from structured data
                 return await generateStructuredPDF(
                     inner,
@@ -833,14 +850,48 @@ async function generatePdf(type, userId, targetLang, level, mediatorLang = 'en',
         }
     }
 
-    // ── Fallback: ask AI directly and build PDF locally ──
-    const aiPrompt = `Generate ${type} material on "${topic}" for ${targetLang} at CEFR ${level}. Return ONLY JSON: {title, summary, coreRules or milestones or exercises}.`;
-    const aiResponse = await getTutorResponse(userId, aiPrompt, targetLang, mediatorLang, level);
-    let data;
-    try { data = JSON.parse(aiResponse); } catch { data = { text: aiResponse }; }
-    return await generateStructuredPDF(data, `speakbot_${type}_fallback_${Date.now()}`, type.toUpperCase() + ' Guide');
-}
+    // ── Fallback: ask the AI gateway DIRECTLY for structured JSON ──
+    // Do NOT use getTutorResponse (that's the conversational tutor, mode=language,
+    // it will refuse to output structured content and give a chat-style reply).
+    // Instead, hit the server's generic JSON generator endpoint.
+    try {
+        const { data } = await axios.post(`${API_BASE}/api/gemini/generate-structured-content`, {
+            userId: String(userId),
+            type,
+            topic,
+            targetLanguage: targetLang,
+            userLevel: level,
+            mediatorLanguage: mediatorLang,
+        }, { timeout: 60000 });
 
+        const inner = data?.content || data?.guide || data?.roadmap || data;
+        if (inner && typeof inner === 'object') {
+            return await generateStructuredPDF(
+                inner,
+                `speakbot_${type}_fallback_${Date.now()}`,
+                type.toUpperCase() + ' Guide'
+            );
+        }
+    } catch (e2) {
+        console.error(`PDF structured fallback failed for ${type}:`, e2.message);
+    }
+
+    // ── Absolute last resort: minimal placeholder PDF ──
+    return await generateStructuredPDF(
+        {
+            title: `${type.toUpperCase()} — ${topic || 'General'}`,
+            summary: `Не удалось сгенерировать содержимое для "${topic || 'General'}". Попробуйте ещё раз.`,
+            coreRules: [{
+                ruleTitle: 'Temporary issue',
+                explanationInMediator: `Сервер не ответил. Повторите команду через минуту.`,
+                formula: '—',
+                example: '',
+            }],
+        },
+        `speakbot_${type}_placeholder_${Date.now()}`,
+        type.toUpperCase() + ' Guide'
+    );
+}
 // ==================== SYNC / INTENT ====================
 async function syncUser(telegramId, username, language = 'en') {
     axios.post(`${API_BASE} /api/bot / sync`, {
