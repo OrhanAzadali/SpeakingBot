@@ -1275,6 +1275,61 @@ function looksLikeLanguageRequest(text) {
 
     return false;
 }
+// ────────────────────────────────────────────────────────────
+// Safe Markdown reply.
+// Telegram rejects the whole message with 400 "can't parse entities"
+// if the text contains unbalanced * _ ` [ — the AI sometimes generates
+// these in /grammar, /roadmap and other long outputs.
+// This helper retries as plain text so nothing gets lost.
+// ────────────────────────────────────────────────────────────
+function sanitizeBrokenMarkdown(text) {
+    if (!text || typeof text !== 'string') return text;
+    let s = text;
+    // Remove bold markers entirely (safest — no re-balancing needed)
+    s = s.replace(/\*\*(.+?)\*\*/g, '$1');
+    s = s.replace(/__(.+?)__/g, '$1');
+    // Remove inline code fences
+    s = s.replace(/```[\s\S]*?```/g, (m) => m.replace(/```/g, '').trim());
+    // Inline code → plain
+    s = s.replace(/`([^`]+)`/g, '$1');
+    // Remove any leftover lone * or _ that Telegram would try to parse
+    s = s.replace(/(^|[^\w*])\*(?=\S)/g, '$1');
+    s = s.replace(/(^|[^\w_])_(?=\S)/g, '$1');
+    // Remove malformed link brackets [text](url) → just text
+    s = s.replace(/\[([^\]]+)\]\([^)]*\)/g, '$1');
+    // Remove any remaining lone [ or ] that could start an entity
+    s = s.replace(/\[(?![^\]]*\])/g, '');
+    return s;
+}
+
+async function safeMarkdownReply(ctx, text, opts = {}) {
+    // Attempt 1 — as requested by caller
+    try {
+        return await ctx.reply(text, opts);
+    } catch (e) {
+        const isParseError = /can'?t parse entities|can'?t find end of the entity/i.test(e.message || '');
+        if (!isParseError) throw e;
+
+        console.warn('[safeMarkdownReply] Markdown parse failed, retrying as plain text:', e.message);
+    }
+
+    // Attempt 2 — sanitized, no parse_mode
+    try {
+        const clean = sanitizeBrokenMarkdown(text);
+        const fallbackOpts = { ...opts };
+        delete fallbackOpts.parse_mode;
+        return await ctx.reply(clean, fallbackOpts);
+    } catch (e2) {
+        console.error('[safeMarkdownReply] fallback also failed:', e2.message);
+        // Attempt 3 — plain text, truncated, no options at all
+        try {
+            return await ctx.reply(String(text).slice(0, 4000));
+        } catch (e3) {
+            console.error('[safeMarkdownReply] final fallback failed:', e3.message);
+            throw e3;
+        }
+    }
+}
 // ==================== COMMANDS ====================
 bot.start(async (ctx) => {
     const userId = ctx.from.id;
@@ -1475,12 +1530,11 @@ bot.command('grammar', async (ctx) => {
         lines.push('_Full PDF: /grammar_pdf ' + topic + '_');
 
         const text = lines.join('\n');
-        // Telegram limit 4096 chars per message
         if (text.length > 4000) {
-            await ctx.reply(text.slice(0, 4000), { parse_mode: 'Markdown' });
-            await ctx.reply(text.slice(4000), { parse_mode: 'Markdown' });
+            await safeMarkdownReply(ctx, text.slice(0, 4000), { parse_mode: 'Markdown' });
+            await safeMarkdownReply(ctx, text.slice(4000), { parse_mode: 'Markdown' });
         } else {
-            await ctx.reply(text, { parse_mode: 'Markdown' });
+            await safeMarkdownReply(ctx, text, { parse_mode: 'Markdown' });
         }
     } catch (e) {
         console.error('grammar error:', e.message);
@@ -1530,11 +1584,12 @@ bot.command('roadmap', async (ctx) => {
         lines.push('_Full PDF: /roadmap_pdf ' + topic + '_');
 
         const text = lines.join('\n');
+        // Telegram limit 4096 chars per message
         if (text.length > 4000) {
-            await ctx.reply(text.slice(0, 4000), { parse_mode: 'Markdown' });
-            await ctx.reply(text.slice(4000), { parse_mode: 'Markdown' });
+            await safeMarkdownReply(ctx, text.slice(0, 4000), { parse_mode: 'Markdown' });
+            await safeMarkdownReply(ctx, text.slice(4000), { parse_mode: 'Markdown' });
         } else {
-            await ctx.reply(text, { parse_mode: 'Markdown' });
+            await safeMarkdownReply(ctx, text, { parse_mode: 'Markdown' });
         }
     } catch (e) {
         console.error('roadmap error:', e.message);
@@ -1613,10 +1668,55 @@ bot.command('skilltest', async (ctx) => {
         ctx.reply('Failed to start skill test.');
     }
 });
+// ────────────────────────────────────────────────────────────
+// /cancel /resume /abort — pause and resume skill tests
+// ────────────────────────────────────────────────────────────
+bot.command('cancel', async (ctx) => {
+    const userId = ctx.from.id;
+    if (skillTestState[userId]) {
+        skillTestState[userId].paused = true;
+        skillTestState[userId].pausedAt = Date.now();
+        const st = skillTestState[userId];
+        return ctx.reply(
+            `⏸ Skill test paused.\n\n` +
+            `Progress saved: Q${st.step + 1}/${st.questions.length}\n\n` +
+            `• /resume — continue where you stopped\n` +
+            `• /abort — discard this test`
+        );
+    }
+    return ctx.reply('No active test to cancel.');
+});
 
+bot.command('resume', async (ctx) => {
+    const userId = ctx.from.id;
+    const state = skillTestState[userId];
+    if (!state) return ctx.reply('No paused test found.');
+    if (!state.paused) return ctx.reply('Your test is not paused. Just answer with 1-4.');
+
+    state.paused = false;
+    delete state.pausedAt;
+    await ctx.reply(`▶️ Resuming ${state.skill} test at Q${state.step + 1}/${state.questions.length}.`);
+    return sendNextQuestion(ctx);
+});
+
+bot.command('abort', async (ctx) => {
+    const userId = ctx.from.id;
+    if (!skillTestState[userId]) return ctx.reply('No active test.');
+    const skill = skillTestState[userId].skill;
+    delete skillTestState[userId];
+    return ctx.reply(`🗑 ${skill} test discarded.`);
+});
 async function sendNextQuestion(ctx) {
     const userId = ctx.from.id;
     const state = skillTestState[userId];
+    if (!state) return;
+
+    if (state.paused) {
+        return ctx.reply(
+            `⏸ Test is paused (Q${state.step + 1}/${state.questions.length}).\n` +
+            `Use /resume to continue or /abort to discard.`
+        );
+    }
     if (!state) return;
 
     if (state.step >= state.questions.length) {
@@ -1681,14 +1781,159 @@ bot.action('back_to_main', async (ctx) => {
     ]));
 });
 
+// ─── local helper: language code → full name ───
+function _langCodeToName(code) {
+    if (!code) return "English";
+    const c = String(code).toLowerCase().trim();
+    const map = {
+        en: "English", english: "English",
+        ru: "Russian", russian: "Russian", "русский": "Russian",
+        az: "Azerbaijani", azerbaijani: "Azerbaijani", azeri: "Azerbaijani",
+        "azərbaycan": "Azerbaijani",
+        tr: "Turkish", turkish: "Turkish", "türkçe": "Turkish",
+        de: "German", german: "German", deutsch: "German",
+        es: "Spanish", spanish: "Spanish", "español": "Spanish",
+        fr: "French", french: "French", "français": "French",
+        it: "Italian", italian: "Italian", italiano: "Italian",
+    };
+    return map[c] || (code.charAt(0).toUpperCase() + code.slice(1));
+}
+
+// ─── local helper: pick a working Groq model (no PATCH 25 needed) ───
+let _vocabModelCache = null;
+let _vocabModelCacheAt = 0;
+async function _pickGroqModelForVocab() {
+    if (_vocabModelCache && Date.now() - _vocabModelCacheAt < 30 * 60_000) {
+        return _vocabModelCache;
+    }
+    const candidates = [
+        'llama-3.3-70b-versatile',
+        'llama-3.1-70b-versatile',
+        'llama-3.1-8b-instant',
+        'gemma2-9b-it',
+    ];
+    for (const model of candidates) {
+        try {
+            const r = await axios.post(
+                'https://api.groq.com/openai/v1/chat/completions',
+                { model, messages: [{ role: 'user', content: 'ok' }], max_tokens: 1 },
+                { headers: { 'Authorization': `Bearer ${GROQ_API_KEY}` }, timeout: 5000 }
+            );
+            if (r.status === 200) {
+                _vocabModelCache = model;
+                _vocabModelCacheAt = Date.now();
+                return model;
+            }
+        } catch (e) {
+            const s = e.response?.status;
+            if (s === 404) continue;
+        }
+    }
+    return null;
+}
+
 bot.command('vocab', async (ctx) => {
-    const word = ctx.message.text.split(' ')[1];
-    if (!word) return ctx.reply('Usage: /vocab <word>');
-    const p = await getUserProfile(ctx.from.id);
+    const raw = ctx.message.text.replace('/vocab', '').trim();
+    if (!raw) return ctx.reply('Usage: /vocab <word>');
+
+    // Allow "word" or "word = translation"
+    let word = raw;
+    let providedTranslation = '';
+    if (raw.includes('=')) {
+        const parts = raw.split('=');
+        word = parts[0].trim();
+        providedTranslation = parts.slice(1).join('=').trim();
+    }
+
+    const userId = ctx.from.id;
+    const p = await getUserProfile(userId);
+    const targetLang = p.targetLanguage || 'English';
+    const mediatorLang = p.mediatorLanguage || 'en';
+    const mediatorName = _langCodeToName(mediatorLang);
+
+    const wait = await ctx.reply(`🔍 Looking up "${word}"…`);
+
     try {
-        await axios.post(`${API_BASE}/api/user/vocabulary`, { userId: ctx.from.id, targetLanguage: p.targetLanguage, word, translation: '' }, { timeout: 8000 });
-        ctx.reply(`Saved "${word}".`);
-    } catch (e) { ctx.reply('Failed.'); }
+        // ── AI enrichment ──
+        const prompt = `Return ONLY valid JSON for the ${targetLang} word/phrase "${word}":
+{
+  "word": "${word}",
+  "translation": "translation in ${mediatorName}",
+  "ipa": "/phonetic/",
+  "pos": "noun|verb|adj|adv|idiom|phrase",
+  "cefr": "A1|A2|B1|B2|C1|C2",
+  "example": "one natural example sentence in ${targetLang}",
+  "exampleTranslation": "that sentence translated to ${mediatorName}"
+}`;
+
+        let enriched = null;
+        const model = await _pickGroqModelForVocab();
+        if (model) {
+            try {
+                const r = await axios.post(
+                    'https://api.groq.com/openai/v1/chat/completions',
+                    {
+                        model,
+                        messages: [{ role: 'user', content: prompt }],
+                        temperature: 0.2,
+                        response_format: { type: 'json_object' },
+                        max_tokens: 300,
+                    },
+                    { headers: { 'Authorization': `Bearer ${GROQ_API_KEY}` }, timeout: 15000 }
+                );
+                enriched = JSON.parse(r.data.choices[0].message.content);
+            } catch (aiErr) {
+                console.warn('[/vocab] AI enrich failed:', aiErr.message);
+            }
+        }
+
+        const finalWord = enriched?.word || word;
+        const finalTranslation = providedTranslation || enriched?.translation || '';
+        const finalIpa = enriched?.ipa || '';
+        const finalPos = enriched?.pos || 'noun';
+        const finalCefr = enriched?.cefr || p.currentLevel || 'B1';
+        const finalExample = enriched?.example || '';
+
+        await axios.post(`${API_BASE}/api/user/vocabulary`, {
+            userId: String(userId),
+            targetLanguage: targetLang,
+            word: finalWord,
+            translation: finalTranslation,
+            ipa: finalIpa,
+            pos: finalPos,
+            cefr: finalCefr,
+            example: finalExample,
+        }, { timeout: 10000 });
+
+        const lines = [
+            `✅ Saved *${finalWord}* to ${targetLang} vocabulary.`,
+            '',
+            finalTranslation ? `📖 Meaning (${mediatorName}): ${finalTranslation}` : '',
+            finalIpa ? `🔊 Pronunciation: \`${finalIpa}\`` : '',
+            `🏷 Part of speech: ${finalPos} • CEFR: ${finalCefr}`,
+            finalExample ? `✏️ Example: _${finalExample}_` : '',
+        ].filter(Boolean);
+
+        try {
+            await ctx.telegram.editMessageText(
+                ctx.chat.id, wait.message_id, undefined,
+                lines.join('\n'),
+                { parse_mode: 'Markdown' }
+            );
+        } catch {
+            await ctx.reply(lines.join('\n'));
+        }
+    } catch (e) {
+        console.error('[/vocab] failed:', e.message);
+        try {
+            await ctx.telegram.editMessageText(
+                ctx.chat.id, wait.message_id, undefined,
+                `⚠️ Failed to save "${word}": ${e.message}`
+            );
+        } catch {
+            await ctx.reply(`⚠️ Failed to save "${word}": ${e.message}`);
+        }
+    }
 });
 
 // TTS
@@ -1895,9 +2140,15 @@ bot.on('message', async (ctx) => {
     if (ctx.message.text && ctx.message.text.startsWith('/')) return;
 
     // Skill test answer
+    // Skill test answer
     if (skillTestState[ctx.from.id] && ctx.message.text && /^\d+$/.test(ctx.message.text)) {
         const userId = ctx.from.id;
         const state = skillTestState[userId];
+
+        if (state.paused) {
+            return ctx.reply('Use /resume to continue or /abort to discard.');
+        }
+
         const q = state.questions[state.step];
         const answerIndex = parseInt(ctx.message.text) - 1;
 
