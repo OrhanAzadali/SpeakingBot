@@ -3462,6 +3462,110 @@ app.get("/api/debug/reset-mediator-flags", async (req, res) => {
     if (typeof saveStoriesToSupabase === "function") saveStoriesToSupabase().catch(() => { });
     res.json({ success: true, reset: count, targetMediator: target });
 });
+
+// ═══════════════════════════════════════════════════════════════
+// PUBLIC CONFIG — exposes non-secret values the web client needs
+// before it can even render a login screen.
+// ═══════════════════════════════════════════════════════════════
+app.get("/api/config/public", (req, res) => {
+    const botUsername = (process.env.TELEGRAM_BOT_USERNAME || "SpeakBotBot").replace(/^@/, "");
+    res.json({
+        botUsername,
+        botLink: `https://t.me/${botUsername}`,
+        appName: "SpeakBot",
+    });
+});
+
+// ═══════════════════════════════════════════════════════════════
+// TELEGRAM LOGIN WIDGET verification.
+// Adds a NEW login method. Does NOT touch any existing endpoint,
+// does NOT touch BYOK, does NOT change how Mini App identity works.
+//
+// Future providers drop in with the same pattern:
+//   POST /api/auth/{provider}
+//     → verify payload with provider-specific secret
+//     → resolve internal userId
+//     → return { success, userId, profile }
+// ═══════════════════════════════════════════════════════════════
+app.post("/api/auth/telegram-widget", (req, res) => {
+    try {
+        const data = req.body || {};
+        const { hash, ...fields } = data;
+
+        if (!hash || !fields.id) {
+            return res.status(400).json({ success: false, error: "Missing hash or id" });
+        }
+
+        // Reject stale auth_date (>24h) — protects against replay
+        if (fields.auth_date && (Date.now() / 1000 - Number(fields.auth_date)) > 86400) {
+            return res.status(401).json({ success: false, error: "Auth data expired" });
+        }
+
+        const botToken = process.env.TELEGRAM_BOT_TOKEN;
+        if (!botToken) {
+            return res.status(500).json({ success: false, error: "Bot token not configured" });
+        }
+
+        // Per Telegram spec:
+        //   secret_key = SHA256(bot_token)
+        //   data_check_string = sorted "key=value" joined by \n
+        //   expected = HMAC_SHA256(data_check_string, secret_key).hex
+        const dataCheckString = Object.keys(fields)
+            .sort()
+            .map((k) => `${k}=${fields[k]}`)
+            .join("\n");
+
+        const secretKey = crypto.createHash("sha256").update(botToken).digest();
+        const expectedHash = crypto
+            .createHmac("sha256", secretKey)
+            .update(dataCheckString)
+            .digest("hex");
+
+        // Timing-safe comparison
+        const hashBuf = Buffer.from(hash, "hex");
+        const expBuf = Buffer.from(expectedHash, "hex");
+        if (hashBuf.length !== expBuf.length || !crypto.timingSafeEqual(hashBuf, expBuf)) {
+            return res.status(401).json({ success: false, error: "Invalid hash" });
+        }
+
+        // Verified — resolve userId (same as Telegram Mini App uses)
+        const userId = String(fields.id);
+
+        // Hydrate profile — identical to /api/user/profile logic
+        if (!syncedUsersDatabase[userId]) {
+            syncedUsersDatabase[userId] = JSON.parse(JSON.stringify(syncedUsersDatabase["default-user"]));
+            syncedUsersDatabase[userId].userId = userId;
+        }
+        const user = syncedUsersDatabase[userId];
+        ensureLevelsByLanguage(user);
+        applyLevelsToMirrors(user, user.targetLanguage || "English");
+
+        // Mirror to Redis so bot sees the same state
+        if (redis) {
+            redis.set(`spk:user:${userId}`, JSON.stringify(user), "EX", 86400 * 30).catch(() => { });
+        }
+
+        console.log(`[Auth/TelegramWidget] verified user ${userId} (@${fields.username || "n/a"})`);
+
+        res.json({
+            success: true,
+            userId,
+            provider: "telegram-widget",
+            profile: user,
+            telegram: {
+                id: fields.id,
+                first_name: fields.first_name,
+                last_name: fields.last_name || null,
+                username: fields.username || null,
+                photo_url: fields.photo_url || null,
+                auth_date: fields.auth_date,
+            },
+        });
+    } catch (e) {
+        console.error("[Auth/TelegramWidget] failed:", e);
+        res.status(500).json({ success: false, error: e.message });
+    }
+});
 // =====================================================
 // ROUTE: HEALTH
 // =====================================================
@@ -4319,16 +4423,53 @@ app.post("/api/stories/progress", (req, res) => {
 // =====================================================
 // ROUTE: USER PROFILE
 // =====================================================
-app.get("/api/user/profile", (req, res) => {
-    const userId = String(req.query.userId || "default-user");
-    if (!syncedUsersDatabase[userId]) {
-        syncedUsersDatabase[userId] = JSON.parse(JSON.stringify(syncedUsersDatabase["default-user"]));
-        syncedUsersDatabase[userId].userId = userId;
+app.get("/api/user/profile", async (req, res) => {
+    try {
+        const userId = String(req.query.userId || "default-user");
+
+        // 1. Memory first
+        if (!syncedUsersDatabase[userId]) {
+            // 2. Try Redis
+            let hydrated = null;
+            if (redis) {
+                try {
+                    const raw = await Promise.race([
+                        redis.get(`spk:user:${userId}`),
+                        new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 4000)),
+                    ]);
+                    if (raw) hydrated = JSON.parse(raw);
+                } catch { /* ignore */ }
+            }
+
+            // 3. Try Supabase
+            if (!hydrated && supabase) {
+                try {
+                    const { data } = await supabase.from('users').select('*').eq('user_id', userId).maybeSingle();
+                    if (data) hydrated = data;
+                } catch { /* ignore */ }
+            }
+
+            // 4. Absolute fallback — default-user template
+            if (!hydrated) {
+                hydrated = JSON.parse(JSON.stringify(syncedUsersDatabase["default-user"]));
+            }
+
+            hydrated.userId = userId;
+            syncedUsersDatabase[userId] = hydrated;
+            // Persist so next call is instant
+            if (redis) {
+                redis.set(`spk:user:${userId}`, JSON.stringify(hydrated), 'EX', 86400 * 30).catch(() => { });
+            }
+        }
+
+        const user = syncedUsersDatabase[userId];
+        ensureLevelsByLanguage(user);
+        applyLevelsToMirrors(user, user.targetLanguage || "English");
+        res.json({ success: true, data: user });
+    } catch (err) {
+        console.error("[profile] failed:", err);
+        res.status(500).json({ success: false, error: err.message });
     }
-    const user = syncedUsersDatabase[userId];
-    ensureLevelsByLanguage(user);
-    applyLevelsToMirrors(user, user.targetLanguage || "English");
-    res.json({ success: true, data: user });
 });
 // ═══════════════════════════════════════════════════════════════
 // ROUTE: SOCRATIC CHAT
@@ -6140,6 +6281,7 @@ app.get('/api/user/pdfs', async (req, res) => {
         res.json({ success: false, error: error.message });
     }
 });
+
 
 // =====================================================
 // START SERVER

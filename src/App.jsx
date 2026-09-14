@@ -1,4 +1,4 @@
-﻿import { useState, useEffect, useTransition, useMemo } from "react";
+﻿import { useState, useEffect, useTransition, useMemo, useCallback } from "react";
 import { TranslationProvider, useTranslation } from "./i18n/useTranslation";
 import { Header } from "./components/Header";
 import { HomePage } from "./components/HomePage";
@@ -65,8 +65,192 @@ async function apiFetch(url, opts = {}) {
   return fetch(finalUrl, finalOpts);
 }
 
+// ═══════════════════════════════════════════════════════════════
+// IDENTITY RESOLUTION — pluggable, multi-provider
+//
+// Priority order:
+//   1. Telegram Mini App  initDataUnsafe.user.id  (trusted by Telegram)
+//   2. localStorage.userId (from any previous login)
+//   3. null → render <LoginGate />
+//
+// To add a future provider (Google, Apple, JWT cookie):
+//   • check its token below,
+//   • if found, POST to /api/auth/{provider},
+//   • persist userId to localStorage,
+//   • return { userId, source, verified: true }.
+// No downstream code needs to change.
+// ═══════════════════════════════════════════════════════════════
+function useIdentity() {
+  const [identity, setIdentity] = useState(() => {
+    try {
+      const tg = window.Telegram?.WebApp;
+      if (tg?.initDataUnsafe?.user?.id) {
+        const id = String(tg.initDataUnsafe.user.id);
+        return { userId: id, source: "telegram-miniapp", verified: true };
+      }
+    } catch { /* ignore */ }
+
+    try {
+      const stored = localStorage.getItem("userId");
+      const src = localStorage.getItem("userIdSource") || "unknown";
+      if (stored && stored !== "default-user") {
+        return { userId: stored, source: src, verified: src === "telegram-widget" };
+      }
+    } catch { /* ignore */ }
+
+    return null;
+  });
+
+  // If we discover Mini App context AFTER initial state, sync it.
+  useEffect(() => {
+    try {
+      const tg = window.Telegram?.WebApp;
+      if (tg?.initDataUnsafe?.user?.id) {
+        const id = String(tg.initDataUnsafe.user.id);
+        if (identity?.userId !== id) {
+          localStorage.setItem("userId", id);
+          localStorage.setItem("userIdSource", "telegram-miniapp");
+          setIdentity({ userId: id, source: "telegram-miniapp", verified: true });
+        }
+      }
+    } catch { /* ignore */ }
+  }, [identity?.userId]);
+
+  const loginWithTelegramWidget = useCallback(async (widgetPayload) => {
+    const res = await fetch("/api/auth/telegram-widget", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(widgetPayload),
+    });
+    const json = await res.json();
+    if (!json.success) throw new Error(json.error || "Login failed");
+    localStorage.setItem("userId", json.userId);
+    localStorage.setItem("userIdSource", "telegram-widget");
+    setIdentity({ userId: json.userId, source: "telegram-widget", verified: true });
+    return json;
+  }, []);
+
+  const logout = useCallback(() => {
+    // Inside Mini App — Telegram identity is authoritative, don't clear
+    try {
+      const tg = window.Telegram?.WebApp;
+      if (tg?.initDataUnsafe?.user?.id) return;
+    } catch { /* ignore */ }
+    localStorage.removeItem("userId");
+    localStorage.removeItem("userIdSource");
+    setIdentity(null);
+  }, []);
+
+  return { identity, loginWithTelegramWidget, logout };
+}
+
+// ═══════════════════════════════════════════════════════════════
+// LOGIN GATE — shown only when no identity is available AND
+// user is outside Telegram Mini App.
+// Offers: (A) "Open in Telegram" button, (B) Telegram Login Widget.
+// ═══════════════════════════════════════════════════════════════
+function LoginGate({ onTelegramAuth }) {
+  const [botInfo, setBotInfo] = useState(null);
+  const [widgetReady, setWidgetReady] = useState(false);
+  const [error, setError] = useState(null);
+
+  // Step 1: fetch bot username (non-secret) so the widget can render
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/config/public")
+      .then((r) => r.json())
+      .then((d) => { if (!cancelled) setBotInfo(d); })
+      .catch(() => { if (!cancelled) setError("Не удалось получить конфигурацию сервера"); });
+    return () => { cancelled = true; };
+  }, []);
+
+  // Step 2: load widget once bot username is known
+  useEffect(() => {
+    if (!botInfo?.botUsername) return;
+
+    window.onTelegramAuth = async (user) => {
+      try {
+        await onTelegramAuth(user);
+      } catch (e) {
+        setError(e?.message || "Ошибка входа");
+      }
+    };
+
+    const container = document.getElementById("tg-login-widget-slot");
+    if (!container) return;
+    container.innerHTML = "";
+
+    const script = document.createElement("script");
+    script.async = true;
+    script.src = "https://telegram.org/js/telegram-widget.js?22";
+    script.setAttribute("data-telegram-login", botInfo.botUsername);
+    script.setAttribute("data-size", "large");
+    script.setAttribute("data-radius", "12");
+    script.setAttribute("data-onauth", "onTelegramAuth(user)");
+    script.setAttribute("data-request-access", "write");
+    script.onload = () => setWidgetReady(true);
+    script.onerror = () => setError("Не удалось загрузить Telegram-виджет");
+    container.appendChild(script);
+
+    return () => {
+      try { delete window.onTelegramAuth; } catch { /* ignore */ }
+    };
+  }, [botInfo?.botUsername, onTelegramAuth]);
+
+  return (
+    <div className="min-h-screen bg-slate-950 text-slate-100 flex items-center justify-center p-6">
+      <div className="max-w-md w-full bg-slate-900 border border-slate-800 rounded-3xl p-8 shadow-2xl space-y-6 text-center">
+        <div className="text-6xl">🤖</div>
+
+        <div>
+          <h1 className="text-2xl font-bold text-white mb-1">{botInfo?.appName || "SpeakBot"}</h1>
+          <p className="text-sm text-slate-400">Interactive AI Language Engine</p>
+        </div>
+
+        <div className="space-y-3">
+          <p className="text-sm text-slate-300">Выберите способ входа:</p>
+
+          <a
+            href={botInfo?.botLink || "https://t.me/SpeakBotBot"}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="w-full inline-flex items-center justify-center gap-2 px-6 py-3 rounded-xl bg-gradient-to-r from-sky-600 to-indigo-600 hover:from-sky-500 hover:to-indigo-500 text-white font-bold text-sm transition-all active:scale-95 shadow-lg shadow-sky-600/20"
+          >
+            <span>📱</span>
+            <span>Открыть в Telegram</span>
+          </a>
+
+          <div className="flex items-center gap-3 py-2">
+            <div className="flex-1 h-px bg-slate-800"></div>
+            <span className="text-xs text-slate-500 font-medium">или</span>
+            <div className="flex-1 h-px bg-slate-800"></div>
+          </div>
+
+          <div id="tg-login-widget-slot" className="flex justify-center min-h-[50px] items-center">
+            {!botInfo && !error && <div className="text-xs text-slate-500">Загрузка…</div>}
+            {botInfo && !widgetReady && !error && (
+              <div className="text-xs text-slate-500">Загрузка виджета…</div>
+            )}
+          </div>
+
+          {error && (
+            <div className="text-xs text-rose-400 bg-rose-950/40 border border-rose-800/40 rounded-lg p-2">
+              {error}
+            </div>
+          )}
+        </div>
+
+        <p className="text-[11px] text-slate-500 leading-relaxed border-t border-slate-800 pt-4">
+          💡 Вход сохраняется на этом устройстве. В дальнейшем вы будете автоматически авторизованы.
+        </p>
+      </div>
+    </div>
+  );
+}
 
 function MainApp() {
+
+  const { identity, loginWithTelegramWidget } = useIdentity();
 
   const [isTabPending, startTabTransition] = useTransition();
 
@@ -111,16 +295,9 @@ function MainApp() {
   }, [themeId, rotationIndex, activeTheme]);
 
   const { t } = useTranslation();
+
   const [userProfile, setUserProfile] = useState({
-    userId: (() => {
-      const tgUser = window.Telegram?.WebApp?.initDataUnsafe?.user;
-      if (tgUser?.id) {
-        const id = String(tgUser.id);
-        localStorage.setItem("userId", id);
-        return id;
-      }
-      return localStorage.getItem("userId") || "default-user";
-    })(),
+    userId: identity?.userId || "default-user",
     telegramUsername: "@speakbot_learner",
     currentLevel: "B1",
     targetLanguage: "English",
@@ -143,6 +320,12 @@ function MainApp() {
   const [countsByLanguage, setCountsByLanguage] = useState({});
   const [activeTab, setActiveTab] = useState("home");
   const [activeGameId, setActiveGameId] = useState(null);
+  // Sync identity.userId → userProfile (covers post-login transition)
+  useEffect(() => {
+    if (identity?.userId && userProfile.userId !== identity.userId) {
+      setUserProfile((prev) => ({ ...prev, userId: identity.userId }));
+    }
+  }, [identity?.userId]);
 
   // Читаем URL-параметры при загрузке (Telegram WebApp передаёт query)
   useEffect(() => {
@@ -557,7 +740,11 @@ function MainApp() {
       localStorage.setItem("spk_theme_id", nextTheme.id);
     } catch { }
   };
-
+  // ─── Login gate ───
+  // All hooks are declared above, so early-return here is safe.
+  if (!identity) {
+    return <LoginGate onTelegramAuth={loginWithTelegramWidget} />;
+  }
 
   return (<TelegramMiniAppFrame
     isMiniAppMode={isMiniAppMode}

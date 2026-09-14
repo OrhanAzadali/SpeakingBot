@@ -37,34 +37,80 @@ if (redis) {
     });
     redis.on('error', (err) => console.error('[Redis] Error:', err.message));
 }
+// In-memory safety net (survives Redis outage in a single bot process)
+const profileMemCache = new Map();   // userId -> { profile, ts }
+const PROFILE_MEM_TTL = 5 * 60_000;  // 5 min
 
 async function getUser(userId) {
-    if (!redis) return null;
-    try {
-        const raw = await Promise.race([
-            redis.get(`spk:user:${userId}`),
-            new Promise((_, reject) => setTimeout(() => reject(new Error('REDIS_TIMEOUT')), 3000))
-        ]);
-        return raw ? JSON.parse(raw) : null;
-    } catch (e) {
-        console.error('[Redis] getUser failed:', e.message);
-        return null;
+    const key = String(userId);
+
+    // 0. In-memory cache first (instant)
+    const mem = profileMemCache.get(key);
+    if (mem && Date.now() - mem.ts < PROFILE_MEM_TTL) {
+        return mem.profile;
     }
+
+    // 1. Redis (longer timeout — Upstash cold-start needs ~8s)
+    if (redis) {
+        try {
+            const raw = await Promise.race([
+                redis.get(`spk:user:${key}`),
+                new Promise((_, reject) => setTimeout(() => reject(new Error('REDIS_TIMEOUT')), 12000)),
+            ]);
+            if (raw) {
+                const profile = JSON.parse(raw);
+                profileMemCache.set(key, { profile, ts: Date.now() });
+                return profile;
+            }
+        } catch (e) {
+            if (e.message !== 'REDIS_TIMEOUT') {
+                console.warn('[Redis] getUser failed:', e.message);
+            }
+        }
+    }
+
+    // 2. Server API
+    try {
+        const { data } = await axios.get(`${API_BASE}/api/user/profile`, {
+            params: { userId: key }, timeout: 8000,
+        });
+        if (data && data.success && data.data) {
+            profileMemCache.set(key, { profile: data.data, ts: Date.now() });
+            // Mirror to Redis in background
+            if (redis) {
+                redis.set(`spk:user:${key}`, JSON.stringify(data.data), 'EX', 86400 * 30).catch(() => { });
+            }
+            return data.data;
+        }
+    } catch (e) {
+        console.warn('[API] getUser fallback failed:', e.message);
+    }
+
+    // 3. Nothing works — return null (caller decides)
+    return null;
 }
 
 async function saveUser(userId, user) {
-    if (!redis) return false;
-    try {
-        await Promise.race([
-            redis.set(`spk:user:${userId}`, JSON.stringify(user), 'EX', 86400 * 30),
-            new Promise((_, reject) => setTimeout(() => reject(new Error('REDIS_TIMEOUT')), 3000))
-        ]);
-        return true;
-    } catch (e) {
-        console.error('[Redis] saveUser failed:', e.message);
-        return false;
+    const key = String(userId);
+    // Always update in-memory FIRST, so this process is consistent
+    profileMemCache.set(key, { profile: user, ts: Date.now() });
+
+    if (redis) {
+        try {
+            await Promise.race([
+                redis.set(`spk:user:${key}`, JSON.stringify(user), 'EX', 86400 * 30),
+                new Promise((_, reject) => setTimeout(() => reject(new Error('REDIS_TIMEOUT')), 12000)),
+            ]);
+            return true;
+        } catch (e) {
+            if (e.message !== 'REDIS_TIMEOUT') {
+                console.warn('[Redis] saveUser failed:', e.message);
+            }
+        }
     }
+    return false;
 }
+
 
 // ==================== CONFIG ====================
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
@@ -118,7 +164,56 @@ const conversationHistory = {};
 const ttsCache = {};
 const botTtsCache = {};
 let skillTestState = {};
+// Pending confirmations: { userId: { question, onConfirm, expiresAt } }
+const pendingConfirmations = {};
 
+async function askConfirmation(ctx, payload) {
+    const userId = ctx.from.id;
+    pendingConfirmations[userId] = {
+        question: payload.question,
+        onConfirm: payload.onConfirm,
+        expiresAt: Date.now() + 60_000,  // 1 min
+    };
+    return ctx.reply(payload.question, {
+        parse_mode: 'Markdown',
+        ...Markup.inlineKeyboard([
+            [Markup.button.callback('✅ Да', 'confirm_yes'), Markup.button.callback('❌ Нет', 'confirm_no')],
+        ]),
+    });
+}
+
+bot.action('confirm_yes', async (ctx) => {
+    await ctx.answerCbQuery();
+    const userId = ctx.from.id;
+    const pending = pendingConfirmations[userId];
+    if (!pending || Date.now() > pending.expiresAt) {
+        delete pendingConfirmations[userId];
+        return ctx.editMessageText('⌛ Подтверждение истекло. Повторите команду.');
+    }
+    delete pendingConfirmations[userId];
+
+    const action = pending.onConfirm;
+    // Route to the actual switch handler
+    if (action.action === 'switch_both') {
+        await handleLanguageSwitch(ctx, action.targetLang, { silent: true });
+        await handleMediatorSwitch(ctx, action.mediatorLang, { silent: true });
+        return ctx.editMessageText(
+            `✅ Готово!\n• Target: *${action.targetLang}*\n• Mediator: *${action.mediatorLang}*`,
+            { parse_mode: 'Markdown' }
+        );
+    }
+    if (action.action === 'switch_mediator') {
+        return handleMediatorSwitch(ctx, action.lang);
+    }
+    return handleLanguageSwitch(ctx, action.lang);
+});
+
+bot.action('confirm_no', async (ctx) => {
+    await ctx.answerCbQuery();
+    const userId = ctx.from.id;
+    delete pendingConfirmations[userId];
+    return ctx.editMessageText('Отменено. Продолжаем как есть.');
+});
 // ==================== VOICE (MSEdge TTS) ====================
 const VOICE_MAP = {
     'en-US': 'en-US-AriaNeural',
@@ -445,19 +540,31 @@ async function getUserProfile(userId) {
 }
 
 async function getUserProfileInternal(userId) {
-    const cached = await getUser(String(userId));
+    const key = String(userId);
+
+    // 1. Redis / in-memory / API через getUser()
+    const cached = await getUser(key);
     if (cached) return cached;
+
+    // 2. Last resort — fetch from server API
     try {
-        const { data } = await axios.get(`${API_BASE} /api/user / profile`, {
-            params: { userId: String(userId) }, timeout: 5000,
+        const { data } = await axios.get(`${API_BASE}/api/user/profile`, {
+            params: { userId: key }, timeout: 8000,
         });
-        const profile = data.data;
-        if (profile) saveUser(String(userId), profile).catch(() => { });
-        return profile;
+        const profile = data?.data;
+        if (profile) {
+            profileMemCache.set(key, { profile, ts: Date.now() });
+            if (redis) {
+                redis.set(`spk:user:${key}`, JSON.stringify(profile), 'EX', 86400 * 30).catch(() => { });
+            }
+            return profile;
+        }
     } catch (err) {
-        console.warn('getUserProfile failed:', err.message);
-        return { targetLanguage: 'English', currentLevel: 'B1', mediatorLanguage: 'en', xp: 0, skillScores: {} };
+        console.warn('[Profile] server fetch failed:', err.message);
     }
+
+    // 3. Absolute fallback
+    return { targetLanguage: 'English', currentLevel: 'B1', mediatorLanguage: 'en', xp: 0, skillScores: {} };
 }
 
 // ==================== PDF GENERATION ====================
@@ -571,7 +678,11 @@ function detectIntent(text) {
 async function classifyAndRouteText(text, userProfile) {
     const clean = (text || '').trim();
     if (!clean) return { action: 'tutor' };
+    // ── LAYER 1: sanitize
+    const safe = sanitizeUserText(clean);
 
+    // ── LAYER 2: guard — если сообщение не похоже на явную команду, не трогаем switch-логику
+    const looksLikeCommand = isExplicitSwitchCommand(safe);
     const p = userProfile || {};
 
     // ── 0. Marker from AI tutor: SWITCH_REQUEST::Spanish ──
@@ -581,23 +692,41 @@ async function classifyAndRouteText(text, userProfile) {
         return { action: 'switch_target', lang };
     }
 
-    // ── 1. Fast regex language switch (now returns object) ──
-    const fastSwitch = detectLanguageSwitchIntent(clean);
-    if (fastSwitch) {
-        if (fastSwitch.intent === 'target_and_mediator') {
-            return {
-                action: 'switch_both',
-                targetLang: fastSwitch.targetLanguage,
-                mediatorLang: fastSwitch.mediatorLanguage,
-            };
+    // ── 1. Fast regex language switch — ONLY if message passed Layer 2 guard ──
+    if (looksLikeCommand) {
+        const fastSwitch = detectLanguageSwitchIntent(safe);
+        if (fastSwitch) {
+            // ⚠️ Для dual-switch из длинной фразы → подтверждение
+            if (fastSwitch.intent === 'target_and_mediator') {
+                // Если фраза длинная и содержит оба языка — просим подтвердить
+                const wordCount = safe.split(/\s+/).length;
+                if (wordCount > 12) {
+                    return {
+                        action: 'confirm',
+                        question:
+                            `🤔 Вы хотите одновременно сменить:\n` +
+                            `• *Целевой* язык → ${fastSwitch.targetLanguage}\n` +
+                            `• *Медиатор* → ${fastSwitch.mediatorLanguage}\n\n` +
+                            `Ответьте *да* для подтверждения или *нет* для отмены.`,
+                        onConfirm: {
+                            action: 'switch_both',
+                            targetLang: fastSwitch.targetLanguage,
+                            mediatorLang: fastSwitch.mediatorLanguage,
+                        },
+                    };
+                }
+                return {
+                    action: 'switch_both',
+                    targetLang: fastSwitch.targetLanguage,
+                    mediatorLang: fastSwitch.mediatorLanguage,
+                };
+            }
+            if (fastSwitch.intent === 'mediator') {
+                return { action: 'switch_mediator', lang: fastSwitch.language };
+            }
+            return { action: 'switch_target', lang: fastSwitch.language };
         }
-        if (fastSwitch.intent === 'mediator') {
-            return { action: 'switch_mediator', lang: fastSwitch.language };
-        }
-        // default: target
-        return { action: 'switch_target', lang: fastSwitch.language };
     }
-
     // ── 2. How-to intent ──
     if (detectHowToIntent(clean)) return { action: 'howto' };
 
@@ -643,6 +772,85 @@ function extractLanguageFromText(text) {
     return null;
 }
 
+// ═══════════════════════════════════════════════════════════════
+// LAYER 1 — SANITIZE: снимаем чужие фразы, чтобы они не триггерили
+// ═══════════════════════════════════════════════════════════════
+function sanitizeUserText(raw) {
+    if (!raw || typeof raw !== 'string') return '';
+    let s = raw;
+
+    // 1. Снять обрамлённые цитаты (все 4 вида кавычек)
+    s = s.replace(/«[^»]{0,400}»/g, ' ');
+    s = s.replace(/"[^"]{0,400}"/g, ' ');
+    s = s.replace(/“[^”]{0,400}”/g, ' ');
+    s = s.replace(/‘[^’]{0,400}’/g, ' ');
+
+    // 2. Снять всё после " as below " / " is as follows " / ":::" — это копипаста
+    s = s.split(/\s+as\s+below\s*:?/i)[0];
+    s = s.split(/\s+is\s+as\s+follows\s*:?/i)[0];
+    s = s.split(/:::/)[0];
+
+    // 3. Снять блоки после "Target language switched to" (bot output echo)
+    s = s.replace(/Target language switched to.*?(?=[.!?]|$)/gi, ' ');
+    s = s.replace(/Mediator language switched to.*?(?=[.!?]|$)/gi, ' ');
+
+    // 4. Нормализуем пробелы и оставляем только значимые символы
+    return s.replace(/\s+/g, ' ').trim();
+}
+
+// ═══════════════════════════════════════════════════════════════
+// LAYER 2 — GUARDS: отсекаем то, что не может быть командой
+// ═══════════════════════════════════════════════════════════════
+function isExplicitSwitchCommand(text) {
+    const lower = (text || '').toLowerCase().trim();
+    if (!lower) return false;
+
+    // Guard 1: слишком длинное сообщение — почти наверняка не императив
+    if (lower.length > 180) return false;
+
+    // Guard 2: содержит явное отрицание рядом с switch-глаголом
+    //   "do not switch", "don't change", "no, don't", "никогда не", "не надо"
+    const NEG_NEAR_SWITCH = /\b(don'?t|do\s+not|doesn'?t|does\s+not|never|no\s*,?\s*(?:do\s+not|don'?t)?|не\s+надо|не\s+переключ\w*|никогда\s+не|не\s+смен\w*)\b[^.!?]{0,40}\b(switch|change|shift|move|set|переключ\w*|смен\w*|dəyiş\w*|keç\w*)\b/i;
+    if (NEG_NEAR_SWITCH.test(lower)) return false;
+
+    // Guard 3: обратное отрицание — "не X, а Y" / "isn't X" / "not X but Y"
+    const NEG_QUESTION = /\b(?:isn'?t|aren'?t|wasn'?t|weren'?t|don'?t|doesn'?t|didn'?t|haven'?t|hasn'?t)\b[^.!?]{0,30}\b(mediator|target|language|russian|english|spanish|turkish|german|french|italian|azerbaijani|deutsch|español|français|italiano)\b/i;
+    if (NEG_QUESTION.test(lower)) return false;
+
+    // Guard 4: начинается с вопросительного слова — это вопрос, не команда
+    //   Исключение: "can you please switch to X" (вежливая просьба)
+    const startsWithQuestion = /^(which|what|why|how|when|where|who|whose|is\s|are\s|was\s|were\s|do\s|does\s|did\s|have\s|has\s|had\s|can\s|should\s|could\s|would\s|will\s)/i;
+    const politeRequest = /\b(please\s+)?(switch|change|set|teach\s+me|learn\s+me)\b/i;
+    if (startsWithQuestion.test(lower) && !politeRequest.test(lower)) return false;
+
+    // Guard 5: meta-обсуждение бота — это не команда
+    const META_MARKERS = [
+        /\byou\s+(?:say|said|keep|are\s+saying|always|still)\b/i,
+        /\bwhy\s+do\s+you\b/i,
+        /\bi\s+think\s+you(?:'?re|\s+are)\b/i,
+        /\byour\s+(?:info|info(?:rmation)?|response|message|behavior|settings|prompt|code)\b/i,
+        /\byou\s+(?:react|ignore|don'?t|didn'?t|won'?t)\b/i,
+        /\bin\s+miniapp\b/i,
+        /\bin\s+webapp\b/i,
+        /\bв\s+миниапп\b/i,
+        /\bв\s+вебапп\b/i,
+        /\bprofile\s+info\b/i,
+        /\bswitched\s+to\b.*\bswitched\s+to\b/i,  // длинный диалог-возражение
+    ];
+    if (META_MARKERS.some(rx => rx.test(lower))) return false;
+
+    // Guard 6: сообщение содержит и цель, и медиатора в одном предложении,
+    //          И при этом > 10 слов → это скорее обсуждение, чем команда
+    const wordCount = lower.split(/\s+/).length;
+    const hasBothLangs = (/\b(?:russian|english|spanish|turkish|german|french|italian|azerbaijani)\b.*\b(?:russian|english|spanish|turkish|german|french|italian|azerbaijani)\b/i.test(lower));
+    if (wordCount > 12 && hasBothLangs) {
+        // Разрешить только если есть ЧЁТКИЙ императив "switch ... to X and ... to Y"
+        const clearDualCommand = /\b(?:switch|change|set)\b[^.!?]{0,60}\bto\s+\w+\b[^.!?]{0,40}\b(?:switch|change|set|and)\b/i.test(lower);
+        if (!clearDualCommand) return false;
+    }
+
+    return true;
+}
 // Returns { intent: 'target'|'mediator', language: 'Russian' } or null.
 function detectLanguageSwitchIntent(text) {
     if (!text) return null;
@@ -932,7 +1140,31 @@ async function handleMediatorSwitch(ctx, newLang, opts = {}) {
     }
 }
 // ==================== AI INTENT CLASSIFIER ====================
-
+// ─── Dynamic Groq model picker — fixes hardcoded 404 ───
+async function pickGroqModel() {
+    const candidates = [
+        'llama-3.3-70b-versatile',
+        'llama-3.1-70b-versatile',
+        'llama-3.1-8b-instant',
+        'qwen/qwen3-32b',
+        'meta-llama/llama-4-scout-17b-16e-instruct',
+    ];
+    for (const model of candidates) {
+        try {
+            const res = await axios.post(
+                'https://api.groq.com/openai/v1/chat/completions',
+                { model, messages: [{ role: 'user', content: 'ping' }], max_tokens: 1 },
+                { headers: { Authorization: `Bearer ${GROQ_API_KEY}` }, timeout: 5000 }
+            );
+            if (res.status === 200) return model;
+        } catch (e) {
+            // 404 → модель недоступна, пробуем следующую
+            if (e.response?.status === 404) continue;
+            // другие ошибки — тоже продолжаем
+        }
+    }
+    return null;
+}
 async function classifyIntentWithAI(text, currentTarget, currentMediator) {
     // Быстрый AI-классификатор. Возвращает { intent, language } или null.
     // Используем Groq (быстрый + дешёвый) для скорости.
@@ -966,8 +1198,11 @@ or
 { "intent": "chat" }`;
 
     try {
+        const model = await pickGroqModel();
+        if (!model) throw new Error('No Groq model available');
+
         const response = await axios.post('https://api.groq.com/openai/v1/chat/completions', {
-            model: 'llama-3.3-70b-versatile',
+            model,
             messages: [
                 { role: 'system', content: systemPrompt },
                 { role: 'user', content: text },
@@ -1448,6 +1683,7 @@ bot.command('tts', async (ctx) => {
     }
 });
 
+
 bot.action('show_tts', async (ctx) => {
     await ctx.answerCbQuery();
     const p = await getUserProfile(ctx.from.id);
@@ -1776,7 +2012,8 @@ bot.on('message', async (ctx) => {
 
         case 'game':
             return ctx.reply('🎮 Open the Mini App or use /games to see interactive games.');
-
+        case 'confirm':
+            return askConfirmation(ctx, route);
         case 'tutor':
         default: {
             const reply = await getTutorResponse(
