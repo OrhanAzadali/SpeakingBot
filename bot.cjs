@@ -591,13 +591,23 @@ STAY INSIDE THIS CONTRACT. Do NOT teach above ${level}. Do NOT restart from zero
 async function getUserProfile(userId) {
     return Promise.race([
         getUserProfileInternal(userId),
-        new Promise((_, reject) => setTimeout(() => reject(new Error('PROFILE_TIMEOUT')), 8000)),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('PROFILE_TIMEOUT')), 15000)),
     ]).catch(err => {
         console.warn('getUserProfile timeout:', err.message);
-        return { targetLanguage: 'English', currentLevel: 'B1', mediatorLanguage: 'en', xp: 0, skillScores: {} };
+        const key = String(userId);
+        if (global.__SPEAKBOT_USERS && global.__SPEAKBOT_USERS[key]) {
+            return global.__SPEAKBOT_USERS[key];
+        }
+        return {
+            targetLanguage: 'English',
+            currentLevel: 'B1',
+            mediatorLanguage: 'en',
+            xp: 0,
+            skillScores: {},
+            _isFallback: true,   // ← mark so guards can skip
+        };
     });
 }
-
 async function getUserProfileInternal(userId) {
     const key = String(userId);
 
@@ -685,7 +695,7 @@ async function generatePdf(type, userId, targetLang, level, mediatorLang = 'en',
             const res = await axios.post(`${API_BASE}${endpoint}`, {
                 userId,
                 targetLanguage: targetLang,
-                // Send BOTH aliases so whichever field the server reads is present.
+                // Send BOTH aliases so whichever field the server reads is present
                 level,
                 userLevel: level,
                 ruleTitle: topic,
@@ -1526,17 +1536,31 @@ async function refuseLanguageMismatch(ctx, topic, foreignLang, targetLang, media
         `I can only create guides in your current target language.`,
         '',
         `*Option 1 — same topic, but about ${targetLang}:*`,
-        `   /${command} ${cleanTopic} (${targetLang.toLowerCase()})`,
+        `   \`/${command} ${cleanTopic}\``,
         '',
         `*Option 2 — switch to ${foreignLang} first:*`,
         `   Send: "switch to ${foreignLang}"`,
-        `   Then retry: /${command} ${topic}`,
+        `   Then retry: \`/${command} ${topic}\``,
         '',
         `Explanations will be in *${mediatorName}* per your mediator setting.`,
     ];
     return ctx.reply(lines.join('\n'), { parse_mode: 'Markdown' });
 }
 
+// ── Extract topic from a free-form message that contains "/<intent>_pdf <topic>"
+//    anywhere in it (e.g. "no, it's not English! /grammar_pdf German cases")
+function extractTopicFromFreeform(text, intent) {
+    if (!text || typeof text !== 'string') return '';
+    // Match "/<intent>" optionally followed by "_pdf", then a topic up to end/newline
+    const rx = new RegExp(`/${intent}(?:_pdf)?(?:@\\w+)?\\s+([^\\n]+)`, 'i');
+    const m = text.match(rx);
+    if (m && m[1]) {
+        let topic = m[1].split(/\s+\//)[0].replace(/\s+/g, ' ').trim();
+        if (topic.length > 120) topic = topic.slice(0, 120);
+        return topic;
+    }
+    return '';
+}
 
 function extractCommandTopic(text, command) {
     if (!text || typeof text !== 'string') return '';
@@ -1973,10 +1997,11 @@ bot.command('grammar', async (ctx) => {
     try {
         const topic = ctx.message.text.split(' ').slice(1).join(' ') || 'Basic Grammar';
         const p = await getUserProfile(ctx.from.id);
-
-        const mismatch = detectTopicLanguageMismatch(topic, p.targetLanguage);
-        if (mismatch) {
-            return refuseLanguageMismatch(ctx, topic, mismatch, p.targetLanguage, p.mediatorLanguage, 'grammar');
+        if (!p._isFallback) {
+            const mismatch = detectTopicLanguageMismatch(topic, p.targetLanguage);
+            if (mismatch) {
+                return refuseLanguageMismatch(ctx, topic, mismatch, p.targetLanguage, p.mediatorLanguage, 'grammar');
+            }
         }
 
         await ctx.reply(`📖 Generating grammar guide for "${topic}"...`);
@@ -2042,10 +2067,13 @@ bot.command('roadmap', async (ctx) => {
     const topic = ctx.message.text.split(' ').slice(1).join(' ') || 'General';
     const p = await getUserProfile(ctx.from.id);
 
-    const mismatch = detectTopicLanguageMismatch(topic, p.targetLanguage);
-    if (mismatch) {
-        return refuseLanguageMismatch(ctx, topic, mismatch, p.targetLanguage, p.mediatorLanguage, 'roadmap');
+    if (!p._isFallback) {
+        const mismatch = detectTopicLanguageMismatch(topic, p.targetLanguage);
+        if (mismatch) {
+            return refuseLanguageMismatch(ctx, topic, mismatch, p.targetLanguage, p.mediatorLanguage, 'roadmap');
+        }
     }
+
 
     await ctx.reply(`🗺️ Generating roadmap for "${topic}"...`);
     try {
@@ -2110,6 +2138,7 @@ bot.command('grammar_pdf', async (ctx) => {
                 return refuseLanguageMismatch(ctx, topic, mismatch, p.targetLanguage, p.mediatorLanguage, 'grammar_pdf');
             }
         }
+
 
         await ctx.reply(`📄 Generating grammar PDF for "${topic}"...`);
         const pdfPath = await generatePdf('grammar', ctx.from.id, p.targetLanguage, p.currentLevel, p.mediatorLanguage, topic);
@@ -2767,16 +2796,19 @@ bot.on('message', async (ctx) => {
             );
 
         case 'pdf': {
-            await ctx.reply(`📄 Generating ${route.intent} PDF...`);
+            // Extract topic from free-form text (message may contain "/grammar_pdf X" mid-sentence)
+            const topic = extractTopicFromFreeform(userText, route.intent);
+            const topicLabel = topic ? ` for "${topic}"` : '';
+            await ctx.reply(`📄 Generating ${route.intent} PDF${topicLabel}...`);
             try {
                 const pdfPath = await generatePdf(
-                    route.intent, userId, p.targetLanguage, p.currentLevel, p.mediatorLanguage
+                    route.intent, userId, p.targetLanguage, p.currentLevel, p.mediatorLanguage, topic || ''
                 );
                 await ctx.replyWithDocument({ source: pdfPath });
                 try { fs.unlinkSync(pdfPath); } catch { }
             } catch (e) {
                 console.error(`${route.intent} PDF failed:`, e.message);
-                await ctx.reply('Failed to generate PDF.');
+                await ctx.reply('Failed to generate PDF.').catch(() => { });
             }
             return;
         }
