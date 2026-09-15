@@ -356,11 +356,20 @@ export const PlacementTestView = ({
           <div className="flex justify-end pt-3 border-t border-slate-800">
             <button
               onClick={handleNext}
-              disabled={selectedAnswers[currentIndex] === void 0}
+              disabled={selectedAnswers[currentIndex] === void 0 || isSubmitting}
               className="flex items-center gap-2 px-6 py-2.5 rounded-xl bg-sky-600 hover:bg-sky-500 text-white text-xs sm:text-sm font-bold shadow-lg shadow-sky-600/25 transition-all active:scale-95 disabled:opacity-40 disabled:pointer-events-none"
             >
-              <span>{currentIndex === questions.length - 1 ? t("finishTest") : t("nextQuestion")}</span>
-              <ArrowRight className="w-4 h-4" />
+              {isSubmitting ? (
+                <>
+                  <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                  <span>Syncing…</span>
+                </>
+              ) : (
+                <>
+                  <span>{currentIndex === questions.length - 1 ? t("finishTest") : t("nextQuestion")}</span>
+                  <ArrowRight className="w-4 h-4" />
+                </>
+              )}
             </button>
           </div>
 
