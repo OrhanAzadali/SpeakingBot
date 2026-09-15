@@ -628,171 +628,41 @@ async function getUserProfileInternal(userId) {
 
 // ==================== PDF GENERATION ====================
 async function generateStructuredPDF(data, filename, title) {
-    const doc = new PDFDocument({ margin: 40, size: 'A4' });
-    const filePath = path.join(TEMP_DIR, `${filename}.pdf`);
-    const stream = fs.createWriteStream(filePath);
-    doc.pipe(stream);
+    // Delegate rendering to the server (has DejaVu for Cyrillic/Unicode).
+    const type =
+        Array.isArray(data?.coreRules) ? 'grammar' :
+            Array.isArray(data?.milestones) ? 'roadmap' :
+                Array.isArray(data?.sentences) ? 'story' :
+                    'grammar';   // safe default
 
-    // ═══════════ Header ═══════════
-    doc.fontSize(18).font('Helvetica-Bold').fillColor('#0f172a').text(title, { align: 'center' });
-    doc.moveDown(0.3);
-    if (data?.level) {
-        doc.fontSize(10).font('Helvetica').fillColor('#64748b')
-            .text(`Level: ${data.level}${data.category ? ' • ' + data.category : ''}`, { align: 'center' });
-    }
-    doc.moveDown(1);
+    try {
+        const res = await axios.post(`${API_BASE}/api/pdf/render-structured`, {
+            type, data,
+        }, {
+            responseType: 'arraybuffer',
+            timeout: 30000,
+        });
 
-    // ═══════════ Summary ═══════════
-    if (data?.summary) {
-        doc.fontSize(11).font('Helvetica').fillColor('#1e293b').text(data.summary, { align: 'justify' });
-        doc.moveDown(1);
-    }
+        const filePath = path.join(TEMP_DIR, `${filename}.pdf`);
+        fs.writeFileSync(filePath, Buffer.from(res.data));
+        return filePath;
+    } catch (e) {
+        console.warn('[generateStructuredPDF] server render failed, falling back to local pdfkit:', e.message);
 
-    // ═══════════ coreRules (grammar guides) ═══════════
-    if (Array.isArray(data?.coreRules) && data.coreRules.length) {
-        doc.fontSize(13).font('Helvetica-Bold').fillColor('#0f172a').text('Core Rules');
-        doc.moveDown(0.5);
-        data.coreRules.forEach((rule, i) => {
-            doc.fontSize(12).font('Helvetica-Bold').fillColor('#1e293b')
-                .text(`${i + 1}. ${rule.ruleTitle || 'Rule'}`);
-            doc.moveDown(0.2);
-            if (rule.explanationInMediator) {
-                doc.fontSize(10).font('Helvetica').fillColor('#334155')
-                    .text(rule.explanationInMediator, { align: 'justify' });
-            }
-            if (rule.formula) {
-                doc.fontSize(10).font('Helvetica-Oblique').fillColor('#0284c7').text(`Formula: ${rule.formula}`);
-            }
-            if (rule.example) {
-                doc.fontSize(10).font('Helvetica-Oblique').fillColor('#059669').text(`Example: ${rule.example}`);
-            }
-            doc.moveDown(0.6);
+        // Last-resort: local pdfkit (Latin-1 only — Cyrillic will be garbled)
+        const doc = new PDFDocument({ margin: 40, size: 'A4' });
+        const filePath = path.join(TEMP_DIR, `${filename}.pdf`);
+        const stream = fs.createWriteStream(filePath);
+        doc.pipe(stream);
+        doc.fontSize(16).font('Helvetica-Bold').text(title || 'Guide', { align: 'center' });
+        doc.moveDown();
+        doc.fontSize(10).font('Helvetica').text(JSON.stringify(data, null, 2));
+        doc.end();
+        return new Promise((resolve, reject) => {
+            stream.on('finish', () => resolve(filePath));
+            stream.on('error', reject);
         });
     }
-
-    // ═══════════ milestones (roadmaps) ═══════════
-    if (Array.isArray(data?.milestones) && data.milestones.length) {
-        doc.fontSize(13).font('Helvetica-Bold').fillColor('#0f172a').text('Milestones');
-        doc.moveDown(0.5);
-        data.milestones.forEach((m, i) => {
-            doc.fontSize(12).font('Helvetica-Bold').fillColor('#1e293b')
-                .text(`Step ${m.step || i + 1}: ${m.title || ''}`);
-            doc.moveDown(0.2);
-            if (m.description) doc.fontSize(10).font('Helvetica').fillColor('#334155').text(m.description, { align: 'justify' });
-            if (m.grammarPoint) doc.fontSize(10).font('Helvetica-Oblique').fillColor('#0284c7').text(`Grammar: ${m.grammarPoint}`);
-            if (m.sampleSentence) doc.fontSize(10).font('Helvetica-Oblique').fillColor('#059669').text(`Example: "${m.sampleSentence}"`);
-            doc.moveDown(0.6);
-        });
-    }
-
-    // ═══════════ paragraphs (stories) ═══════════
-    if (Array.isArray(data?.paragraphs) && data.paragraphs.length) {
-        doc.fontSize(13).font('Helvetica-Bold').fillColor('#0f172a').text('Text');
-        doc.moveDown(0.4);
-        data.paragraphs.forEach((p) => {
-            doc.fontSize(11).font('Helvetica').fillColor('#1e293b').text(p, { align: 'justify' });
-            doc.moveDown(0.4);
-        });
-    }
-
-    // ═══════════ sentences (annotated story sentences) ═══════════
-    if (Array.isArray(data?.sentences) && data.sentences.length) {
-        doc.moveDown(0.3);
-        doc.fontSize(13).font('Helvetica-Bold').fillColor('#0f172a').text('Annotated Sentences');
-        doc.moveDown(0.4);
-        data.sentences.forEach((s, i) => {
-            if (s.text) doc.fontSize(11).font('Helvetica-Bold').fillColor('#0f172a').text(`${i + 1}. ${s.text}`);
-            if (s.translation) doc.fontSize(10).font('Helvetica-Oblique').fillColor('#059669').text(s.translation);
-            if (s.literaryNote) doc.fontSize(9).font('Helvetica-Oblique').fillColor('#64748b').text(`Note: ${s.literaryNote}`);
-            doc.moveDown(0.4);
-        });
-    }
-
-    // ═══════════ keyVocabulary ═══════════
-    if (Array.isArray(data?.keyVocabulary) && data.keyVocabulary.length) {
-        doc.moveDown(0.3);
-        doc.fontSize(13).font('Helvetica-Bold').fillColor('#0f172a').text('Key Vocabulary');
-        doc.moveDown(0.4);
-        data.keyVocabulary.forEach((v, i) => {
-            const word = v.word || '';
-            const ipa = v.ipa ? ` ${v.ipa}` : '';
-            const pos = v.pos ? ` [${v.pos}]` : '';
-            const trans = v.translation || v.meaning || '';
-            doc.fontSize(10).font('Helvetica-Bold').fillColor('#0f172a').text(`${i + 1}. ${word}${ipa}${pos}`);
-            if (trans) doc.fontSize(10).font('Helvetica').fillColor('#334155').text(`   ${trans}`);
-            if (v.example) doc.fontSize(9).font('Helvetica-Oblique').fillColor('#64748b').text(`   e.g. ${v.example}`);
-            doc.moveDown(0.25);
-        });
-    }
-
-    // ═══════════ commonMistakes ═══════════
-    if (Array.isArray(data?.commonMistakes) && data.commonMistakes.length) {
-        doc.moveDown(0.3);
-        doc.fontSize(13).font('Helvetica-Bold').fillColor('#0f172a').text('Common Mistakes');
-        doc.moveDown(0.4);
-        data.commonMistakes.forEach((m) => {
-            if (m.incorrect) doc.fontSize(10).font('Helvetica-Bold').fillColor('#dc2626').text(`X  ${m.incorrect}`);
-            if (m.correct) doc.fontSize(10).font('Helvetica-Bold').fillColor('#059669').text(`OK ${m.correct}`);
-            if (m.reason) doc.fontSize(9).font('Helvetica-Oblique').fillColor('#64748b').text(`   ${m.reason}`);
-            doc.moveDown(0.3);
-        });
-    }
-
-    // ═══════════ exercises / practiceExercises / checkpointQuestions ═══════════
-    const exercises = data?.exercises || data?.practiceExercises || data?.checkpointQuestions;
-    if (Array.isArray(exercises) && exercises.length) {
-        doc.moveDown(0.3);
-        doc.fontSize(13).font('Helvetica-Bold').fillColor('#0f172a').text('Exercises');
-        doc.moveDown(0.4);
-        exercises.forEach((ex, i) => {
-            if (ex.instruction) doc.fontSize(10).font('Helvetica-Oblique').fillColor('#0284c7').text(ex.instruction);
-            doc.fontSize(11).font('Helvetica-Bold').fillColor('#1e293b').text(`${i + 1}. ${ex.question || ''}`);
-            const options = ex.options || [];
-            options.forEach((opt, oi) => {
-                const letter = String.fromCharCode(65 + oi);
-                const isCorrect = oi === ex.correctIndex;
-                doc.fontSize(10).font('Helvetica').fillColor(isCorrect ? '#059669' : '#334155')
-                    .text(`   ${letter}. ${opt}${isCorrect ? '  <-- correct' : ''}`);
-            });
-            if (ex.explanation) {
-                doc.fontSize(9).font('Helvetica-Oblique').fillColor('#64748b').text(`   Explanation: ${ex.explanation}`);
-            }
-            doc.moveDown(0.5);
-        });
-    }
-
-    // ═══════════ legacy modules ═══════════
-    if (Array.isArray(data?.modules) && data.modules.length) {
-        data.modules.forEach((m) => {
-            doc.fontSize(14).font('Helvetica-Bold').fillColor('#1e293b').text(m.title || '');
-            doc.fontSize(12).font('Helvetica').fillColor('#334155').text(m.description || '');
-            (m.rules || []).forEach((r) => {
-                doc.fontSize(11).font('Helvetica-Bold').text(`- ${r.rule}:`);
-                doc.fontSize(10).font('Helvetica').text(`  ${r.explanation}`);
-                if (r.example) doc.fontSize(9).font('Helvetica-Oblique').fillColor('#64748b').text(`  e.g. ${r.example}`);
-                doc.moveDown(0.3);
-            });
-            doc.moveDown(0.5);
-        });
-    }
-
-    // ═══════════ Last resort: если вообще ничего не распознали ═══════════
-    const hasAnyKnown =
-        Array.isArray(data?.coreRules) || Array.isArray(data?.milestones) ||
-        Array.isArray(data?.paragraphs) || Array.isArray(data?.sentences) ||
-        Array.isArray(data?.keyVocabulary) || Array.isArray(data?.commonMistakes) ||
-        Array.isArray(exercises) || Array.isArray(data?.modules);
-
-    if (!hasAnyKnown && data) {
-        doc.fontSize(11).font('Helvetica').fillColor('#334155')
-            .text(typeof data === 'string' ? data : JSON.stringify(data, null, 2));
-    }
-
-    doc.end();
-    return new Promise((resolve, reject) => {
-        stream.on('finish', () => resolve(filePath));
-        stream.on('error', reject);
-    });
 }
 
 async function generatePdf(type, userId, targetLang, level, mediatorLang = 'en', topic = '') {
@@ -1309,13 +1179,19 @@ async function handleLanguageSwitch(ctx, newLang, opts = {}) {
             throw new Error((data && data.error) || 'server refused switch');
         }
 
-        // Sync local Redis cache
+        // Force-write to shared memory first (instant), then Redis
         try {
-            const cached = await getUser(String(userId));
-            if (cached) {
-                cached.targetLanguage = newLang;
-                await saveUser(String(userId), cached);
+            const key = String(userId);
+            const cached = (global.__SPEAKBOT_USERS && global.__SPEAKBOT_USERS[key])
+                || (await getUser(key).catch(() => null))
+                || {};
+            cached.targetLanguage = newLang;
+            if (!cached.userId) cached.userId = key;
+
+            if (global.__SPEAKBOT_USERS) {
+                global.__SPEAKBOT_USERS[key] = cached;
             }
+            await saveUser(key, cached).catch(() => { });
         } catch (cacheErr) {
             console.warn('[LangSwitch] cache update failed:', cacheErr.message);
         }
@@ -2218,26 +2094,50 @@ bot.command('roadmap', async (ctx) => {
         ctx.reply('Failed to generate roadmap.');
     }
 });
+
 bot.command('grammar_pdf', async (ctx) => {
-    const topic = ctx.message.text.split(' ').slice(1).join(' ') || 'Basic Grammar';
-    const p = await getUserProfile(ctx.from.id);
-    await ctx.reply(`📄 Generating grammar PDF for "${topic}"...`);
     try {
+        const topic = extractCommandTopic(ctx.message.text, 'grammar_pdf') || 'Basic Grammar';
+        const p = await getUserProfile(ctx.from.id);
+
+        // Language-mismatch guard (skip if profile is a fallback)
+        if (!p._isFallback) {
+            const mismatch = detectTopicLanguageMismatch(topic, p.targetLanguage);
+            if (mismatch) {
+                return refuseLanguageMismatch(ctx, topic, mismatch, p.targetLanguage, p.mediatorLanguage, 'grammar_pdf');
+            }
+        }
+
+        await ctx.reply(`📄 Generating grammar PDF for "${topic}"...`);
         const pdfPath = await generatePdf('grammar', ctx.from.id, p.targetLanguage, p.currentLevel, p.mediatorLanguage, topic);
         await ctx.replyWithDocument({ source: pdfPath });
         try { fs.unlinkSync(pdfPath); } catch { }
-    } catch (e) { ctx.reply('Failed to generate PDF.'); }
+    } catch (e) {
+        console.error('grammar_pdf failed:', e.message);
+        ctx.reply('Failed to generate PDF.').catch(() => { });
+    }
 });
 
 bot.command('roadmap_pdf', async (ctx) => {
-    const topic = ctx.message.text.split(' ').slice(1).join(' ') || 'General';
-    const p = await getUserProfile(ctx.from.id);
-    await ctx.reply(`📄 Generating roadmap PDF for "${topic}"...`);
     try {
+        const topic = extractCommandTopic(ctx.message.text, 'roadmap_pdf') || 'General';
+        const p = await getUserProfile(ctx.from.id);
+
+        if (!p._isFallback) {
+            const mismatch = detectTopicLanguageMismatch(topic, p.targetLanguage);
+            if (mismatch) {
+                return refuseLanguageMismatch(ctx, topic, mismatch, p.targetLanguage, p.mediatorLanguage, 'roadmap_pdf');
+            }
+        }
+
+        await ctx.reply(`📄 Generating roadmap PDF for "${topic}"...`);
         const pdfPath = await generatePdf('roadmap', ctx.from.id, p.targetLanguage, p.currentLevel, p.mediatorLanguage, topic);
         await ctx.replyWithDocument({ source: pdfPath });
         try { fs.unlinkSync(pdfPath); } catch { }
-    } catch (e) { ctx.reply('Failed to generate PDF.'); }
+    } catch (e) {
+        console.error('roadmap_pdf failed:', e.message);
+        ctx.reply('Failed to generate PDF.').catch(() => { });
+    }
 });
 bot.command('skills', async (ctx) => {
     const p = await getUserProfile(ctx.from.id);
