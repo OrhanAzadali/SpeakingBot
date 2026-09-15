@@ -10,6 +10,13 @@ export const availableUiLanguages = [
   { code: 'tr', label: 'Türkçe', flag: '🇹🇷' },
   { code: 'es', label: 'Español', flag: '🇪🇸' },
   { code: 'de', label: 'Deutsch', flag: '🇩🇪' },
+  // RTL / CJK — supported via Noto fonts & multi-script TTS
+  { code: 'ar', label: 'Arabic', flag: '🇸🇦' },
+  { code: 'he', label: 'Hebrew', flag: '🇮🇱' },
+  { code: 'zh', label: 'Chinese', flag: '🇨🇳' },
+  { code: 'ja', label: 'Japanese', flag: '🇯🇵' },
+  { code: 'ko', label: 'Korean', flag: '🇰🇷' },
+
 ];
 
 export const availableMediatorLanguages = [
@@ -19,8 +26,15 @@ export const availableMediatorLanguages = [
   { code: 'en', label: 'English', flag: '🇬🇧', nativeName: 'English (Direct)' },
   { code: 'es', label: 'Spanish', flag: '🇪🇸', nativeName: 'Español' },
   { code: 'de', label: 'German', flag: '🇩🇪', nativeName: 'Deutsch' },
+  { code: 'fr', label: 'French', flag: '🇫🇷', nativeName: 'Français' },
+  { code: 'it', label: 'Italian', flag: '🇮🇹', nativeName: 'Italiano' },
+  // RTL / CJK — supported via Noto fonts & multi-script TTS
+  { code: 'ar', label: 'Arabic', flag: '🇸🇦', nativeName: 'العربية' },
+  { code: 'he', label: 'Hebrew', flag: '🇮🇱', nativeName: 'עברית' },
+  { code: 'zh', label: 'Chinese', flag: '🇨🇳', nativeName: '中文' },
+  { code: 'ja', label: 'Japanese', flag: '🇯🇵', nativeName: '日本語' },
+  { code: 'ko', label: 'Korean', flag: '🇰🇷', nativeName: '한국어' },
 ];
-
 export const TranslationProvider = ({ children }) => {
   const [uiLanguage, setUiLanguageState] = useState(() => {
     try {
