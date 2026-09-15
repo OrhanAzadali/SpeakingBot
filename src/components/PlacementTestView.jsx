@@ -265,10 +265,26 @@ export const PlacementTestView = ({
             /* Prompt */
           }
           <div>
-            <p className="text-xs text-slate-400 mb-2">{currentQ.prompt}</p>
-            <div className="p-4 rounded-2xl bg-slate-950 border border-slate-800/80 text-sm sm:text-base font-semibold text-slate-100 font-sans tracking-wide">
-              {currentQ.contextSentence}
-            </div>
+            {(() => {
+              console.log('[Placement] raw question object:', currentQ);
+              const prompt = currentQ?.prompt || currentQ?.question || currentQ?.questionText || '';
+              const ctx = currentQ?.contextSentence || currentQ?.sentence || currentQ?.text || '';
+              return (
+                <>
+                  {prompt && <p className="text-xs text-slate-400 mb-2">{prompt}</p>}
+                  {ctx && (
+                    <div className="p-4 rounded-2xl bg-slate-950 border border-slate-800/80 text-sm sm:text-base font-semibold text-slate-100 font-sans tracking-wide break-words">
+                      {ctx}
+                    </div>
+                  )}
+                  {!prompt && !ctx && (
+                    <div className="p-3 rounded-2xl bg-amber-950/40 border border-amber-500/40 text-xs text-amber-300">
+                      ⚠️ Вопрос не загрузился. Перезапустите тест.
+                    </div>
+                  )}
+                </>
+              );
+            })()}
           </div>
 
           {

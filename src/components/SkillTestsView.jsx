@@ -591,8 +591,27 @@ export const SkillTestsView = ({
         {/* Question + options */}
         {!isLoadingTest && !testError && testQuestions[currentTestIndex] && (
           <div className="space-y-4">
-            <p className="text-sm font-semibold text-slate-100">
-              {testQuestions[currentTestIndex].question}
+            <p className="text-sm font-semibold text-slate-100 break-words">
+              {(() => {
+                const q = testQuestions[currentTestIndex];
+                console.log('[SkillTest] raw question object:', q);
+
+                // Direct string
+                if (typeof q?.question === 'string' && q.question.trim().length > 0) {
+                  return q.question;
+                }
+                // Object with .text/.prompt/.q/.questionText
+                if (q?.question && typeof q.question === 'object') {
+                  return q.question.text || q.question.prompt || q.question.q || JSON.stringify(q.question);
+                }
+                // Fallback to sibling fields
+                if (typeof q?.prompt === 'string') return q.prompt;
+                if (typeof q?.questionText === 'string') return q.questionText;
+                if (typeof q?.q === 'string') return q.q;
+                if (typeof q?.text === 'string') return q.text;
+
+                return '⚠️ Вопрос не загрузился. Перезапустите тест.';
+              })()}
             </p>
 
             <div className="space-y-2">
