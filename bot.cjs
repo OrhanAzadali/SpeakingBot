@@ -445,15 +445,34 @@ async function convertToOgg(inputPath) {
 // ==================== STT ====================
 async function transcribeAudio(filePath, lang = 'en') {
     const formData = new FormData();
-    formData.append('file', fs.createReadStream(filePath));
+    const stream = fs.createReadStream(filePath);
+    formData.append('file', stream, {
+        filename: path.basename(filePath) || 'audio.oga',
+        contentType: 'audio/ogg',
+    });
     formData.append('model', 'whisper-large-v3');
     formData.append('language', lang);
     formData.append('response_format', 'json');
-    const response = await axios.post('https://api.groq.com/openai/v1/audio/transcriptions', formData, {
-        headers: { 'Authorization': `Bearer ${GROQ_API_KEY}`, 'Content-Type': 'multipart/form-data' },
-        timeout: 30000,
-    });
-    return response.data.text;
+
+    try {
+        const response = await axios.post(
+            'https://api.groq.com/openai/v1/audio/transcriptions',
+            formData,
+            {
+                headers: { 'Authorization': `Bearer ${GROQ_API_KEY}` },
+                timeout: 30000,
+                maxBodyLength: 25 * 1024 * 1024,
+                maxContentLength: 25 * 1024 * 1024,
+            }
+        );
+        const text = response.data?.text;
+        if (!text || typeof text !== 'string') throw new Error('Empty transcription response');
+        return text;
+    } catch (e) {
+        const detail = e.response?.data ? JSON.stringify(e.response.data).slice(0, 300) : e.message;
+        console.error('[STT] Groq Whisper failed:', detail);
+        throw new Error(`STT failed: ${detail}`);
+    }
 }
 
 // ==================== TUTOR ====================
@@ -1568,6 +1587,87 @@ async function safeMarkdownReply(ctx, text, opts = {}) {
         }
     }
 }
+
+// ────────────────────────────────────────────────────────────
+// LANGUAGE-MISMATCH GUARD
+// Detects if a topic mentions a language that is NOT the user's
+// target language. If so, the guide would be generated in the
+// wrong language → refuse and offer alternatives.
+// ────────────────────────────────────────────────────────────
+const TOPIC_LANG_ALIASES = {
+    'english': 'English',
+    'german': 'German', 'deutsch': 'German',
+    'spanish': 'Spanish', 'espanol': 'Spanish', 'español': 'Spanish',
+    'french': 'French', 'francais': 'French', 'français': 'French',
+    'italian': 'Italian', 'italiano': 'Italian',
+    'russian': 'Russian', 'русский': 'Russian',
+    'turkish': 'Turkish', 'türkçe': 'Turkish',
+    'azerbaijani': 'Azerbaijani', 'azeri': 'Azerbaijani', 'azərbaycan': 'Azerbaijani',
+};
+
+// Returns the language name mentioned in topic that DIFFERS from targetLanguage,
+// or null if there's no mismatch (topic mentions no language, or mentions the target).
+function detectTopicLanguageMismatch(topic, targetLanguage) {
+    if (!topic) return null;
+    const lower = String(topic).toLowerCase();
+    const targetLower = String(targetLanguage || '').toLowerCase();
+    for (const [alias, canonical] of Object.entries(TOPIC_LANG_ALIASES)) {
+        const rx = new RegExp(`(^|[^a-zà-ÿ])${alias}([^a-zà-ÿ]|$)`, 'i');
+        if (rx.test(lower)) {
+            if (canonical.toLowerCase() !== targetLower) return canonical;
+            return null;   // mentions target language — that's fine
+        }
+    }
+    return null;
+}
+
+// Remove the detected foreign-language name from the topic, so we can
+// offer "same topic, but about <target>" cleanly.
+function stripLanguageName(topic, foreignLang) {
+    if (!topic || !foreignLang) return topic;
+    const aliases = Object.entries(TOPIC_LANG_ALIASES)
+        .filter(([, v]) => v === foreignLang)
+        .map(([k]) => k);
+    let t = topic;
+    for (const a of aliases) {
+        t = t.replace(new RegExp(`(^|[^a-zà-ÿ])${a}([^a-zà-ÿ]|$)`, 'gi'), '$1$2');
+    }
+    return t.replace(/\s+/g, ' ').trim();
+}
+
+// Refuse helper — sends the "wrong language" message with a helpful reply
+async function refuseLanguageMismatch(ctx, topic, foreignLang, targetLang, mediatorLang, command) {
+    const cleanTopic = stripLanguageName(topic, foreignLang) || 'this topic';
+    const mediatorName = langCodeToName ? langCodeToName(mediatorLang) : mediatorLang;
+
+    const lines = [
+        `⚠️ *Language mismatch*`,
+        '',
+        `Your *target language* is *${targetLang}*, but this topic is about *${foreignLang}*.`,
+        `I can only create guides in your current target language.`,
+        '',
+        `*Option 1 — same topic, but about ${targetLang}:*`,
+        `   /${command} ${cleanTopic} (${targetLang.toLowerCase()})`,
+        '',
+        `*Option 2 — switch to ${foreignLang} first:*`,
+        `   Send: "switch to ${foreignLang}"`,
+        `   Then retry: /${command} ${topic}`,
+        '',
+        `Explanations will be in *${mediatorName}* per your mediator setting.`,
+    ];
+    return ctx.reply(lines.join('\n'), { parse_mode: 'Markdown' });
+}
+
+
+function extractCommandTopic(text, command) {
+    if (!text || typeof text !== 'string') return '';
+    let rest = text.replace(new RegExp(`^/${command}(@\\w+)?\\s*`, 'i'), '');
+    rest = rest.split('\n')[0];
+    rest = rest.split(/\s+\//)[0];
+    rest = rest.replace(/\s+/g, ' ').trim();
+    if (rest.length > 120) rest = rest.slice(0, 120);
+    return rest;
+}
 // ==================== COMMANDS ====================
 bot.start(async (ctx) => {
     const userId = ctx.from.id;
@@ -1993,8 +2093,13 @@ async function handleSpeakingVoiceReply(ctx) {
 bot.command('grammar', async (ctx) => {
     const topic = ctx.message.text.split(' ').slice(1).join(' ') || 'Basic Grammar';
     const p = await getUserProfile(ctx.from.id);
-    await ctx.reply(`📖 Generating grammar guide for "${topic}"...`);
 
+    const mismatch = detectTopicLanguageMismatch(topic, p.targetLanguage);
+    if (mismatch) {
+        return refuseLanguageMismatch(ctx, topic, mismatch, p.targetLanguage, p.mediatorLanguage, 'grammar');
+    }
+
+    await ctx.reply(`📖 Generating grammar guide for "${topic}"...`); s
     try {
         const { data } = await axios.post(`${API_BASE}/api/gemini/generate-grammar-guide`, {
             userId: ctx.from.id,
@@ -2052,8 +2157,13 @@ bot.command('grammar', async (ctx) => {
 bot.command('roadmap', async (ctx) => {
     const topic = ctx.message.text.split(' ').slice(1).join(' ') || 'General';
     const p = await getUserProfile(ctx.from.id);
-    await ctx.reply(`🗺️ Generating roadmap for "${topic}"...`);
 
+    const mismatch = detectTopicLanguageMismatch(topic, p.targetLanguage);
+    if (mismatch) {
+        return refuseLanguageMismatch(ctx, topic, mismatch, p.targetLanguage, p.mediatorLanguage, 'roadmap');
+    }
+
+    await ctx.reply(`🗺️ Generating roadmap for "${topic}"...`);
     try {
         const { data } = await axios.post(`${API_BASE}/api/gemini/generate-grammar-roadmap`, {
             userId: ctx.from.id,
