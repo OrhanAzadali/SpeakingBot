@@ -843,99 +843,185 @@ function detectIntent(text) {
 async function classifyAndRouteText(text, userProfile) {
     const clean = (text || '').trim();
     if (!clean) return { action: 'tutor' };
-    // ── LAYER 1: sanitize
+
+    const p = userProfile || {};   // ← p теперь определена
+
+    // ── LAYER 0: SWITCH_REQUEST marker from tutor output ──
+    // Accepts ANY non-space, non-punctuation run — Latin, Cyrillic, Greek, etc.
+    // Filtering by whitelist happens in canonicalizeTargetLanguage below.
+
+    const markerMatch = clean.match(/SWITCH_REQUEST::\s*([^\s.,;:!?()\[\]{}"'`]+)/i);
+    if (markerMatch && markerMatch[1]) {
+        const raw = markerMatch[1].trim();
+        const canonical = canonicalizeTargetLanguage(raw);
+        if (canonical) {
+            console.log('[Router] SWITCH_REQUEST accepted:', raw, '→', canonical);
+            return { action: 'switch_target', lang: canonical };
+        }
+        console.warn('[Router] SWITCH_REQUEST rejected (not in whitelist):', raw);
+        return {
+            action: 'reject_lang',
+            lang: raw,
+            message:
+                `⚠️ *Sorry, "${raw}" is not a supported target language.*\n\n` +
+                `Supported languages:\n${SUPPORTED_TARGET_LANGUAGES.join(', ')}`,
+        };
+    }
+
+    // ── LAYER 1: sanitize ──
     const safe = sanitizeUserText(clean);
 
-    // ── LAYER 2: guard — если сообщение не похоже на явную команду, не трогаем switch-логику
-    const looksLikeCommand = isExplicitSwitchCommand(safe);
-    const p = userProfile || {};
+    // ── LAYER 2: guard — только если сообщение похоже на явную команду ──
+    // (оставлено как было, но переменные корректно определены)
 
-    // ── 0. Marker from AI tutor: SWITCH_REQUEST::Spanish ──
-    const markerMatch = clean.match(/^SWITCH_REQUEST::([A-Za-zÀ-ÿ]+)/i);
-    if (markerMatch && markerMatch[1]) {
-        const lang = markerMatch[1].charAt(0).toUpperCase() + markerMatch[1].slice(1).toLowerCase();
-        return { action: 'switch_target', lang };
-    }
-
-    // ── 1. Fast regex language switch — ONLY if message passed Layer 2 guard ──
-    if (looksLikeCommand) {
-        const fastSwitch = detectLanguageSwitchIntent(safe);
-        if (fastSwitch) {
-            // ⚠️ Для dual-switch из длинной фразы → подтверждение
-            if (fastSwitch.intent === 'target_and_mediator') {
-                // Если фраза длинная и содержит оба языка — просим подтвердить
-                const wordCount = safe.split(/\s+/).length;
-                if (wordCount > 12) {
-                    return {
-                        action: 'confirm',
-                        question:
-                            `🤔 Вы хотите одновременно сменить:\n` +
-                            `• *Целевой* язык → ${fastSwitch.targetLanguage}\n` +
-                            `• *Медиатор* → ${fastSwitch.mediatorLanguage}\n\n` +
-                            `Ответьте *да* для подтверждения или *нет* для отмены.`,
-                        onConfirm: {
-                            action: 'switch_both',
-                            targetLang: fastSwitch.targetLanguage,
-                            mediatorLang: fastSwitch.mediatorLanguage,
-                        },
-                    };
-                }
-                return {
-                    action: 'switch_both',
-                    targetLang: fastSwitch.targetLanguage,
-                    mediatorLang: fastSwitch.mediatorLanguage,
-                };
-            }
-            if (fastSwitch.intent === 'mediator') {
-                return { action: 'switch_mediator', lang: fastSwitch.language };
-            }
-            return { action: 'switch_target', lang: fastSwitch.language };
-        }
-    }
-    // ── 2. How-to intent ──
-    if (detectHowToIntent(clean)) return { action: 'howto' };
-
-    // ── 3. AI classifier for suspicious short messages ──
+    // ── 3. AI classifier ──
     if (looksLikeLanguageRequest(clean)) {
         const aiIntent = await classifyIntentWithAI(clean, p.targetLanguage, p.mediatorLanguage);
         if (aiIntent?.intent === 'switch_language' && aiIntent.language) {
-            return { action: 'switch_target', lang: aiIntent.language };
+            const canonical = canonicalizeTargetLanguage(aiIntent.language);
+            if (canonical) {
+                return { action: 'switch_target', lang: canonical };
+            }
+            // AI suggested something NOT in whitelist (Georgian, Greek, ...)
+            // Do NOT fall through to tutor (which would echo SWITCH_REQUEST).
+            console.warn('[Router] AI suggested unsupported language:', aiIntent.language);
+            return {
+                action: 'reject_lang',
+                lang: aiIntent.language,
+                message:
+                    `⚠️ *Sorry, "${aiIntent.language}" is not a supported target language.*\n\n` +
+                    `Supported languages:\n${SUPPORTED_TARGET_LANGUAGES.join(', ')}`,
+            };
         }
         if (aiIntent?.intent === 'switch_mediator' && aiIntent.language) {
             return { action: 'switch_mediator', lang: aiIntent.language };
         }
     }
 
-    // ── 4. Intent detection (PDF / games / tutor) ──
+    // ── 4. Intent detection ──
     const intent = detectIntent(clean);
-    if (['grammar', 'roadmap', 'skills', 'listening', 'reading', 'writing'].includes(intent)) {
+    const hasCommandPrefix = /\/(grammar|roadmap|read|write|listen|skilltest)\b/i.test(clean);
+    if (hasCommandPrefix && ['grammar', 'roadmap', 'skills', 'listening', 'reading', 'writing'].includes(intent)) {
         return { action: 'pdf', intent };
     }
     if (intent === 'game') return { action: 'game' };
     return { action: 'tutor' };
 }
-// ==================== LANGUAGE SWITCH INTENT ====================
-const LANG_NAME_MAP = {
-    // English name → canonical
+
+// ────────────────────────────────────────────────────────────
+// TOPIC_LANG_ALIASES — canonical language names across all
+// possible mediator/input languages. Covers native names, English
+// names, Russian transliterations, and Azerbaijani/Turkish variants.
+// Extend as needed; the whitelist filter still applies downstream.
+// ────────────────────────────────────────────────────────────
+const TOPIC_LANG_ALIASES = {
+    // ── English names ──
     'english': 'English',
-    'german': 'German', 'deutsch': 'German',
-    'spanish': 'Spanish', 'espanol': 'Spanish', 'español': 'Spanish',
-    'french': 'French', 'francais': 'French', 'français': 'French',
-    'italian': 'Italian', 'italiano': 'Italian',
-    'russian': 'Russian', 'русский': 'Russian',
-    'turkish': 'Turkish', 'türkçe': 'Turkish',
-    'azerbaijani': 'Azerbaijani', 'azeri': 'Azerbaijani', 'azərbaycan': 'Azerbaijani',
+    'german': 'German',
+    'dutch': 'Dutch',
+    'spanish': 'Spanish',
+    'french': 'French',
+    'italian': 'Italian',
+    'portuguese': 'Portuguese',
+    'russian': 'Russian',
+    'ukrainian': 'Ukrainian',
+    'polish': 'Polish',
+    'turkish': 'Turkish',
+    'azerbaijani': 'Azerbaijani',
+    'arabic': 'Arabic',
+    'chinese': 'Chinese', 'mandarin': 'Chinese',
+    'japanese': 'Japanese',
+    'korean': 'Korean',
+    'greek': 'Greek',
+    'georgian': 'Georgian',
+    'armenian': 'Armenian',
+    'hebrew': 'Hebrew',
+    'hindi': 'Hindi',
+    'swedish': 'Swedish',
+    'norwegian': 'Norwegian',
+    'danish': 'Danish',
+    'finnish': 'Finnish',
+    'czech': 'Czech',
+    'slovak': 'Slovak',
+    'hungarian': 'Hungarian',
+    'romanian': 'Romanian',
+    'bulgarian': 'Bulgarian',
+    'serbian': 'Serbian',
+    'croatian': 'Croatian',
+
+    // ── Native names (English letters) ──
+    'deutsch': 'German',
+    'nederlands': 'Dutch', 'hollands': 'Dutch',
+    'espanol': 'Spanish', 'español': 'Spanish', 'castellano': 'Spanish',
+    'francais': 'French', 'français': 'French',
+    'italiano': 'Italian',
+    'türkçe': 'Turkish', 'turkce': 'Turkish',
+    'azerbaycan': 'Azerbaijani', 'azərbaycan': 'Azerbaijani', 'azeri': 'Azerbaijani',
+    'svenska': 'Swedish',
+    'norsk': 'Norwegian',
+    'dansk': 'Danish',
+    'suomi': 'Finnish',
+
+    // ── Russian names (mediator language = Russian) ──
+    'английский': 'English', 'англ': 'English',
+    'немецкий': 'German', 'нем': 'German',
+    'испанский': 'Spanish', 'исп': 'Spanish',
+    'французский': 'French', 'фр': 'French',
+    'итальянский': 'Italian', 'итал': 'Italian',
+    'русский': 'Russian', 'рус': 'Russian',
+    'турецкий': 'Turkish', 'тур': 'Turkish',
+    'азербайджанский': 'Azerbaijani', 'азер': 'Azerbaijani',
+    'грузинский': 'Georgian', 'груз': 'Georgian',
+    'греческий': 'Greek', 'греч': 'Greek',
+    'голландский': 'Dutch', 'нидерландский': 'Dutch',
+    'португальский': 'Portuguese',
+    'украинский': 'Ukrainian',
+    'польский': 'Polish',
+    'арабский': 'Arabic',
+    'китайский': 'Chinese',
+    'японский': 'Japanese',
+    'корейский': 'Korean',
+    'иврит': 'Hebrew',
+    'хинди': 'Hindi',
+    'армянский': 'Armenian',
+    'шведский': 'Swedish',
+    'норвежский': 'Norwegian',
+    'датский': 'Danish',
+    'финский': 'Finnish',
+    'чешский': 'Czech',
+    'словацкий': 'Slovak',
+    'венгерский': 'Hungarian',
+    'румынский': 'Romanian',
+    'болгарский': 'Bulgarian',
+    'сербский': 'Serbian',
+    'хорватский': 'Croatian',
+
+    // ── Turkish names (mediator language = Turkish) ──
+    'ingilizce': 'English',
+    'almanca': 'German',
+    'ispanyolca': 'Spanish',
+    'fransizca': 'French', 'fransızca': 'French',
+    'italyanca': 'Italian',
+    'rusca': 'Russian', 'rusça': 'Russian',
+    'turkce': 'Turkish', 'türkçe': 'Turkish',
+    'azerbaycanca': 'Azerbaijani',
+    'gurcuce': 'Georgian', 'gürcüce': 'Georgian',
+    'yunanca': 'Greek',
+    'hollandaca': 'Dutch',
+
+    // ── Azerbaijani names (mediator language = Azerbaijani) ──
+    'ingilis': 'English', 'ingilis dili': 'English',
+    'alman': 'German', 'alman dili': 'German',
+    'ispan': 'Spanish', 'ispan dili': 'Spanish',
+    'fransiz': 'French', 'fransız': 'French', 'fransız dili': 'French',
+    'italyan': 'Italian',
+    'rus': 'Russian', 'rus dili': 'Russian',
+    'türk': 'Turkish', 'türk dili': 'Turkish',
+    'azərbaycan': 'Azerbaijani', 'azərbaycan dili': 'Azerbaijani',
+    'gürcü': 'Georgian',
+    'yunan': 'Greek',    'holland': 'Dutch',
 };
 
-function extractLanguageFromText(text) {
-    const lower = text.toLowerCase();
-    for (const [key, canonical] of Object.entries(LANG_NAME_MAP)) {
-        // word boundary check
-        const re = new RegExp(`\\b${key} \\b`, 'i');
-        if (re.test(lower)) return canonical;
-    }
-    return null;
-}
 
 // ═══════════════════════════════════════════════════════════════
 // LAYER 1 — SANITIZE: снимаем чужие фразы, чтобы они не триггерили
@@ -966,290 +1052,8 @@ function sanitizeUserText(raw) {
 // ═══════════════════════════════════════════════════════════════
 // LAYER 2 — GUARDS: отсекаем то, что не может быть командой
 // ═══════════════════════════════════════════════════════════════
-function isExplicitSwitchCommand(text) {
-    const lower = (text || '').toLowerCase().trim();
-    if (!lower) return false;
 
-    // Guard 1: слишком длинное сообщение — почти наверняка не императив
-    if (lower.length > 180) return false;
 
-    // Guard 2: содержит явное отрицание рядом с switch-глаголом
-    //   "do not switch", "don't change", "no, don't", "никогда не", "не надо"
-    const NEG_NEAR_SWITCH = /\b(don'?t|do\s+not|doesn'?t|does\s+not|never|no\s*,?\s*(?:do\s+not|don'?t)?|не\s+надо|не\s+переключ\w*|никогда\s+не|не\s+смен\w*)\b[^.!?]{0,40}\b(switch|change|shift|move|set|переключ\w*|смен\w*|dəyiş\w*|keç\w*)\b/i;
-    if (NEG_NEAR_SWITCH.test(lower)) return false;
-
-    // Guard 3: обратное отрицание — "не X, а Y" / "isn't X" / "not X but Y"
-    const NEG_QUESTION = /\b(?:isn'?t|aren'?t|wasn'?t|weren'?t|don'?t|doesn'?t|didn'?t|haven'?t|hasn'?t)\b[^.!?]{0,30}\b(mediator|target|language|russian|english|spanish|turkish|german|french|italian|azerbaijani|deutsch|español|français|italiano)\b/i;
-    if (NEG_QUESTION.test(lower)) return false;
-
-    // Guard 4: начинается с вопросительного слова — это вопрос, не команда
-    //   Исключение: "can you please switch to X" (вежливая просьба)
-    const startsWithQuestion = /^(which|what|why|how|when|where|who|whose|is\s|are\s|was\s|were\s|do\s|does\s|did\s|have\s|has\s|had\s|can\s|should\s|could\s|would\s|will\s)/i;
-    const politeRequest = /\b(please\s+)?(switch|change|set|teach\s+me|learn\s+me)\b/i;
-    if (startsWithQuestion.test(lower) && !politeRequest.test(lower)) return false;
-
-    // Guard 5: meta-обсуждение бота — это не команда
-    const META_MARKERS = [
-        /\byou\s+(?:say|said|keep|are\s+saying|always|still)\b/i,
-        /\bwhy\s+do\s+you\b/i,
-        /\bi\s+think\s+you(?:'?re|\s+are)\b/i,
-        /\byour\s+(?:info|info(?:rmation)?|response|message|behavior|settings|prompt|code)\b/i,
-        /\byou\s+(?:react|ignore|don'?t|didn'?t|won'?t)\b/i,
-        /\bin\s+miniapp\b/i,
-        /\bin\s+webapp\b/i,
-        /\bв\s+миниапп\b/i,
-        /\bв\s+вебапп\b/i,
-        /\bprofile\s+info\b/i,
-        /\bswitched\s+to\b.*\bswitched\s+to\b/i,  // длинный диалог-возражение
-    ];
-    if (META_MARKERS.some(rx => rx.test(lower))) return false;
-
-    // Guard 6: сообщение содержит и цель, и медиатора в одном предложении,
-    //          И при этом > 10 слов → это скорее обсуждение, чем команда
-    const wordCount = lower.split(/\s+/).length;
-    const hasBothLangs = (/\b(?:russian|english|spanish|turkish|german|french|italian|azerbaijani)\b.*\b(?:russian|english|spanish|turkish|german|french|italian|azerbaijani)\b/i.test(lower));
-    if (wordCount > 12 && hasBothLangs) {
-        // Разрешить только если есть ЧЁТКИЙ императив "switch ... to X and ... to Y"
-        const clearDualCommand = /\b(?:switch|change|set)\b[^.!?]{0,60}\bto\s+\w+\b[^.!?]{0,40}\b(?:switch|change|set|and)\b/i.test(lower);
-        if (!clearDualCommand) return false;
-    }
-
-    return true;
-}
-// Returns { intent: 'target'|'mediator', language: 'Russian' } or null.
-function detectLanguageSwitchIntent(text) {
-    if (!text) return null;
-    const lower = text.toLowerCase().trim().replace(/[.!?,]+$/g, '');
-
-    const tryExtractAll = (s) => {
-        // Return ALL canonical language names found, preserving order of appearance
-        const found = [];
-        const LANG_MAP_LOCAL = {
-            'english': 'English',
-            'german': 'German', 'deutsch': 'German',
-            'spanish': 'Spanish', 'espanol': 'Spanish', 'español': 'Spanish',
-            'french': 'French', 'francais': 'French', 'français': 'French',
-            'italian': 'Italian', 'italiano': 'Italian',
-            'russian': 'Russian', 'русский': 'Russian',
-            'turkish': 'Turkish', 'türkçe': 'Turkish',
-            'azerbaijani': 'Azerbaijani', 'azeri': 'Azerbaijani', 'azərbaycan': 'Azerbaijani',
-        };
-        const positions = [];
-        for (const [k, canon] of Object.entries(LANG_MAP_LOCAL)) {
-            const rx = new RegExp(`\\b${k}\\b`, 'i');
-            const m = lower.match(rx);
-            if (m) positions.push({ pos: m.index, lang: canon });
-        }
-        positions.sort((a, b) => a.pos - b.pos);
-        // Dedup while preserving order
-        const seen = new Set();
-        for (const p of positions) {
-            if (!seen.has(p.lang)) {
-                seen.add(p.lang);
-                found.push(p.lang);
-            }
-        }
-        return found;
-    };
-
-    // ═══════════════════════════════════════════════════════
-    // PATTERN 0: BOTH mediator + target mentioned in one sentence
-    // "switch mediator to russian and target to spanish"
-    // "mediate in russian, teach me spanish"
-    // ═══════════════════════════════════════════════════════
-    const hasMediatorWord = /\b(mediator|native|explain(?:ed)?|explanations?|clarif\w*|translat\w*)\b/i.test(lower);
-    const hasTargetWord = /\b(target|learn|teach|study|speak|practice|master)\b/i.test(lower);
-
-    if (hasMediatorWord && hasTargetWord) {
-        const langs = tryExtractAll(lower);
-        if (langs.length >= 2) {
-            // Heuristic: mediator = the one nearest to a mediator keyword,
-            // target = the one nearest to a target keyword.
-            const medIdx = langs.findIndex(l => new RegExp(l.toLowerCase() + '|' + mapShort(l), 'i').test(
-                lower.slice(Math.max(0, lower.search(/\b(mediator|native|explain|explanations?|clarif|translat)/i)))
-            ));
-            // Simpler: first-mentioned language in "mediator…X…target…Y" is mediator, second is target.
-            // If "target…X…mediator…Y" — reverse. Detect which keyword comes first.
-            const medKeywordPos = lower.search(/\b(mediator|native|explain|explanations?|clarif|translat)/i);
-            const tgtKeywordPos = lower.search(/\b(target|learn|teach|study|speak|practice|master)/i);
-            if (medKeywordPos >= 0 && tgtKeywordPos >= 0 && medKeywordPos < tgtKeywordPos) {
-                return {
-                    intent: 'target_and_mediator',
-                    targetLanguage: langs[1],
-                    mediatorLanguage: langs[0],
-                };
-            } else if (tgtKeywordPos >= 0 && medKeywordPos >= 0 && tgtKeywordPos < medKeywordPos) {
-                return {
-                    intent: 'target_and_mediator',
-                    targetLanguage: langs[0],
-                    mediatorLanguage: langs[1],
-                };
-            }
-        }
-    }
-
-    // ═══════════════════════════════════════════════════════
-    // PATTERN 1: MEDIATOR-only switch
-    // "switch mediator to russian", "объясняй по-русски", "in russian please"
-    // ═══════════════════════════════════════════════════════
-    const mediatorOnlyPattern = /\b(mediator|native|explanations?|explanations? (?:in|to)|clarif\w* (?:in|to)|translate (?:into|to)|speak to me in|in my (?:own|native)|по[- ]?русски|на русском|на азербайджанском|на турецком|на английском|azərbaycanca|rusca|türkcə)\b/i;
-    if (mediatorOnlyPattern.test(lower)) {
-        // If a target-switch keyword is also present, let Pattern 0 handle it.
-        if (!hasTargetWord) {
-            const langs = tryExtractAll(lower);
-            if (langs.length >= 1) {
-                return { intent: 'mediator', language: langs[0] };
-            }
-        }
-    }
-
-    // ═══════════════════════════════════════════════════════
-    // PATTERN 2: TARGET-only switch (previous behaviour, kept)
-    // ═══════════════════════════════════════════════════════
-    const SWITCH_KEYWORDS = [
-        'switch', 'change', 'shift', 'move', 'instead', 'prefer',
-        'learn', 'study', 'start', 'teach', 'want', 'need',
-        'переключ', 'смен', 'учить', 'изучать', 'хочу', 'давай', 'надо',
-        'keç', 'dəyiş', 'öyrən', 'istəyirəm', 'başla',
-    ];
-    if (SWITCH_KEYWORDS.some(k => lower.includes(k))) {
-        const langs = tryExtractAll(lower);
-        if (langs.length >= 1) {
-            return { intent: 'target', language: langs[0] };
-        }
-    }
-
-    // ═══════════════════════════════════════════════════════
-    // PATTERN 3: bare language name as a very short message
-    // ═══════════════════════════════════════════════════════
-    const BARE = /^(?:to|in|into|auf|en|по)?\s*([a-zà-ÿ]+)$/i;
-    const mBare = lower.match(BARE);
-    if (mBare) {
-        const langs = tryExtractAll(mBare[1]);
-        if (langs.length >= 1) return { intent: 'target', language: langs[0] };
-    }
-
-    // ═══════════════════════════════════════════════════════
-    // PATTERN 4: explicit verb + language
-    // ═══════════════════════════════════════════════════════
-    const VERB_PATTERNS = [
-        /(?:switch|change|shift|move)\s+(?:to\s+)?([a-zà-ÿ]+)/i,
-        /(?:teach|start teaching|help me (?:learn|with|study))\s+(?:me\s+)?([a-zà-ÿ]+)/i,
-        /(?:learn|study|start|master|speak|practice)\s+([a-zà-ÿ]+)/i,
-        /(?:i\s+(?:want|would like|'d like|need)\s+to\s+(?:learn|study|speak|master))\s+([a-zà-ÿ]+)/i,
-    ];
-    for (const p of VERB_PATTERNS) {
-        const m = lower.match(p);
-        if (m && m[1]) {
-            const langs = tryExtractAll(m[1]);
-            if (langs.length >= 1) return { intent: 'target', language: langs[0] };
-        }
-    }
-
-    return null;
-}
-
-// Tiny helper used above — maps a canonical name to short regex alternatives
-function mapShort(canon) {
-    const m = {
-        English: 'english|en', Russian: 'russian|русский|ru',
-        Azerbaijani: 'azerbaijani|azeri|azərbaycan|az',
-        Turkish: 'turkish|türkçe|tr',
-        German: 'german|deutsch|de', Spanish: 'spanish|español|es',
-        French: 'french|français|fr', Italian: 'italian|italiano|it',
-    };
-    return m[canon] || canon.toLowerCase();
-}
-function detectHowToIntent(text) {
-    const lower = text.toLowerCase();
-    const patterns = [
-        /what should i (do|press|click|tap)/,
-        /which (page|button|tab|menu)/,
-        /how (to|do i) (start|begin|switch|change|learn)/,
-        /where (do i|can i|to) (start|go|find|switch|change|learn)/,
-        /what to press/,
-    ];
-    return patterns.some(p => p.test(lower));
-}
-
-async function handleLanguageSwitch(ctx, newLang, opts = {}) {
-    const userId = ctx.from.id;
-    const requestUrl = `${API_BASE}/api/user/target-language`;
-    const silent = !!opts.silent;
-
-    // Unified responder — respects silent flag everywhere
-    const reply = silent
-        ? async () => { /* suppressed */ }
-        : (...args) => ctx.reply(...args);
-
-    try {
-        const { data } = await axios.post(requestUrl, {
-            userId: String(userId),
-            targetLanguage: newLang,
-        }, { timeout: 10000 });
-
-        if (!data || !data.success) {
-            throw new Error((data && data.error) || 'server refused switch');
-        }
-
-        // Force-write to shared memory first (instant), then Redis
-        try {
-            const key = String(userId);
-            const cached = (global.__SPEAKBOT_USERS && global.__SPEAKBOT_USERS[key])
-                || (await getUser(key).catch(() => null))
-                || {};
-            cached.targetLanguage = newLang;
-            if (!cached.userId) cached.userId = key;
-
-            if (global.__SPEAKBOT_USERS) {
-                global.__SPEAKBOT_USERS[key] = cached;
-            }
-            await saveUser(key, cached).catch(() => { });
-        } catch (cacheErr) {
-            console.warn('[LangSwitch] cache update failed:', cacheErr.message);
-        }
-
-        // ⚠️ ВАЖНО: reply(), а НЕ ctx.reply()
-        return reply(
-            `✅ Target language switched to *${newLang}*!\n\n` +
-            `Your profile now:\n` +
-            `• Target: ${newLang}\n` +
-            `• Mediator: ${data.data?.mediatorLanguage || 'unchanged'}\n` +
-            `• Level: ${data.data?.currentLevel || 'B1'}\n\n` +
-            `Start learning — try:\n` +
-            `• /grammar — a grammar guide in ${newLang}\n` +
-            `• /read — reading test in ${newLang}\n` +
-            `• /games — vocabulary games\n` +
-            `• Or just send me a message in ${newLang}!`,
-            { parse_mode: 'Markdown' }
-        );
-    } catch (e) {
-        console.error(`[LangSwitch] POST ${requestUrl} failed:`, e.message, e.code || '');
-
-        // ── FALLBACK: update local cache anyway, so at least this session switches ──
-        try {
-            const cached = await getUser(String(userId));
-            if (cached) {
-                cached.targetLanguage = newLang;
-                await saveUser(String(userId), cached);
-                console.log(`[LangSwitch] local cache updated to ${newLang} (server sync failed)`);
-                return reply(
-                    `✅ Switched to *${newLang}* locally.\n\n` +
-                    `⚠️ Server sync failed (${e.message.slice(0, 80)}), so this may not persist across restarts.\n\n` +
-                    `Try: /grammar — a guide in ${newLang}`,
-                    { parse_mode: 'Markdown' }
-                );
-            }
-        } catch (localErr) {
-            console.error('[LangSwitch] local cache fallback failed:', localErr.message);
-        }
-
-        return reply(
-            `⚠️ Failed to switch to ${newLang}: ${e.message}\n\n` +
-            `Diagnostic: API_BASE = ${API_BASE}`
-        );
-    }
-}
 async function handleMediatorSwitch(ctx, newLang, opts = {}) {
     const userId = ctx.from.id;
     const silent = !!opts.silent;
@@ -1340,6 +1144,8 @@ async function classifyIntentWithAI(text, currentTarget, currentMediator) {
     // Быстрый AI-классификатор. Возвращает { intent, language } или null.
     // Используем Groq (быстрый + дешёвый) для скорости.
 
+    const supportedList = SUPPORTED_TARGET_LANGUAGES.join(', ');
+
     const systemPrompt = `You are an intent classifier for a language-learning Telegram bot.
 
 Current user settings:
@@ -1366,7 +1172,11 @@ Return ONLY valid JSON:
 or
 { "intent": "switch_mediator", "language": "Russian" }
 or
-{ "intent": "chat" }`;
+{ "intent": "chat" }
+
+CRITICAL: Only these target languages are supported: ${supportedList}.
+If the user asks for any other language, return {"intent": "chat"}.
+DO NOT invent unsupported target languages.`;
 
     try {
         const model = await pickGroqModel();
@@ -1478,65 +1288,40 @@ async function safeMarkdownReply(ctx, text, opts = {}) {
 }
 
 // ────────────────────────────────────────────────────────────
+// TARGET LANGUAGE WHITELIST — the only languages the bot supports.
+// Any switch request (regex OR AI) to a language outside this list
+// must be REJECTED, even if the language is real. This prevents
+// hallucinated targets (e.g. "Georgian") that we can't teach.
+// ────────────────────────────────────────────────────────────
+const SUPPORTED_TARGET_LANGUAGES = [
+    'English', 'German', 'Spanish', 'French', 'Italian',
+    'Russian', 'Turkish', 'Azerbaijani',
+];
+
+// Canonicalize a language name to a whitelisted canonical name,
+// or null if it's not supported.
+function canonicalizeTargetLanguage(name) {
+    if (!name || typeof name !== 'string') return null;
+    const n = name.trim();
+    // 1. Direct case-insensitive match against whitelist
+    const direct = SUPPORTED_TARGET_LANGUAGES.find(
+        (l) => l.toLowerCase() === n.toLowerCase()
+    );
+    if (direct) return direct;
+    // 2. Alias lookup (native names, alternate spellings)
+    const alias = TOPIC_LANG_ALIASES[n.toLowerCase()];
+    if (alias && SUPPORTED_TARGET_LANGUAGES.includes(alias)) return alias;
+    return null;
+}
+
+
+// ────────────────────────────────────────────────────────────
 // LANGUAGE-MISMATCH GUARD
 // Detects if a topic mentions a language that is NOT the user's
 // target language. If so, the guide would be generated in the
 // wrong language → refuse and offer alternatives.
 // ────────────────────────────────────────────────────────────
-const TOPIC_LANG_ALIASES = {
-    // English
-    'english': 'English',
-    // German (native: Deutsch — NOT to confuse with Dutch!)
-    'german': 'German', 'deutsch': 'German',
-    // Dutch (native: Nederlands)
-    'dutch': 'Dutch', 'nederlands': 'Dutch', 'hollandisch': 'Dutch',
-    // Spanish
-    'spanish': 'Spanish', 'espanol': 'Spanish', 'español': 'Spanish', 'castellano': 'Spanish',
-    // French
-    'french': 'French', 'francais': 'French', 'français': 'French',
-    // Italian
-    'italian': 'Italian', 'italiano': 'Italian',
-    // Portuguese
-    'portuguese': 'Portuguese', 'portugues': 'Portuguese', 'português': 'Portuguese',
-    // Russian
-    'russian': 'Russian', 'русский': 'Russian',
-    // Ukrainian
-    'ukrainian': 'Ukrainian', 'українська': 'Ukrainian',
-    // Polish
-    'polish': 'Polish', 'polski': 'Polish',
-    // Turkish
-    'turkish': 'Turkish', 'türkçe': 'Turkish',
-    // Azerbaijani
-    'azerbaijani': 'Azerbaijani', 'azeri': 'Azerbaijani', 'azərbaycan': 'Azerbaijani',
-    // Arabic
-    'arabic': 'Arabic', 'العربية': 'Arabic',
-    // Chinese
-    'chinese': 'Chinese', 'mandarin': 'Chinese', '中文': 'Chinese',
-    // Japanese
-    'japanese': 'Japanese', '日本語': 'Japanese',
-    // Korean
-    'korean': 'Korean', '한국어': 'Korean',
-    // Greek
-    'greek': 'Greek', 'ελληνικά': 'Greek',
-    // Swedish / Norwegian / Danish / Finnish
-    'swedish': 'Swedish', 'svenska': 'Swedish',
-    'norwegian': 'Norwegian', 'norsk': 'Norwegian',
-    'danish': 'Danish', 'dansk': 'Danish',
-    'finnish': 'Finnish', 'suomi': 'Finnish',
-    // Czech / Slovak / Hungarian / Romanian
-    'czech': 'Czech', 'čeština': 'Czech',
-    'slovak': 'Slovak', 'slovenčina': 'Slovak',
-    'hungarian': 'Hungarian', 'magyar': 'Hungarian',
-    'romanian': 'Romanian', 'română': 'Romanian',
-    // Bulgarian / Serbian / Croatian
-    'bulgarian': 'Bulgarian', 'български': 'Bulgarian',
-    'serbian': 'Serbian', 'српски': 'Serbian',
-    'croatian': 'Croatian', 'hrvatski': 'Croatian',
-    // Hindi
-    'hindi': 'Hindi', 'हिन्दी': 'Hindi',
-    // Hebrew
-    'hebrew': 'Hebrew', 'עברית': 'Hebrew',
-};
+
 
 // ────────────────────────────────────────────────────────────
 // AI-based language detection for a topic — fallback used when
@@ -1551,9 +1336,16 @@ async function detectTopicLanguageWithAI(topic, targetLang) {
 
     // Only run if there's a capitalized word (likely a proper language name)
     // e.g. "German cases", "Dutch verbs", "Nederlands grammatica"
-    const hasCapitalizedWord = /(^|\s)[A-ZÀ-Ý][a-zà-ÿ]+/.test(trimmed);
-    if (!hasCapitalizedWord) return null;
-
+    // Run AI when ANY of these signals is present:
+    //   • capitalized word (German, Deutsch, Nederlands)
+    //   • any parenthesized word ≥3 letters   → "cases (english)", "cases (dutch)"
+    //   • "in <word>" at the end              → "cases in english"
+    //   • "auf <word>" / "по <word>"          → "cases auf deutsch", "cases по-русски"
+    const needsAI =
+        /(^|\s)[A-ZÀ-Ý][a-zà-ÿ]+/.test(trimmed) ||        // Capitalized
+        /\([a-zà-ÿ]{3,}\)/.test(trimmed) ||               // (english), (dutch)
+        /\b(in|auf|en|по)\s+[a-zà-ÿ-]{3,}\s*$/i.test(trimmed);  // "cases in X"
+    if (!needsAI) return null;
     try {
         const model = await pickGroqModel();
         if (!model) return null;
@@ -1633,7 +1425,13 @@ function stripLanguageName(topic, foreignLang) {
     for (const a of aliases) {
         t = t.replace(new RegExp(`(^|[^a-zà-ÿ])${a}([^a-zà-ÿ]|$)`, 'gi'), '$1$2');
     }
-    return t.replace(/\s+/g, ' ').trim();
+    return t
+        .replace(/\(\s*\)/g, '')                 // remove empty parens "cases ()" → "cases"
+        .replace(/\[\s*\]/g, '')
+        .replace(/\s+(in|auf|en|по)\s*$/i, '')   // trailing preposition "cases in" → "cases"
+        .replace(/\s+/g, ' ')
+        .replace(/^[\s\-–,]+|[\s\-–,]+$/g, '')   // strip leading/trailing dashes & commas
+        .trim() || 'this topic';
 }
 
 // Refuse helper — sends the "wrong language" message with a helpful reply
@@ -2906,7 +2704,8 @@ bot.on('message', async (ctx) => {
                     ]),
                 }
             );
-
+        case 'reject_lang':
+            return ctx.reply(route.message, { parse_mode: 'Markdown' });
         case 'pdf': {
             // Extract topic from free-form text (message may contain "/grammar_pdf X" mid-sentence)
             const topic = extractTopicFromFreeform(userText, route.intent);
@@ -2936,13 +2735,23 @@ bot.on('message', async (ctx) => {
             );
 
             // Belt-and-suspenders: if the tutor returned SWITCH_REQUEST::X, re-route
-            const markerReply = (reply || '').match(/^SWITCH_REQUEST::([A-Za-zÀ-ÿ]+)/i);
+            // Belt-and-suspenders: tutor may still output SWITCH_REQUEST marker.
+            // Route through canonicalize + whitelist.
+            // Marker may appear anywhere in the reply (start or after newline)
+            // Marker may appear anywhere; accept any non-space/non-punct run (Latin, Cyrillic, etc.)
+            const markerReply = (reply || '').match(/SWITCH_REQUEST::\s*([^\s.,;:!?()\[\]{}"'`]+)/i);
             if (markerReply && markerReply[1]) {
-                const lang = markerReply[1].charAt(0).toUpperCase() + markerReply[1].slice(1).toLowerCase();
-                return await handleLanguageSwitch(ctx, lang);
-            }
-
-            return await respond(reply);
+                const raw = markerReply[1].trim();
+                const canonical = canonicalizeTargetLanguage(raw);
+                if (canonical) {
+                    return await handleLanguageSwitch(ctx, canonical);
+                }
+                return ctx.reply(
+                    `⚠️ *Sorry, "${raw}" is not a supported target language.*\n\n` +
+                    `Supported languages:\n${SUPPORTED_TARGET_LANGUAGES.join(', ')}`,
+                    { parse_mode: 'Markdown' }
+                );
+            } return await respond(reply);
         }
     }
 });
