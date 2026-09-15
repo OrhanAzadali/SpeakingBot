@@ -1,3 +1,8 @@
+const RTL_LANGUAGES = new Set([
+  'Arabic', 'Hebrew', 'Persian', 'Urdu', 'Yiddish', 'Pashto', 'Dari', 'Kurdish', 'Sindhi',
+]);
+function isRTL(lang) { return RTL_LANGUAGES.has(lang); }
+
 export const TokenizedSentence = ({
   tokens,
   onSelectToken,

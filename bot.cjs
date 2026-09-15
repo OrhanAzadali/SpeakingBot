@@ -264,6 +264,14 @@ const VOICE_MAP = {
     'es-ES': 'es-ES-ElviraNeural',
     'it-IT': 'it-IT-ElsaNeural',
     'tr-TR': 'tr-TR-EmelNeural',
+    // RTL / CJK voices (Microsoft Edge Neural TTS)
+    'ar-EG': 'ar-EG-SalmaNeural',
+    'ar-SA': 'ar-SA-ZariyahNeural',
+    'he-IL': 'he-IL-HilaNeural',
+    'zh-CN': 'zh-CN-XiaoxiaoNeural',
+    'zh-TW': 'zh-TW-HsiaoChenNeural',
+    'ja-JP': 'ja-JP-NanamiNeural',
+    'ko-KR': 'ko-KR-SunHiNeural',
 };
 
 // ─── Language code → full display name (для промптов) ───
@@ -280,6 +288,11 @@ function langCodeToName(code) {
         es: "Spanish", spanish: "Spanish", "español": "Spanish",
         fr: "French", french: "French", "français": "French",
         it: "Italian", italian: "Italian", italiano: "Italian",
+        ar: "Arabic", arabic: "Arabic",
+        he: "Hebrew", hebrew: "Hebrew",
+        zh: "Chinese", chinese: "Chinese", mandarin: "Chinese",
+        ja: "Japanese", japanese: "Japanese",
+        ko: "Korean", korean: "Korean",
     };
     return map[c] || (code.charAt(0).toUpperCase() + code.slice(1));
 }
@@ -306,16 +319,19 @@ function getTtsVoiceCode(profile) {
     const map = {
         en: 'en-US', ru: 'ru-RU', az: 'az-AZ', tr: 'tr-TR',
         de: 'de-DE', es: 'es-ES', fr: 'fr-FR', it: 'it-IT',
+        ar: 'ar-EG', he: 'he-IL', zh: 'zh-CN', ja: 'ja-JP', ko: 'ko-KR',
         English: 'en-US', Russian: 'ru-RU', Azerbaijani: 'az-AZ',
         Turkish: 'tr-TR', German: 'de-DE', Spanish: 'es-ES',
         French: 'fr-FR', Italian: 'it-IT',
+        Arabic: 'ar-EG', Hebrew: 'he-IL', Chinese: 'zh-CN',
+        Japanese: 'ja-JP', Korean: 'ko-KR',
     };
     // az-AZ в MSEdge voice map отсутствует → fallback на ru-RU (фонетически ближе)
     const code = map[voiceLangName] || 'en-US';
     return code === 'az-AZ' ? 'ru-RU' : code;
 }
 
-// ─── Sanitize text before sending to any TTS provider ───
+// ─── Sanitize text before sending to any TTS provider ───S
 function sanitizeForBotTts(text) {
     if (!text || typeof text !== 'string') return '';
     return text
@@ -875,26 +891,30 @@ async function classifyAndRouteText(text, userProfile) {
     // (оставлено как было, но переменные корректно определены)
 
     // ── 3. AI classifier ──
-    if (looksLikeLanguageRequest(clean)) {
+    // Trigger AI classifier when:
+    //   • the alias-map didn't return a language, AND
+    //   • the message looks like a switch intent (short + verb + optional "to")
+
+    const aliasHit = TOPIC_LANG_ALIASES[
+        Object.keys(TOPIC_LANG_ALIASES).find(k => clean.toLowerCase().includes(k))
+    ];
+    const looksLikeSwitch =
+        looksLikeLanguageRequest(clean) ||
+        /^(to|in|into|auf|en|по|переключ|смен|switch|change|learn|study|teach)\b/i.test(clean) ||
+        /\b(switch|change|learn|study|teach)\s+(to\s+)?\w+/i.test(clean);
+
+    if (!aliasHit && looksLikeSwitch && clean.length < 120) {
         const aiIntent = await classifyIntentWithAI(clean, p.targetLanguage, p.mediatorLanguage);
         if (aiIntent?.intent === 'switch_language' && aiIntent.language) {
             const canonical = canonicalizeTargetLanguage(aiIntent.language);
             if (canonical) {
                 return { action: 'switch_target', lang: canonical };
             }
-            // AI suggested something NOT in whitelist (Georgian, Greek, ...)
-            // Do NOT fall through to tutor (which would echo SWITCH_REQUEST).
-            console.warn('[Router] AI suggested unsupported language:', aiIntent.language);
             return {
                 action: 'reject_lang',
                 lang: aiIntent.language,
-                message:
-                    `⚠️ *Sorry, "${aiIntent.language}" is not a supported target language.*\n\n` +
-                    `Supported languages:\n${SUPPORTED_TARGET_LANGUAGES.join(', ')}`,
+                message: `⚠️ *Sorry, "${aiIntent.language}" is not supported.*\n\nSupported: ${SUPPORTED_TARGET_LANGUAGES.join(', ')}`,
             };
-        }
-        if (aiIntent?.intent === 'switch_mediator' && aiIntent.language) {
-            return { action: 'switch_mediator', lang: aiIntent.language };
         }
     }
 
@@ -1010,16 +1030,50 @@ const TOPIC_LANG_ALIASES = {
     'hollandaca': 'Dutch',
 
     // ── Azerbaijani names (mediator language = Azerbaijani) ──
-    'ingilis': 'English', 'ingilis dili': 'English',
-    'alman': 'German', 'alman dili': 'German',
-    'ispan': 'Spanish', 'ispan dili': 'Spanish',
-    'fransiz': 'French', 'fransız': 'French', 'fransız dili': 'French',
+    'ingilis': 'English',
+    'alman': 'German',
+    'ispan': 'Spanish',
+    'fransiz': 'French', 'fransız': 'French',
     'italyan': 'Italian',
-    'rus': 'Russian', 'rus dili': 'Russian',
-    'türk': 'Turkish', 'türk dili': 'Turkish',
-    'azərbaycan': 'Azerbaijani', 'azərbaycan dili': 'Azerbaijani',
+    'rus': 'Russian',
+    'türk': 'Turkish',
     'gürcü': 'Georgian',
-    'yunan': 'Greek',    'holland': 'Dutch',
+    'yunan': 'Greek', 'holland': 'Dutch',
+
+    // ── Arabic ──
+    'arabic': 'Arabic', 'arabi': 'Arabic',
+    'арабский': 'Arabic', 'араб': 'Arabic',
+    'arapca': 'Arabic', 'arapça': 'Arabic',
+    'ərəb': 'Arabic', 'ərəb dili': 'Arabic',
+    'العربية': 'Arabic', 'عربي': 'Arabic', 'عربى': 'Arabic',
+
+    // ── Hebrew ──
+    'hebrew': 'Hebrew', 'ivrit': 'Hebrew',
+    'иврит': 'Hebrew', 'еврейский': 'Hebrew', 'еврейский язык': 'Hebrew',
+    'ibranice': 'Hebrew', 'ibranice dili': 'Hebrew',
+    'ivrit dili': 'Hebrew',
+    'עברית': 'Hebrew',
+
+    // ── Chinese ──
+    'chinese': 'Chinese', 'mandarin': 'Chinese', 'mandarin chinese': 'Chinese',
+    'китайский': 'Chinese', 'китайский язык': 'Chinese', 'путунхуа': 'Chinese',
+    'çince': 'Chinese', 'mandarin çince': 'Chinese',
+    'çin dili': 'Chinese', 'mandarin': 'Chinese',
+    '中文': 'Chinese', '普通话': 'Chinese', '漢語': 'Chinese', '汉语': 'Chinese',
+
+    // ── Japanese ──
+    'japanese': 'Japanese', 'nihongo': 'Japanese',
+    'японский': 'Japanese', 'японский язык': 'Japanese',
+    'japonca': 'Japanese', 'japonca dili': 'Japanese',
+    'yapon': 'Japanese', 'yapon dili': 'Japanese',
+    '日本語': 'Japanese', 'にほんご': 'Japanese',
+
+    // ── Korean ──
+    'korean': 'Korean', 'hangul': 'Korean', 'hangugo': 'Korean',
+    'корейский': 'Korean', 'корейский язык': 'Korean',
+    'korece': 'Korean', 'korece dili': 'Korean',
+    'koreya': 'Korean', 'koreya dili': 'Korean',
+    '한국어': 'Korean', '조선말': 'Korean',
 };
 
 
@@ -1065,6 +1119,8 @@ async function handleMediatorSwitch(ctx, newLang, opts = {}) {
     const langCodeMap = {
         English: 'en', Russian: 'ru', Azerbaijani: 'az', azeri: 'az',
         Turkish: 'tr', German: 'de', Spanish: 'es', French: 'fr', Italian: 'it',
+        Arabic: 'ar', Hebrew: 'he', Chinese: 'zh',
+        Japanese: 'ja', Korean: 'ko',
     };
     const code = langCodeMap[newLang] || String(newLang).toLowerCase().slice(0, 2);
 
@@ -1149,14 +1205,30 @@ async function classifyIntentWithAI(text, currentTarget, currentMediator) {
     const systemPrompt = `You are an intent classifier for a language-learning Telegram bot.
 
 Current user settings:
-- Target language (what they learn): ${currentTarget}
-- Mediator language (for explanations): ${currentMediator}
+- The user's target language (what they learn) is: ${currentTarget}
+- The user's mediator language (for explanations) is: ${currentMediator}
 
 Classify the user's message into EXACTLY ONE of these intents:
 
 1. "switch_language" — user wants to CHANGE their target language (the language they are learning).
 2. "switch_mediator" — user wants to change their MEDIATOR language (for explanations only).
 3. "chat" — anything else (asking questions, discussing literature, greetings, requests to explain grammar, etc.).
+
+When the user writes a language name in ANY language (English, Russian,
+Turkish, Azerbaijani, native names like Deutsch/Español, or the mediator
+language), translate it to its ENGLISH canonical name.
+
+If the user mentions any other language (Dutch, Greek, Georgian, Chinese,
+Japanese, etc.) — return {"intent": "chat"}. Do NOT switch.
+
+Examples:
+- "to немецкий"     → {"intent": "switch_language", "language": "German"}
+- "almancaya geç"   → {"intent": "switch_language", "language": "German"}
+- "almana keç"      → {"intent": "switch_language", "language": "German"}
+- "move/switch/toggle to deutch"      → {"intent": "switch_language", "language": "German"}
+- "move/switch/toggle to german"      → {"intent": "switch_language", "language": "German"}
+- "switch to Dutch" → {"intent": "chat"}     (not supported)
+- "to грузинский"   → {"intent": "chat"}     (not supported)
 
 RULES:
 - Only classify as "switch_language" if the user CLEARLY expresses desire to change target.
@@ -1296,6 +1368,8 @@ async function safeMarkdownReply(ctx, text, opts = {}) {
 const SUPPORTED_TARGET_LANGUAGES = [
     'English', 'German', 'Spanish', 'French', 'Italian',
     'Russian', 'Turkish', 'Azerbaijani',
+    // RTL / CJK — supported via Noto fonts
+    'Arabic', 'Hebrew', 'Chinese', 'Japanese', 'Korean',
 ];
 
 // Canonicalize a language name to a whitelisted canonical name,
@@ -2226,6 +2300,11 @@ function _langCodeToName(code) {
         es: "Spanish", spanish: "Spanish", "español": "Spanish",
         fr: "French", french: "French", "français": "French",
         it: "Italian", italian: "Italian", italiano: "Italian",
+        ar: "Arabic", arabic: "Arabic",
+        he: "Hebrew", hebrew: "Hebrew",
+        zh: "Chinese", chinese: "Chinese", mandarin: "Chinese",
+        ja: "Japanese", japanese: "Japanese",
+        ko: "Korean", korean: "Korean",
     };
     return map[c] || (code.charAt(0).toUpperCase() + code.slice(1));
 }

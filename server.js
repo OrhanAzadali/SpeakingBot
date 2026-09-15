@@ -186,7 +186,13 @@ const MSEdge_VOICES = {
     "Italian": "it-IT-ElsaNeural",
     "Russian": "ru-RU-SvetlanaNeural",
     "Turkish": "tr-TR-EmelNeural",
-    "az": "az-AZ-BabekNeural",  // если доступен
+    "az": "az-AZ-BabekNeural",
+    // RTL / CJK voices
+    "Arabic": "ar-EG-SalmaNeural",
+    "Hebrew": "he-IL-HilaNeural",
+    "Chinese": "zh-CN-XiaoxiaoNeural",
+    "Japanese": "ja-JP-NanamiNeural",
+    "Korean": "ko-KR-SunHiNeural",
 };
 
 // Кэш сгенерированных файлов (не удаляем сразу — браузер может запросить повторно)
@@ -1852,6 +1858,11 @@ function normalizeLanguageCanonical(lang) {
     if (s === "it" || s === "italian" || s === "italiano") return "Italian";
     if (s === "ru" || s === "russian" || s === "русский") return "Russian";
     if (s === "tr" || s === "turkish" || s === "türkçe") return "Turkish";
+    if (s === "ar" || s === "arabic") return "Arabic";
+    if (s === "he" || s === "hebrew" || s === "ivrit") return "Hebrew";
+    if (s === "zh" || s === "chinese" || s === "mandarin") return "Chinese";
+    if (s === "ja" || s === "japanese") return "Japanese";
+    if (s === "ko" || s === "korean") return "Korean";
     return lang.charAt(0).toUpperCase() + lang.slice(1);
 }
 // ─── Convert mediator/target language codes to full display names ───
@@ -5919,12 +5930,14 @@ app.post("/api/gemini/generate-grammar-roadmap", async (req, res) => {
             testScore = null,
             testedWeaknesses = null,
             topic = null,
-            userLevel = "B1",
+            level = null,
+            userLevel = null,
             targetLanguage = "English",
             mediatorLanguage = "en"
         } = req.body;
+        const effectiveLevel = level || userLevel || "B1";
         // §5.25 Mediator gating: mediator only for A1/A2, otherwise target
-        const useMediator = (userLevel === "A1" || userLevel === "A2");
+        const useMediator = (effectiveLevel === "A1" || effectiveLevel === "A2");
         const effectiveMediator = useMediator ? mediatorLanguage : targetLanguage;
 
         // Два режима:
@@ -5933,17 +5946,18 @@ app.post("/api/gemini/generate-grammar-roadmap", async (req, res) => {
         const isTopicMode = typeof topic === "string" && topic.trim().length > 0;
 
         const promptHeader = isTopicMode
-            ? `You are a world-class language curriculum designer. Create a grammar roadmap for ${targetLanguage} at CEFR ${userLevel} on the topic "${topic.trim()}".
+            ? `You are a world-class language curriculum designer. Create a grammar roadmap for ${targetLanguage} at CEFR ${effectiveLevel} on the topic "${topic.trim()}".
 Mediator language for all explanations: ${effectiveMediator}.`
-            : `You are a world-class language curriculum designer. Create a personalized grammar roadmap for ${targetLanguage} at CEFR ${userLevel}.
+            : `You are a world-class language curriculum designer. Create a personalized grammar roadmap for ${targetLanguage} at CEFR ${effectiveLevel}.
 Test score: ${testScore ?? 70}%. Tested concepts: ${(testedWeaknesses || ["Conditionals", "Inversion"]).join(", ")}.
 Mediator language for all explanations: ${effectiveMediator}.`;
 
         const prompt = `${promptHeader}
 STRICT REQUIREMENTS — the roadmap is INVALID if any minimum is not met:
-- milestones: MINIMUM 3 distinct steps, each with 5-8 tokens.
-- checkpointQuestions: MINIMUM 4 questions, each testing a different sub-topic.
+- milestones: MINIMUM 5 distinct steps, each with 5-8 tokens.
+- checkpointQuestions: MINIMUM 5 questions, each testing a different sub-topic.
 - Every description, explanation, and token.mediatorTranslation MUST be in ${effectiveMediator} — NOT English, NOT Hungarian, NOT any other language.
+- roadmap's contents: rich and deep explanations for each step based on world-class linguistic, lexicographic and grammar standards and requirements defined by Cambridge, Oxford, Harvard etc. 
 
 Return ONLY valid JSON. No markdown, no code fences.
 
@@ -5951,7 +5965,7 @@ Schema:
 {
   "title": "...",
   "category": "Grammar",
-  "level": "${userLevel}",
+  "level": "${effectiveLevel}",
   "estimatedDuration": "3 Weeks",
   "summary": "3-4 sentences in ${effectiveMediator}.",
   "milestones": [
@@ -5978,7 +5992,7 @@ Schema:
 
         if (!roadmap) {
             console.warn("[Grammar Roadmap] FALLBACK activated");
-            roadmap = getFallbackRoadmap(targetLanguage, userLevel, "", effectiveMediator);
+            roadmap = getFallbackRoadmap(targetLanguage, effectiveLevel, "", effectiveMediator);
         }
         roadmap = normalizeRoadmapShape(roadmap);
 
@@ -6147,9 +6161,12 @@ app.post('/api/gemini/generate-grammar-guide', async (req, res) => {
             ruleTitle = null,
             topic = null,
             title = null,
-            level = "B1",
+            level = null,
+            userLevel = null,          // ← принимаем оба
             mediatorLanguage = "en"
         } = req.body;
+
+        const effectiveLevel = level || userLevel || "B1";
 
         // Разные вызывающие шлют разное имя поля:
         //   • WebApp → ruleTitle
@@ -6162,9 +6179,9 @@ app.post('/api/gemini/generate-grammar-guide', async (req, res) => {
             (title && String(title).trim()) ||
             "Basic Grammar"; // §5.25 Mediator gating: mediator only for A1/A2, otherwise target
 
-        const useMediator = (level === "A1" || level === "A2");
+        const useMediator = (effectiveLevel === "A1" || effectiveLevel === "A2");
         const effectiveMediator = useMediator ? mediatorLanguage : targetLanguage;
-        const prompt = `You are a master grammar expert writing a comprehensive study guide for ${targetLanguage} at CEFR ${level} on the topic "${effectiveRuleTitle}". Mediator language for explanations: ${effectiveMediator}.
+        const prompt = `You are a master grammar expert writing a comprehensive study guide for ${targetLanguage} at CEFR ${effectiveLevel} on the topic "${effectiveRuleTitle}". Mediator language for explanations: ${effectiveMediator}.
 
 STRICT REQUIREMENTS — the guide is considered INVALID if any minimum is not met:
 - coreRules: MINIMUM 4 distinct rules (not variations of one rule). Each rule MUST have 5-8 tokens with full linguistic metadata.
@@ -6182,7 +6199,7 @@ Schema:
 {
   "title": "Comprehensive Guide: <Topic> in <Language>",
   "category": "Grammar",
-  "level": "${level}",
+  "level": "${effectiveLevel}",
   "summary": "3-4 sentences describing the scope and learning outcomes.",
   "coreRules": [
     {
@@ -6203,7 +6220,8 @@ Schema:
   ]
 }
 
-CRITICAL: Return ONLY raw JSON. No markdown fences, no text before or after. Start with { and end with }.`; let guide = null;
+CRITICAL: Return ONLY raw JSON. No markdown fences, no text before or after. Start with { and end with }.`;
+        let guide = null;
 
         for (let attempt = 1; attempt <= 3 && !guide; attempt++) {
             const raw = await callGeminiWithResilience(prompt, null, [], true, userId);
@@ -6226,7 +6244,7 @@ CRITICAL: Return ONLY raw JSON. No markdown fences, no text before or after. Sta
 
         if (!guide) {
             console.warn("[Grammar Guide] FALLBACK activated");
-            guide = getFallbackGrammarGuide(targetLanguage, effectiveRuleTitle, level, effectiveMediator);
+            guide = getFallbackGrammarGuide(targetLanguage, effectiveRuleTitle, effectiveLevel, effectiveMediator);
         }
 
         if (req.query.format === 'pdf' || req.body.format === 'pdf') {
@@ -6365,6 +6383,35 @@ app.post("/api/gemini/tokenize", async (req, res) => {
     }
 });
 
+// ═══════════════════════════════════════════════════════════════
+// RENDER STRUCTURED PDF — bot sends JSON, server returns binary PDF.
+// Uses pdfServerGenerator.js which has DejaVu (full Unicode / Cyrillic).
+// ═══════════════════════════════════════════════════════════════
+app.post("/api/pdf/render-structured", async (req, res) => {
+    try {
+        const { type = "grammar", data = {} } = req.body || {};
+        if (!data || typeof data !== "object") {
+            return res.status(400).json({ success: false, error: "data required" });
+        }
+
+        let buffer;
+        if (type === "grammar") {
+            buffer = generateGrammarGuidePdfBuffer(data);
+        } else if (type === "roadmap") {
+            buffer = generateRoadmapPdfBuffer(data);
+        } else if (type === "story") {
+            buffer = generateClassicStoryPdfBuffer(data);
+        } else {
+            return res.status(400).json({ success: false, error: `unknown type: ${type}` });
+        }
+
+        const filename = `speakbot_${type}_${Date.now()}.pdf`;
+        sendPdf(res, buffer, filename);
+    } catch (e) {
+        console.error("[render-structured] failed:", e);
+        res.status(500).json({ success: false, error: e.message });
+    }
+});
 // =====================================================
 // FALLBACK ROADMAP
 // =====================================================
@@ -6442,7 +6489,60 @@ function getFallbackPersonalizedGrammarRoadmap(targetLang, userLevel) {
     return getFallbackRoadmap(targetLang, userLevel);
 }
 
-function getLanguageGrammarRulesServer(targetLang) {
+function getLanguageGrammarRules(targetLang) {
+    const norm = (targetLang || 'English').toLowerCase();
+    const map = {
+        'arabic': ['RTL word order', 'Root-Pattern Morphology', 'Case Endings (Iʿrāb)', 'Verb-Subject-Object'],
+        'hebrew': ['RTL word order', 'Binyanim Verb Stems', 'Construct State (Smichut)', 'Definite Article Ha-'],
+        'japanese': ['SOV word order', 'Particles (wa/ga/o/ni)', 'Keigo Honorifics', 'Topic-Comment Structure'],
+        'chinese': ['Topic-Comment structure', 'Aspect Markers (le/guo/zhe)', 'Measure Words', 'SVO with Topic Fronting'],
+        'korean': ['SOV word order', 'Honorific Levels', 'Particles', 'Verb-final sentences'],
+        'persian': ['RTL word order', 'Ezafe Construction', 'SOV Verb-final', 'Compound Verbs'],
+        'urdu': ['RTL word order', 'SOV Verb-final', 'Postpositions', 'Honorifics'],
+        'ukrainian': ['SVO flexible', '7 Cases', 'Aspect (Perfective/Imperfective)', 'Vocative Case'],
+        'yiddish': ['RTL script, Germanic grammar', 'Verb-Second (V2)', 'Three Cases', 'Slavic substrate'],
+    };
+    if (norm.includes('arabic')) {
+        return [
+            'RTL word order & connected script (no standalone letters)',
+            'Root-Pattern Morphology (3-letter roots with vowel patterns)',
+            'Case Endings (Iʿrāb): nominative, accusative, genitive',
+            'Verb-Subject-Object (VSO) with flexible topicalization',
+        ];
+    }
+    if (norm.includes('hebrew')) {
+        return [
+            'RTL word order with bidi rules for embedded Latin',
+            'Binyanim — 7 verb stems (Pa’al, Pi’el, Hif’il, etc.)',
+            'Construct State (Smichut) for possessives',
+            'Definite Article "Ha-" attached to nouns and adjectives',
+        ];
+    }
+    if (norm.includes('chinese') || norm.includes('mandarin')) {
+        return [
+            'Topic-Comment structure (subject-predicate flexibility)',
+            'Aspect Markers: 了 (le), 过 (guo), 着 (zhe)',
+            'Measure Words (量词): 个, 本, 张, 条, etc.',
+            'Tones (四声): 4 lexical tones + neutral tone',
+        ];
+    }
+    if (norm.includes('japanese')) {
+        return [
+            'SOV word order with verb-final sentences',
+            'Particles: は (topic), が (subject), を (object), に (goal)',
+            'Keigo — honorific and humble speech levels',
+            'Three scripts: hiragana, katakana, kanji',
+        ];
+    }
+    if (norm.includes('korean')) {
+        return [
+            'SOV word order with honorific verb endings',
+            'Honorific levels: formal, polite, casual (해요체/합니다체)',
+            'Topic and subject particles (은/는, 이/가)',
+            'Hangul syllable blocks (consonant + vowel)',
+        ];
+    }
+    if (map[norm]) return map[norm];
     return [
         { title: "Definite and Indefinite Articles", cefr: "A1", desc: "Foundational nominal determination." },
         { title: "Past Tense and Aspectual Verb Inflection", cefr: "B1", desc: "Narrating sequential events." },

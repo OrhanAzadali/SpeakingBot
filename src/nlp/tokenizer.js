@@ -285,7 +285,12 @@ export function tokenizeSentenceLocally(sentence, mediatorLang = 'az', targetLan
   const isGerman = normLang.includes('german') || normLang.includes('deutsch');
   const isSpanish = normLang.includes('spanish') || normLang.includes('español');
   const isFrench = normLang.includes('french') || normLang.includes('français');
-
+  // Robust Unicode-aware word splitter
+  function tokenizeUnicode(sentence) {
+    // \p{L} = any letter, \p{N} = any number, \p{P} = punctuation
+    // u flag = unicode mode (required for \p{...})
+    return sentence.match(/[\p{L}\p{N}]+(?:['-][\p{L}\p{N}]+)*|[.,!?;:。、،؟]/gu) || [];
+  }
   return rawWords.map((rawToken, index) => {
     const isPunct = /^[.,!?;:]$/.test(rawToken);
     if (isPunct) {

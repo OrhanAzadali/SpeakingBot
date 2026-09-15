@@ -145,6 +145,11 @@ function normalizeStoryShape(story) {
 
   return normalized;
 }
+
+const RTL_LANGUAGES = new Set([
+  'Arabic', 'Hebrew', 'Persian', 'Urdu', 'Yiddish', 'Pashto', 'Dari', 'Kurdish', 'Sindhi',
+]);
+function isRTL(lang) { return RTL_LANGUAGES.has(lang); }
 export const ClassicStoriesView = ({
   userLevel = "B1",
   targetLanguage = "English",
@@ -1009,7 +1014,9 @@ export const ClassicStoriesView = ({
                                     {sIdx + 1}
                                   </span>
                                   <div className="flex-1 min-w-0">
-                                    <div className="font-semibold">{s.text}</div>
+                                    <div className="font-semibold" dir={isRTL(activeStory.targetLanguage) ? 'rtl' : 'ltr'}>
+                                      {s.text}
+                                    </div>
                                     {s.translation && (
                                       <div className="text-xs italic opacity-80 mt-1">
                                         {s.translation}

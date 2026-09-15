@@ -1,14 +1,76 @@
 ﻿import { jsPDF } from 'jspdf';
 import DejaVuSansBase64 from "./fonts/ttf/DejaVuSans.base64.js";
 import DejaVuSansBoldBase64 from "./fonts/ttf/DejaVuSans-Bold.base64.js";
+import NotoSansArabicBase64 from "./fonts/ttf/NotoSansArabic.base64.js";
+import NotoSansHebrewBase64 from "./fonts/ttf/NotoSansHebrew.base64.js";
+import NotoSansSCBase64 from "./fonts/ttf/NotoSansSC.base64.js";
 
-function registerUnicodeFonts(doc) {
-    doc.addFileToVFS("DejaVuSans.ttf", DejaVuSansBase64);
-    doc.addFileToVFS("DejaVuSans-Bold.ttf", DejaVuSansBoldBase64);
-    doc.addFont("DejaVuSans.ttf", "DejaVu", "normal");
-    doc.addFont("DejaVuSans-Bold.ttf", "DejaVu", "bold");
+// ────────────────────────────────────────────────────────────
+// Multi-script font registry (server-side only).
+// Lazy registration: only embed the font that a specific PDF
+// actually needs, so an English PDF never carries the SC font.
+// ────────────────────────────────────────────────────────────
+const FONT_REGISTRY = {
+    DejaVu: {
+        file: 'DejaVuSans.ttf',
+        fileBold: 'DejaVuSans-Bold.ttf',
+        data: DejaVuSansBase64,
+        dataBold: DejaVuSansBoldBase64,
+    },
+    NotoArabic: {
+        file: 'NotoSansArabic-Regular.ttf',
+        data: NotoSansArabicBase64,
+    },
+    NotoHebrew: {
+        file: 'NotoSansHebrew-Regular.ttf',
+        data: NotoSansHebrewBase64,
+    },
+    NotoSC: {
+        file: 'NotoSansSC-Regular.otf',
+        data: NotoSansSCBase64,
+    },
+};
+
+// Canonical font per target language.
+function pickFontForLang(targetLang) {
+    const norm = (targetLang || '').toLowerCase();
+    if (['arabic', 'urdu', 'persian'].some((l) => norm.includes(l))) return 'NotoArabic';
+    if (['hebrew', 'yiddish'].some((l) => norm.includes(l))) return 'NotoHebrew';
+    if (['chinese', 'mandarin', 'japanese', 'korean'].some((l) => norm.includes(l))) return 'NotoSC';
+    return 'DejaVu';
 }
-// Helper for page breaks (same as pdfGenerator.js)
+
+// Register the right font into a jsPDF doc, with fallback chain.
+// Returns the font family name to use for text rendering.
+function registerUnicodeFonts(doc, targetLang) {
+    const wantedName = pickFontForLang(targetLang);
+    let entry = FONT_REGISTRY[wantedName];
+
+    if (!entry || typeof entry.data !== 'string' || entry.data.length < 1000) {
+        console.warn(`[PDF] Font ${wantedName} unavailable, falling back to DejaVu`);
+        entry = FONT_REGISTRY.DejaVu;
+    }
+    if (!entry || typeof entry.data !== 'string' || entry.data.length < 1000) {
+        console.warn('[PDF] DejaVu unavailable too — using Helvetica (Latin-1 only)');
+        return 'Helvetica';
+    }
+
+    try {
+        doc.addFileToVFS(entry.file, entry.data);
+        doc.addFont(entry.file, wantedName, 'normal');
+
+        if (entry.dataBold && entry.fileBold) {
+            doc.addFileToVFS(entry.fileBold, entry.dataBold);
+            doc.addFont(entry.fileBold, wantedName, 'bold');
+        }
+        return wantedName;
+    } catch (e) {
+        console.error(`[PDF] Failed to register ${wantedName}:`, e.message);
+        return 'Helvetica';
+    }
+}
+
+// Helper for page breaks
 function checkPageBreak(doc, currentY, requiredSpace = 30) {
     if (currentY + requiredSpace > 275) {
         doc.addPage();
@@ -18,12 +80,12 @@ function checkPageBreak(doc, currentY, requiredSpace = 30) {
 }
 
 // Helper to draw section header
-function drawSectionHeader(doc, title, y, iconChar = '■') {
+function drawSectionHeader(doc, title, y, iconChar = '■', bodyFont = 'DejaVu') {
     y = checkPageBreak(doc, y, 16);
     doc.setFillColor(241, 245, 249);
     doc.roundedRect(14, y, 182, 8, 1.5, 1.5, 'F');
     doc.setFontSize(10.5);
-    doc.setFont("DejaVu", 'bold');
+    doc.setFont(bodyFont, 'bold');
     doc.setTextColor(15, 23, 42);
     doc.text(`${iconChar}  ${title.toUpperCase()}`, 18, y + 5.6);
     return y + 13;
@@ -33,17 +95,18 @@ function drawSectionHeader(doc, title, y, iconChar = '■') {
 // Grammar Guide PDF (returns Buffer)
 // ------------------------------------------------------------
 export function generateGrammarGuidePdfBuffer(guide) {
-    const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' }); registerUnicodeFonts(doc);
+    const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+    const bodyFont = registerUnicodeFonts(doc, guide.targetLanguage);
 
     // Top Dark Header
     doc.setFillColor(30, 41, 59);
     doc.rect(0, 0, 210, 42, 'F');
     doc.setTextColor(255, 255, 255);
     doc.setFontSize(17);
-    doc.setFont("DejaVu", 'bold');
+    doc.setFont(bodyFont, 'bold');
     doc.text('SpeakBot Master Grammar Study Guide', 14, 16);
     doc.setFontSize(9.5);
-    doc.setFont("DejaVu", 'normal');
+    doc.setFont(bodyFont, 'normal');
     doc.setTextColor(148, 163, 184);
     doc.text(`CEFR Level: ${guide.level || 'B2'}  •  Category: ${guide.category || 'Grammar'}  •  Total Rules: ${guide.coreRules?.length || 3}`, 14, 25);
 
@@ -51,48 +114,49 @@ export function generateGrammarGuidePdfBuffer(guide) {
     // Title
     doc.setTextColor(15, 23, 42);
     doc.setFontSize(14);
-    doc.setFont("DejaVu", 'bold');
+    doc.setFont(bodyFont, 'bold');
     const titleLines = doc.splitTextToSize(guide.title || 'Grammar Study Guide', 182);
     doc.text(titleLines, 14, y);
     y += titleLines.length * 6 + 4;
 
     // Summary
-    y = drawSectionHeader(doc, 'Grammar Guide Objective', y, '*');
+    y = drawSectionHeader(doc, 'Grammar Guide Objective', y, '*', bodyFont);
+
     doc.setFontSize(9);
-    doc.setFont("DejaVu", 'normal');
+    doc.setFont(bodyFont, 'normal');
     doc.setTextColor(51, 65, 85);
     const summaryLines = doc.splitTextToSize(guide.summary || '', 180);
     doc.text(summaryLines, 16, y);
     y += summaryLines.length * 4.8 + 8;
 
     // Core Rules (simplified)
-    y = drawSectionHeader(doc, `Core Syntactic Rules (${guide.coreRules?.length || 0})`, y, '-');
+    y = drawSectionHeader(doc, `Core Syntactic Rules (${guide.coreRules?.length || 0})`, y, '-', bodyFont);
     (guide.coreRules || []).forEach((rule, idx) => {
         const ruleLines = doc.splitTextToSize(rule.ruleTitle || 'Rule', 170);
         y = checkPageBreak(doc, y, 20);
         doc.setFontSize(9.5);
-        doc.setFont("DejaVu", 'bold');
+        doc.setFont(bodyFont, 'bold');
         doc.setTextColor(15, 23, 42);
         doc.text(`Rule ${idx + 1}: ${rule.ruleTitle}`, 14, y);
         y += 6;
         if (rule.explanationInMediator) {
             const expLines = doc.splitTextToSize(rule.explanationInMediator, 170);
             doc.setFontSize(8.5);
-            doc.setFont("DejaVu", 'normal');
+            doc.setFont(bodyFont, 'normal');
             doc.setTextColor(51, 65, 85);
             doc.text(expLines, 14, y);
             y += expLines.length * 4.5 + 2;
         }
         if (rule.formula) {
             doc.setFontSize(8);
-            doc.setFont("DejaVu", 'bold');
+            doc.setFont(bodyFont, 'bold');
             doc.setTextColor(79, 70, 229);
             doc.text(rule.formula, 14, y);
             y += 6;
         }
         if (rule.example) {
             doc.setFontSize(8.5);
-            doc.setFont("DejaVu", 'normal');
+            doc.setFont(bodyFont, 'normal');
             doc.setTextColor(15, 23, 42);
             doc.text(rule.example, 14, y);
             y += 5;
@@ -102,18 +166,18 @@ export function generateGrammarGuidePdfBuffer(guide) {
 
     // Exercises (simplified)
     if (guide.practiceExercises?.length) {
-        y = drawSectionHeader(doc, `Practice Exercises (${guide.practiceExercises.length})`, y, '+');
+        y = drawSectionHeader(doc, `Practice Exercises (${guide.practiceExercises.length})`, y, '+', bodyFont);
         guide.practiceExercises.forEach((ex, i) => {
             const qLines = doc.splitTextToSize(ex.question || '', 170);
             y = checkPageBreak(doc, y, 20);
             doc.setFontSize(9);
-            doc.setFont("DejaVu", 'bold');
+            doc.setFont(bodyFont, 'bold');
             doc.setTextColor(15, 23, 42);
             doc.text(`Exercise ${i + 1}: ${ex.question}`, 14, y);
             y += 6;
             ex.options?.forEach((opt, oi) => {
                 doc.setFontSize(8.5);
-                doc.setFont("DejaVu", 'normal');
+                doc.setFont(bodyFont, 'normal');
                 doc.setTextColor(100, 116, 139);
                 doc.text(`${String.fromCharCode(65 + oi)}. ${opt}`, 20, y);
                 y += 5;
@@ -128,6 +192,7 @@ export function generateGrammarGuidePdfBuffer(guide) {
         doc.setPage(i);
         doc.setDrawColor(226, 232, 240);
         doc.line(14, 283, 196, 283);
+        doc.setFont(bodyFont, 'normal');
         doc.setFontSize(8);
         doc.setTextColor(148, 163, 184);
         doc.text('SpeakBot Master Grammar Engine  •  Telegram: @SpeakBot', 14, 288);
@@ -141,14 +206,15 @@ export function generateGrammarGuidePdfBuffer(guide) {
 // Roadmap PDF (returns Buffer)
 // ------------------------------------------------------------
 export function generateRoadmapPdfBuffer(roadmap) {
-    const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' }); registerUnicodeFonts(doc);
+    const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+    const bodyFont = registerUnicodeFonts(doc, roadmap.targetLanguage);
     // Header, summary, milestones, checkpoints (similar approach, simplified)
     // For brevity, we implement essential parts.
     doc.setFillColor(15, 23, 42);
     doc.rect(0, 0, 210, 42, 'F');
     doc.setTextColor(255, 255, 255);
     doc.setFontSize(17);
-    doc.setFont("DejaVu", 'bold');
+    doc.setFont(bodyFont, 'bold');
     doc.text('SpeakBot Linguistic Roadmap & Study Blueprint', 14, 16);
     doc.setFontSize(9.5);
     doc.setTextColor(148, 163, 184);
@@ -157,29 +223,30 @@ export function generateRoadmapPdfBuffer(roadmap) {
     let y = 50;
     doc.setTextColor(15, 23, 42);
     doc.setFontSize(14);
-    doc.setFont("DejaVu", 'bold');
+    doc.setFont(bodyFont, 'bold');
     const titleLines = doc.splitTextToSize(roadmap.title || 'Curriculum Roadmap', 182);
     doc.text(titleLines, 14, y);
     y += titleLines.length * 6 + 4;
 
-    y = drawSectionHeader(doc, 'Curriculum Overview', y, '*');
+    y = drawSectionHeader(doc, 'Curriculum Overview', y, '*', bodyFont);
+    doc.setFont(bodyFont, 'normal');
     doc.setFontSize(9);
     doc.setTextColor(51, 65, 85);
     const summaryLines = doc.splitTextToSize(roadmap.summary || '', 180);
     doc.text(summaryLines, 16, y);
     y += summaryLines.length * 4.8 + 8;
 
-    y = drawSectionHeader(doc, `Milestones (${roadmap.milestones?.length || 0})`, y, '-');
+    y = drawSectionHeader(doc, `Milestones (${roadmap.milestones?.length || 0})`, y, '-', bodyFont);
     roadmap.milestones?.forEach((m, i) => {
         y = checkPageBreak(doc, y, 30);
         doc.setFontSize(10);
-        doc.setFont("DejaVu", 'bold');
+        doc.setFont(bodyFont, 'bold');
         doc.setTextColor(15, 23, 42);
         doc.text(`${i + 1}. ${m.title}`, 14, y);
         y += 6;
         if (m.description) {
             doc.setFontSize(8.5);
-            doc.setFont("DejaVu", 'normal');
+            doc.setFont(bodyFont, 'normal');
             doc.setTextColor(71, 85, 105);
             const descLines = doc.splitTextToSize(m.description, 170);
             doc.text(descLines, 14, y);
@@ -193,6 +260,7 @@ export function generateRoadmapPdfBuffer(roadmap) {
         doc.setPage(i);
         doc.setDrawColor(226, 232, 240);
         doc.line(14, 283, 196, 283);
+        doc.setFont(bodyFont, 'normal');
         doc.setFontSize(8);
         doc.setTextColor(148, 163, 184);
         doc.text('SpeakBot Linguistic Engine  •  Telegram: @SpeakBot', 14, 288);
@@ -206,13 +274,14 @@ export function generateRoadmapPdfBuffer(roadmap) {
 // Vocabulary PDF (returns Buffer)
 // ------------------------------------------------------------
 export function generateVocabularyPdfBuffer(vocabularyList, targetLanguage) {
-    const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' }); registerUnicodeFonts(doc);
+    const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+    const bodyFont = registerUnicodeFonts(doc, targetLanguage);
     // Header
     doc.setFillColor(15, 23, 42);
     doc.rect(0, 0, 210, 40, 'F');
     doc.setTextColor(255, 255, 255);
     doc.setFontSize(17);
-    doc.setFont("DejaVu", 'bold');
+    doc.setFont(bodyFont, 'bold');
     doc.text('SpeakBot Personal Lexicon & Vocabulary Notebook', 14, 16);
     doc.setFontSize(9.5);
     doc.setTextColor(148, 163, 184);
@@ -222,20 +291,20 @@ export function generateVocabularyPdfBuffer(vocabularyList, targetLanguage) {
     vocabularyList.forEach((item, i) => {
         y = checkPageBreak(doc, y, 20);
         doc.setFontSize(10.5);
-        doc.setFont("DejaVu", 'bold');
+        doc.setFont(bodyFont, 'bold');
         doc.setTextColor(15, 23, 42);
         doc.text(`${i + 1}. ${item.word}`, 14, y);
         y += 6;
         if (item.translation) {
             doc.setFontSize(8.5);
-            doc.setFont("DejaVu", 'normal');
+            doc.setFont(bodyFont, 'normal');
             doc.setTextColor(51, 65, 85);
             doc.text(`Meaning: ${item.translation}`, 14, y);
             y += 5;
         }
         if (item.example) {
             doc.setFontSize(8);
-            doc.setFont("DejaVu", 'normal');
+            doc.setFont(bodyFont, 'normal');
             doc.setTextColor(100, 116, 139);
             doc.text(`Example: ${item.example}`, 14, y);
             y += 5;
@@ -248,6 +317,7 @@ export function generateVocabularyPdfBuffer(vocabularyList, targetLanguage) {
         doc.setPage(i);
         doc.setDrawColor(226, 232, 240);
         doc.line(14, 283, 196, 283);
+        doc.setFont(bodyFont, 'normal');
         doc.setFontSize(8);
         doc.setTextColor(148, 163, 184);
         doc.text('SpeakBot Personal Lexical Engine  •  Telegram: @SpeakBot', 14, 288);
@@ -261,13 +331,14 @@ export function generateVocabularyPdfBuffer(vocabularyList, targetLanguage) {
 // Classic Story PDF (returns Buffer)
 // ------------------------------------------------------------
 export function generateClassicStoryPdfBuffer(story) {
-    const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' }); registerUnicodeFonts(doc);
+    const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+    const bodyFont = registerUnicodeFonts(doc, story.targetLanguage);
     // Header
     doc.setFillColor(15, 23, 42);
     doc.rect(0, 0, 210, 42, 'F');
     doc.setTextColor(255, 255, 255);
     doc.setFontSize(17);
-    doc.setFont("DejaVu", 'bold');
+    doc.setFont(bodyFont, 'bold');
     doc.text('SpeakBot Classical Literature & Audio Theater', 14, 16);
     doc.setFontSize(9.5);
     doc.setTextColor(148, 163, 184);
@@ -276,16 +347,16 @@ export function generateClassicStoryPdfBuffer(story) {
     let y = 50;
     // Story title
     doc.setFontSize(14);
-    doc.setFont("DejaVu", 'bold');
+    doc.setFont(bodyFont, 'bold');
     doc.setTextColor(15, 23, 42);
     const titleLines = doc.splitTextToSize(story.title || 'Classic Story', 182);
     doc.text(titleLines, 14, y);
     y += titleLines.length * 6 + 4;
 
     // Story text
-    y = drawSectionHeader(doc, 'Story Text', y, '[TEXT]');
+    y = drawSectionHeader(doc, 'Story Text', y, '[TEXT]', bodyFont);
     doc.setFontSize(9.5);
-    doc.setFont("DejaVu", 'normal');
+    doc.setFont(bodyFont, 'normal');
     doc.setTextColor(15, 23, 42);
     const paragraphs = (story.paragraphs || []).join('\n\n');
     const textLines = doc.splitTextToSize(paragraphs, 180);
@@ -294,17 +365,17 @@ export function generateClassicStoryPdfBuffer(story) {
 
     // Exercises (simple)
     if (story.exercises?.length) {
-        y = drawSectionHeader(doc, `Exercises (${story.exercises.length})`, y, '+');
+        y = drawSectionHeader(doc, `Exercises (${story.exercises.length})`, y, '+', bodyFont);
         story.exercises.forEach((ex, i) => {
             y = checkPageBreak(doc, y, 20);
             doc.setFontSize(9);
-            doc.setFont("DejaVu", 'bold');
+            doc.setFont(bodyFont, 'bold');
             doc.setTextColor(15, 23, 42);
             doc.text(`${i + 1}. ${ex.question}`, 14, y);
             y += 6;
             ex.options?.forEach((opt, oi) => {
                 doc.setFontSize(8.5);
-                doc.setFont("DejaVu", 'normal');
+                doc.setFont(bodyFont, 'normal');
                 doc.setTextColor(71, 85, 105);
                 doc.text(`${String.fromCharCode(65 + oi)}. ${opt}`, 20, y);
                 y += 5;
@@ -318,6 +389,7 @@ export function generateClassicStoryPdfBuffer(story) {
         doc.setPage(i);
         doc.setDrawColor(226, 232, 240);
         doc.line(14, 283, 196, 283);
+        doc.setFont(bodyFont, 'normal');
         doc.setFontSize(8);
         doc.setTextColor(148, 163, 184);
         doc.text('SpeakBot Classical Literature Engine  •  Telegram: @SpeakBot', 14, 288);
