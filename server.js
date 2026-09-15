@@ -5364,7 +5364,15 @@ STRICT REQUIREMENTS — the test is INVALID if any minimum is not met:
 ${JSON.stringify(previousQuestions.slice(-15), null, 2)}
 - Vary the CEFR sub-band within ${userLevel} (e.g., ${userLevel}-low, ${userLevel}-mid).
 - Rotate between three different contexts: personal life, work/study, public media.
-- Make all necessary researches, take necessart data from the most scientifically approved sources related to the sub-topic and analyze deeper all sub-topics to provide significantly useful and up-to-date content.
+- Each question must test a DIFFERENT sub-topic within ${skill}. Do not write two questions about the same rule.
+- Include at least one question per CEFR sub-band from ${userLevel}-low to ${userLevel}-high.
+- Distractors (wrong options) must reflect COMMON learner mistakes at ${userLevel} (not random wrong words).
+- Include at least one question with a short context sentence (not just a bare grammar drill).
+- Include at least one question that requires understanding nuance, not just pattern-matching.
+- Base the content on standard reference grammars for ${targetLanguage}
+  (Cambridge Grammar of English, Oxford Practical English Usage, or the
+  equivalent national academy grammar for the target language). Do NOT
+  invent rules, terminology, or example patterns.
 
 ${skill === "listening" ? `- Include an "audioText" field: a short 1-2 sentence script that the learner would hear (in ${targetLanguage}).`
                 : skill === "writing" ? `- Each question should present a short writing task or error-correction exercise.`
@@ -5649,7 +5657,26 @@ app.post("/api/tests/generate-placement", async (req, res) => {
             count = 10,
         } = req.body;
 
+        // ── ANTI-REPETITION: fetch recently asked questions from Redis ──
+        const recentKey = `spk:placement_recent:${userId}:${targetLanguage}`;
+        let previousQuestions = [];
+        if (redis) {
+            try {
+                const raw = await redis.get(recentKey);
+                if (raw) previousQuestions = JSON.parse(raw);
+            } catch (e) {
+                console.warn('[placement] Redis read failed:', e.message);
+            }
+        }
+        if (Array.isArray(req.body.previousQuestions)) {
+            previousQuestions = [...previousQuestions, ...req.body.previousQuestions];
+        }
+        previousQuestions = [...new Set(previousQuestions)].slice(-40);
+
         const prompt = `You are a CEFR placement test designer. Generate ${count} multiple-choice questions that span CEFR levels A1 through C2 in ${targetLanguage}.
+
+ANTI-REPETITION: Do NOT reuse the exact wording of these previously asked questions:
+${JSON.stringify(previousQuestions.slice(-20), null, 2)}
 
 STRICT REQUIREMENTS:
 - ${count} questions total, distributed across all 6 levels (A1, A2, B1, B2, C1, C2).
@@ -5700,6 +5727,15 @@ CRITICAL: Return ONLY raw JSON. No markdown.`;
         }));
 
         console.log(`[Placement] Generated ${parsed.questions.length} questions for ${targetLanguage}`);
+
+        // ── Save to Redis for future anti-repetition ──
+        if (redis) {
+            const newSeen = [
+                ...previousQuestions,
+                ...parsed.questions.map((q) => q.question),
+            ].slice(-40);
+            redis.set(recentKey, JSON.stringify(newSeen), 'EX', 86400 * 7).catch(() => { });
+        }
         res.json({ success: true, test: parsed });
     } catch (err) {
         console.error("[Placement] Error:", err);

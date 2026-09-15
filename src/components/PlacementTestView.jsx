@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import confetti from "canvas-confetti";
 import { useTranslation } from "../i18n/useTranslation";
 import {
@@ -12,7 +12,7 @@ import {
   X
 } from "lucide-react";
 export const PlacementTestView = ({
-  questions,
+  questions: initialQuestions,
   userProfile,
   onTestCompleted,
   onGoToRoadmaps,
@@ -25,7 +25,59 @@ export const PlacementTestView = ({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [calculatedLevel, setCalculatedLevel] = useState(userProfile.currentLevel);
   const [finalScore, setFinalScore] = useState(userProfile.overallScore);
-  const currentQ = questions[currentIndex];
+
+  // ── AI-generated questions (replaces static diagnostic props) ──
+  const [questions, setQuestions] = useState(initialQuestions || []);
+  const [isLoadingQuestions, setIsLoadingQuestions] = useState(true);
+  const [loadError, setLoadError] = useState(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      setIsLoadingQuestions(true);
+      setLoadError(null);
+      try {
+        const res = await fetch("/api/tests/generate-placement", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            userId: userProfile.userId,
+            targetLanguage: userProfile.targetLanguage,
+            mediatorLanguage: userProfile.mediatorLanguage,
+            count: 10,
+          }),
+          timeout: 90000,
+        });
+        const json = await res.json();
+        if (cancelled) return;
+
+        if (json.success && Array.isArray(json.test?.questions) && json.test.questions.length > 0) {
+          setQuestions(json.test.questions);
+        } else {
+          // Fallback to static props if AI failed
+          if (Array.isArray(initialQuestions) && initialQuestions.length > 0) {
+            setQuestions(initialQuestions);
+          } else {
+            setLoadError(json.error || "AI failed to generate placement test");
+          }
+        }
+      } catch (e) {
+        if (!cancelled) {
+          console.warn('[PlacementTest] AI fetch failed, using static:', e.message);
+          if (Array.isArray(initialQuestions) && initialQuestions.length > 0) {
+            setQuestions(initialQuestions);
+          } else {
+            setLoadError(e.message);
+          }
+        }
+      } finally {
+        if (!cancelled) setIsLoadingQuestions(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [userProfile.userId, userProfile.targetLanguage, userProfile.mediatorLanguage]);
+
+  const currentQ = questions[currentIndex] || null;
   const progressPercent = Math.round((currentIndex + (isFinished ? 1 : 0)) / questions.length * 100);
   const handleSelect = (optionIndex) => {
     if (selectedAnswers[currentIndex] !== void 0) return;
@@ -170,8 +222,32 @@ export const PlacementTestView = ({
 
         {
           /* Main Question Card or Results View */
-        }
-        {!isFinished ? <div className="p-6 sm:p-8 rounded-3xl bg-slate-900 border border-slate-800 shadow-2xl space-y-6 animate-in fade-in">
+        }        {isLoadingQuestions ? (
+          <div className="p-16 rounded-3xl bg-slate-900 border border-slate-800 shadow-2xl text-center space-y-4">
+            <div className="w-12 h-12 border-4 border-sky-500/20 border-t-sky-500 rounded-full animate-spin mx-auto" />
+            <p className="text-sm font-semibold text-slate-300">
+              AI is preparing your diagnostic test…
+            </p>
+            <p className="text-xs text-slate-500">
+              This takes 10–30 seconds. Questions span A1 → C2.
+            </p>
+          </div>
+        ) : loadError ? (
+          <div className="p-8 rounded-3xl bg-rose-950/40 border border-rose-500/40 text-center space-y-4">
+            <p className="text-sm font-bold text-rose-300">Не удалось загрузить тест</p>
+            <p className="text-xs text-rose-200">{loadError}</p>
+            <button
+              onClick={() => window.location.reload()}
+              className="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold"
+            >
+              Перезагрузить
+            </button>
+          </div>
+        ) : !currentQ ? (
+          <div className="p-8 rounded-3xl bg-slate-900 border border-slate-800 text-center">
+            <p className="text-sm text-slate-300">Нет вопросов для отображения.</p>
+          </div>
+        ) : !isFinished ? <div className="p-6 sm:p-8 rounded-3xl bg-slate-900 border border-slate-800 shadow-2xl space-y-6 animate-in fade-in">
 
           {
             /* Question category & CEFR tag */
