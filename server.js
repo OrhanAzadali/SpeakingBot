@@ -5757,8 +5757,9 @@ app.post("/api/gemini/generate-grammar-roadmap", async (req, res) => {
     try {
         const {
             userId = "default-user",
-            testScore = 70,
-            testedWeaknesses = ["Conditionals", "Inversion"],
+            testScore = null,
+            testedWeaknesses = null,
+            topic = null,
             userLevel = "B1",
             targetLanguage = "English",
             mediatorLanguage = "en"
@@ -5767,10 +5768,19 @@ app.post("/api/gemini/generate-grammar-roadmap", async (req, res) => {
         const useMediator = (userLevel === "A1" || userLevel === "A2");
         const effectiveMediator = useMediator ? mediatorLanguage : targetLanguage;
 
-        const prompt = `You are a world-class language curriculum designer. Create a personalized grammar roadmap for ${targetLanguage} at CEFR ${userLevel}.
-Test score: ${testScore}%. Tested concepts: ${testedWeaknesses.join(", ")}.
-Mediator language for all explanations: ${effectiveMediator}.
+        // Два режима:
+        //   1. Topic-based  — из /roadmap_pdf <topic>
+        //   2. Test-based   — из skill-test flow (testScore + testedWeaknesses)
+        const isTopicMode = typeof topic === "string" && topic.trim().length > 0;
 
+        const promptHeader = isTopicMode
+            ? `You are a world-class language curriculum designer. Create a grammar roadmap for ${targetLanguage} at CEFR ${userLevel} on the topic "${topic.trim()}".
+Mediator language for all explanations: ${effectiveMediator}.`
+            : `You are a world-class language curriculum designer. Create a personalized grammar roadmap for ${targetLanguage} at CEFR ${userLevel}.
+Test score: ${testScore ?? 70}%. Tested concepts: ${(testedWeaknesses || ["Conditionals", "Inversion"]).join(", ")}.
+Mediator language for all explanations: ${effectiveMediator}.`;
+
+        const prompt = `${promptHeader}
 STRICT REQUIREMENTS — the roadmap is INVALID if any minimum is not met:
 - milestones: MINIMUM 3 distinct steps, each with 5-8 tokens.
 - checkpointQuestions: MINIMUM 4 questions, each testing a different sub-topic.
@@ -5975,15 +5985,27 @@ app.post('/api/gemini/generate-grammar-guide', async (req, res) => {
         const {
             userId = "default-user",
             targetLanguage = "English",
-            ruleTitle = "Verb Tenses",
+            ruleTitle = null,
+            topic = null,
+            title = null,
             level = "B1",
             mediatorLanguage = "en"
         } = req.body;
 
-        // §5.25 Mediator gating: mediator only for A1/A2, otherwise target
+        // Разные вызывающие шлют разное имя поля:
+        //   • WebApp → ruleTitle
+        //   · Bot    → topic
+        //   · Fallback → title
+        // Принимаем все, приоритет: ruletitle  → topic → title → default
+        const effectiveRuleTitle =
+            (ruleTitle && String(ruleTitle).trim()) ||
+            (topic && String(topic).trim()) ||
+            (title && String(title).trim()) ||
+            "Basic Grammar"; // §5.25 Mediator gating: mediator only for A1/A2, otherwise target
+
         const useMediator = (level === "A1" || level === "A2");
         const effectiveMediator = useMediator ? mediatorLanguage : targetLanguage;
-        const prompt = `You are a master grammar expert writing a comprehensive study guide for ${targetLanguage} at CEFR ${level} on the topic "${ruleTitle}". Mediator language for explanations: ${effectiveMediator}.
+        const prompt = `You are a master grammar expert writing a comprehensive study guide for ${targetLanguage} at CEFR ${level} on the topic "${effectiveRuleTitle}". Mediator language for explanations: ${effectiveMediator}.
 
 STRICT REQUIREMENTS — the guide is considered INVALID if any minimum is not met:
 - coreRules: MINIMUM 4 distinct rules (not variations of one rule). Each rule MUST have 5-8 tokens with full linguistic metadata.
@@ -6045,7 +6067,7 @@ CRITICAL: Return ONLY raw JSON. No markdown fences, no text before or after. Sta
 
         if (!guide) {
             console.warn("[Grammar Guide] FALLBACK activated");
-            guide = getFallbackGrammarGuide(targetLanguage, ruleTitle, level, effectiveMediator);
+            guide = getFallbackGrammarGuide(targetLanguage, effectiveRuleTitle, level, effectiveMediator);
         }
 
         if (req.query.format === 'pdf' || req.body.format === 'pdf') {
@@ -6068,7 +6090,7 @@ CRITICAL: Return ONLY raw JSON. No markdown fences, no text before or after. Sta
         console.error("Grammar guide error:", error);
         const guide = getFallbackGrammarGuide(
             req.body.targetLanguage || "English",
-            req.body.ruleTitle || "Verb Tenses",
+            req.body.ruleTitle || req.body.topic || req.body.title || "Basic Grammar",
             req.body.level || "B1",
             req.body.mediatorLanguage || "en"
         );
