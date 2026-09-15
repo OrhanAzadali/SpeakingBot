@@ -27,6 +27,7 @@ import { GAMES_INFO } from './GamesHub';
 import { ScrollDotsNav } from './ScrollDotsNav';
 import { SaveToVocabButton } from './SaveToVocabButton';
 import { exportGrammarGuideToPdf, exportVocabularyToPdf } from '../utils/pdfGenerator';
+import { getTargetLanguageNames } from '../utils/languageOptions';
 import { CLASSIC_STORIES } from '../data/classicStoriesData';
 
 export const HomePage = ({
@@ -49,8 +50,7 @@ export const HomePage = ({
   const [vocabSearch, setVocabSearch] = useState('');
   const [selectedVocabLanguage, setSelectedVocabLanguage] = useState(userProfile?.targetLanguage || 'English');
 
-  const availableTargetLanguages = ['English', 'German', 'Spanish', 'French', 'Italian', 'Russian', 'Turkish'];
-
+  const availableTargetLanguages = getTargetLanguageNames();
   // Current list to display based on selected tab or active targetLanguage
   const activeVocabList = allVocabularies[selectedVocabLanguage] || (selectedVocabLanguage === userProfile?.targetLanguage ? savedVocabulary : []);
 
