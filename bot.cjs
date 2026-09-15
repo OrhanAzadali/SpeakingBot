@@ -2785,5 +2785,59 @@ bot.on('message', async (ctx) => {
     }
 });
 // ==================== LAUNCH ====================
-bot.launch();
-console.log('[Telegram Bot] Launched (mode: ' + (require.main === module ? 'standalone' : 'embedded') + ')');
+// ==================== LAUNCH ====================
+// PATCH 5.2 — graceful shutdown + retry on 409 + drop stale updates
+let _botLaunched = false;
+let _botLaunchRetry = 0;
+const BOT_MAX_RETRIES = 5;
+
+async function launchBotWithRetry() {
+    if (_botLaunched) {
+        console.warn('[Telegram Bot] Already launched — skipping duplicate launch');
+        return;
+    }
+
+    try {
+        await bot.launch({
+            dropPendingUpdates: true,
+            allowedUpdates: ['message', 'edited_message', 'callback_query', 'pre_checkout_query', 'inline_query'],
+        });
+        _botLaunched = true;
+        console.log('[Telegram Bot] Launched (mode: ' + (require.main === module ? 'standalone' : 'embedded') + ')');
+        console.log('[Telegram Bot] Started inside server process');
+    } catch (err) {
+        const is409 = /409|Conflict/i.test(err.message || '');
+        if (is409 && _botLaunchRetry < BOT_MAX_RETRIES) {
+            _botLaunchRetry++;
+            const delay = 5000 + _botLaunchRetry * 2000;  // 7s, 9s, 11s...
+            console.warn(`[Telegram Bot] 409 conflict — old instance still alive. Retry #${_botLaunchRetry}/${BOT_MAX_RETRIES} in ${delay}ms`);
+            setTimeout(launchBotWithRetry, delay);
+            return;
+        }
+        console.error('[Telegram Bot] Launch failed permanently:', err.message);
+    }
+}
+
+// Graceful shutdown: release Telegram polling slot before process dies
+async function shutdownBot(signal) {
+    console.log(`[Telegram Bot] Received ${signal} — stopping bot cleanly...`);
+    try {
+        // Race bot.stop() against a hard 3s timeout so we never hang on shutdown.
+        // Promise.race always returns a Promise, so `await` here is legit.
+        await Promise.race([
+            Promise.resolve(bot.stop(signal)),
+            new Promise((resolve) => setTimeout(resolve, 3000)),
+        ]);
+        console.log('[Telegram Bot] Stopped cleanly');
+    } catch (e) {
+        console.warn('[Telegram Bot] stop() failed:', e.message);
+    }
+    // Give Telegram 500ms to release the long-poll connection
+    setTimeout(() => process.exit(0), 500);
+}
+
+process.once('SIGINT', () => shutdownBot('SIGINT'));
+process.once('SIGTERM', () => shutdownBot('SIGTERM'));
+process.once('SIGUSR2', () => shutdownBot('SIGUSR2'));  // nodemon signal
+
+launchBotWithRetry();
