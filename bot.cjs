@@ -1484,16 +1484,128 @@ async function safeMarkdownReply(ctx, text, opts = {}) {
 // wrong language → refuse and offer alternatives.
 // ────────────────────────────────────────────────────────────
 const TOPIC_LANG_ALIASES = {
+    // English
     'english': 'English',
+    // German (native: Deutsch — NOT to confuse with Dutch!)
     'german': 'German', 'deutsch': 'German',
-    'spanish': 'Spanish', 'espanol': 'Spanish', 'español': 'Spanish',
+    // Dutch (native: Nederlands)
+    'dutch': 'Dutch', 'nederlands': 'Dutch', 'hollandisch': 'Dutch',
+    // Spanish
+    'spanish': 'Spanish', 'espanol': 'Spanish', 'español': 'Spanish', 'castellano': 'Spanish',
+    // French
     'french': 'French', 'francais': 'French', 'français': 'French',
+    // Italian
     'italian': 'Italian', 'italiano': 'Italian',
+    // Portuguese
+    'portuguese': 'Portuguese', 'portugues': 'Portuguese', 'português': 'Portuguese',
+    // Russian
     'russian': 'Russian', 'русский': 'Russian',
+    // Ukrainian
+    'ukrainian': 'Ukrainian', 'українська': 'Ukrainian',
+    // Polish
+    'polish': 'Polish', 'polski': 'Polish',
+    // Turkish
     'turkish': 'Turkish', 'türkçe': 'Turkish',
+    // Azerbaijani
     'azerbaijani': 'Azerbaijani', 'azeri': 'Azerbaijani', 'azərbaycan': 'Azerbaijani',
+    // Arabic
+    'arabic': 'Arabic', 'العربية': 'Arabic',
+    // Chinese
+    'chinese': 'Chinese', 'mandarin': 'Chinese', '中文': 'Chinese',
+    // Japanese
+    'japanese': 'Japanese', '日本語': 'Japanese',
+    // Korean
+    'korean': 'Korean', '한국어': 'Korean',
+    // Greek
+    'greek': 'Greek', 'ελληνικά': 'Greek',
+    // Swedish / Norwegian / Danish / Finnish
+    'swedish': 'Swedish', 'svenska': 'Swedish',
+    'norwegian': 'Norwegian', 'norsk': 'Norwegian',
+    'danish': 'Danish', 'dansk': 'Danish',
+    'finnish': 'Finnish', 'suomi': 'Finnish',
+    // Czech / Slovak / Hungarian / Romanian
+    'czech': 'Czech', 'čeština': 'Czech',
+    'slovak': 'Slovak', 'slovenčina': 'Slovak',
+    'hungarian': 'Hungarian', 'magyar': 'Hungarian',
+    'romanian': 'Romanian', 'română': 'Romanian',
+    // Bulgarian / Serbian / Croatian
+    'bulgarian': 'Bulgarian', 'български': 'Bulgarian',
+    'serbian': 'Serbian', 'српски': 'Serbian',
+    'croatian': 'Croatian', 'hrvatski': 'Croatian',
+    // Hindi
+    'hindi': 'Hindi', 'हिन्दी': 'Hindi',
+    // Hebrew
+    'hebrew': 'Hebrew', 'עברית': 'Hebrew',
 };
 
+// ────────────────────────────────────────────────────────────
+// AI-based language detection for a topic — fallback used when
+// the fast alias map doesn't find a known language name.
+// Only called for short topics that plausibly contain a language.
+// Returns canonical English name of the language, or null.
+// ────────────────────────────────────────────────────────────
+async function detectTopicLanguageWithAI(topic, targetLang) {
+    if (!topic || typeof topic !== 'string') return null;
+    const trimmed = topic.trim();
+    if (trimmed.length < 2 || trimmed.length > 200) return null;
+
+    // Only run if there's a capitalized word (likely a proper language name)
+    // e.g. "German cases", "Dutch verbs", "Nederlands grammatica"
+    const hasCapitalizedWord = /(^|\s)[A-ZÀ-Ý][a-zà-ÿ]+/.test(trimmed);
+    if (!hasCapitalizedWord) return null;
+
+    try {
+        const model = await pickGroqModel();
+        if (!model) return null;
+
+        const prompt = `You are a language detector. The user is learning "${targetLang}" and typed a topic for a grammar/roadmap guide.
+
+Topic: "${trimmed}"
+
+Task: If the topic CLEARLY names a specific natural language that is NOT "${targetLang}", return that language.
+Otherwise return null.
+
+CRITICAL RULES:
+- "Deutsch" = German. "Dutch" = Dutch (Netherlands). DO NOT confuse them.
+- "Español" = Spanish, "Français" = French, "Nederlands" = Dutch, "Deutsch" = German.
+- A topic without an explicit language name (e.g. "Cases", "Past Tenses", "A1 basics") → return null.
+
+Reply ONLY valid JSON: {"language": "English name"} or {"language": null}`;
+
+        const resp = await axios.post(
+            'https://api.groq.com/openai/v1/chat/completions',
+            {
+                model,
+                messages: [{ role: 'user', content: prompt }],
+                temperature: 0.0,
+                response_format: { type: 'json_object' },
+                max_tokens: 40,
+            },
+            {
+                headers: { 'Authorization': `Bearer ${GROQ_API_KEY}` },
+                timeout: 8000,
+            }
+        );
+
+        const parsed = JSON.parse(resp.data.choices[0].message.content);
+        const detected = parsed?.language;
+        if (!detected || typeof detected !== 'string') return null;
+
+        // Sanity check: don't treat target language as mismatch
+        if (detected.toLowerCase() === String(targetLang).toLowerCase()) return null;
+        return detected;
+    } catch (e) {
+        console.warn('[TopicLangAI] failed:', e.message);
+        return null;
+    }
+}
+
+// Wrapper: fast alias map first, AI only when map misses.
+async function checkTopicLanguage(topic, targetLang) {
+    const fast = detectTopicLanguageMismatch(topic, targetLang);
+    if (fast) return fast;
+    return await detectTopicLanguageWithAI(topic, targetLang);
+}
 // Returns the language name mentioned in topic that DIFFERS from targetLanguage,
 // or null if there's no mismatch (topic mentions no language, or mentions the target).
 function detectTopicLanguageMismatch(topic, targetLanguage) {
@@ -1998,7 +2110,7 @@ bot.command('grammar', async (ctx) => {
         const topic = ctx.message.text.split(' ').slice(1).join(' ') || 'Basic Grammar';
         const p = await getUserProfile(ctx.from.id);
         if (!p._isFallback) {
-            const mismatch = detectTopicLanguageMismatch(topic, p.targetLanguage);
+            const mismatch = await checkTopicLanguage(topic, p.targetLanguage);
             if (mismatch) {
                 return refuseLanguageMismatch(ctx, topic, mismatch, p.targetLanguage, p.mediatorLanguage, 'grammar');
             }
@@ -2068,7 +2180,7 @@ bot.command('roadmap', async (ctx) => {
     const p = await getUserProfile(ctx.from.id);
 
     if (!p._isFallback) {
-        const mismatch = detectTopicLanguageMismatch(topic, p.targetLanguage);
+        const mismatch = await checkTopicLanguage(topic, p.targetLanguage);
         if (mismatch) {
             return refuseLanguageMismatch(ctx, topic, mismatch, p.targetLanguage, p.mediatorLanguage, 'roadmap');
         }
@@ -2133,7 +2245,7 @@ bot.command('grammar_pdf', async (ctx) => {
 
         // Language-mismatch guard (skip if profile is a fallback)
         if (!p._isFallback) {
-            const mismatch = detectTopicLanguageMismatch(topic, p.targetLanguage);
+            const mismatch = await checkTopicLanguage(topic, p.targetLanguage);
             if (mismatch) {
                 return refuseLanguageMismatch(ctx, topic, mismatch, p.targetLanguage, p.mediatorLanguage, 'grammar_pdf');
             }
@@ -2156,7 +2268,7 @@ bot.command('roadmap_pdf', async (ctx) => {
         const p = await getUserProfile(ctx.from.id);
 
         if (!p._isFallback) {
-            const mismatch = detectTopicLanguageMismatch(topic, p.targetLanguage);
+            const mismatch = await checkTopicLanguage(topic, p.targetLanguage);
             if (mismatch) {
                 return refuseLanguageMismatch(ctx, topic, mismatch, p.targetLanguage, p.mediatorLanguage, 'roadmap_pdf');
             }
