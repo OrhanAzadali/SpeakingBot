@@ -685,10 +685,13 @@ async function generatePdf(type, userId, targetLang, level, mediatorLang = 'en',
             const res = await axios.post(`${API_BASE}${endpoint}`, {
                 userId,
                 targetLanguage: targetLang,
+                // Send BOTH aliases so whichever field the server reads is present.
+                level,
                 userLevel: level,
-                mediatorLanguage: mediatorLang,
+                ruleTitle: topic,
                 topic,
-                format: 'pdf',        // ← server honours this branch
+                mediatorLanguage: mediatorLang,
+                format: 'pdf',
             }, {
                 timeout: 60000,
                 responseType: 'arraybuffer',
