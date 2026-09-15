@@ -665,12 +665,29 @@ function MainApp() {
       setIsSyncing(false);
     }
   };
-  const handlePlacementTestCompleted = (newLevel, newScore) => {
+  const handlePlacementTestCompleted = async (newLevel, newScore) => {
+    // 1. Optimistic local update (мгновенный отзыв)
     setUserProfile((prev) => ({
       ...prev,
       currentLevel: newLevel,
-      overallScore: newScore
+      overallScore: newScore,
     }));
+
+    // 2. Re-fetch canonical profile from server
+    try {
+      const uid = userProfile?.userId || localStorage.getItem("userId") || "default-user";
+      const res = await fetch(`/api/user/profile?userId=${encodeURIComponent(uid)}`);
+      const json = await res.json();
+      if (json.success && json.data) {
+        setUserProfile((prev) => normalizeUserProfile(json.data, prev));
+        console.log("[Placement] profile synced:", {
+          level: json.data.currentLevel,
+          score: json.data.overallScore,
+        });
+      }
+    } catch (e) {
+      console.warn("[Placement] profile refresh failed:", e.message);
+    }
   };
   const handleSkillUpdated = (newSkills) => {
     setUserProfile((prev) => ({
