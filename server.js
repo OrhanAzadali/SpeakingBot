@@ -5331,6 +5331,22 @@ app.post("/api/tests/generate-skill", async (req, res) => {
             return res.status(400).json({ success: false, error: `Invalid skill. Use one of: ${validSkills.join(", ")}` });
         }
 
+        // ── ANTI-REPETITION: fetch recently asked questions from Redis ──
+        const recentKey = `spk:skilltest_recent:${userId}:${skill}:${targetLanguage}:${userLevel}`;
+        let previousQuestions = [];
+        if (redis) {
+            try {
+                const raw = await redis.get(recentKey);
+                if (raw) previousQuestions = JSON.parse(raw);
+            } catch (e) {
+                console.warn('[skilltest] Redis read failed:', e.message);
+            }
+        }
+        // Merge client-provided list with server cache
+        if (Array.isArray(req.body.previousQuestions)) {
+            previousQuestions = [...previousQuestions, ...req.body.previousQuestions];
+        }
+        previousQuestions = [...new Set(previousQuestions)].slice(-30);
         // §5.25 Mediator gating: mediator only for A1/A2 explanations
         const useMediator = (userLevel === "A1" || userLevel === "A2");
         const effectiveMediator = useMediator ? mediatorLanguage : targetLanguage;
@@ -5344,6 +5360,11 @@ STRICT REQUIREMENTS — the test is INVALID if any minimum is not met:
 - Each question must include a short explanation in ${effectiveMediator} explaining WHY the answer is correct.
 - Questions must be UNIQUE and require real reasoning, not just pattern-matching.
 - Do NOT repeat the same sub-topic more than twice.
+- Do NOT reuse the exact wording of these previously asked questions:
+${JSON.stringify(previousQuestions.slice(-15), null, 2)}
+- Vary the CEFR sub-band within ${userLevel} (e.g., ${userLevel}-low, ${userLevel}-mid).
+- Rotate between three different contexts: personal life, work/study, public media.
+- Make all necessary researches, take necessart data from the most scientifically approved sources related to the sub-topic and analyze deeper all sub-topics to provide significantly useful and up-to-date content.
 
 ${skill === "listening" ? `- Include an "audioText" field: a short 1-2 sentence script that the learner would hear (in ${targetLanguage}).`
                 : skill === "writing" ? `- Each question should present a short writing task or error-correction exercise.`
@@ -5406,6 +5427,15 @@ CRITICAL: Return ONLY raw JSON. No markdown. Start with { and end with }.`;
         }));
 
         console.log(`[SkillTest] Generated ${parsed.questions.length} questions for ${skill} / ${targetLanguage} / ${userLevel}`);
+
+        // ── Save these questions to Redis for future anti-repetition ──
+        if (redis) {
+            const newSeen = [
+                ...previousQuestions,
+                ...parsed.questions.map((q) => q.question),
+            ].slice(-30);
+            redis.set(recentKey, JSON.stringify(newSeen), 'EX', 86400 * 7).catch(() => { });
+        }
 
         res.json({ success: true, test: parsed });
     } catch (err) {

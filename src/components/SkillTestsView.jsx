@@ -244,6 +244,10 @@ export const SkillTestsView = ({
   const [activeSkillModal, setActiveSkillModal] = useState(null);
   const [currentTestIndex, setCurrentTestIndex] = useState(0);
   const [selectedAnswer, setSelectedAnswer] = useState(null);
+  // ── AI-generated questions (replaces static MULTILINGUAL_SKILL_TESTS) ──
+  const [testQuestions, setTestQuestions] = useState([]);
+  const [isLoadingTest, setIsLoadingTest] = useState(false);
+  const [testError, setTestError] = useState(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [successNotice, setSuccessNotice] = useState("");
   const [isGeneratingRoadmap, setIsGeneratingRoadmap] = useState(false);
@@ -263,16 +267,55 @@ export const SkillTestsView = ({
     listening: userProfile?.skillScores?.listening ?? userProfile?.skillLevels?.listening?.score ?? 70,
     speaking: userProfile?.skillScores?.speaking ?? userProfile?.skillLevels?.speaking?.score ?? 62
   };
-  const skillTests = getSkillTestsForLanguage(userProfile?.targetLanguage);
 
-  const handleStartSkillTest = (skill) => {
+  // Static data is deprecated — questions are now fetched from AI on test start.
+  // Kept only as a last-ditch fallback if the server is offline.
+  const _staticFallback = getSkillTestsForLanguage(userProfile?.targetLanguage);
+
+  const handleStartSkillTest = async (skill) => {
     setActiveSkillModal(skill);
     setCurrentTestIndex(0);
     setSelectedAnswer(null);
+    setTestQuestions([]);
+    setTestError(null);
+    setIsLoadingTest(true);
+
+    try {
+      const res = await fetch("/api/tests/generate-skill", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          userId: userProfile.userId,
+          skill,
+          targetLanguage: userProfile.targetLanguage,
+          userLevel: userProfile.currentLevel,
+          mediatorLanguage: userProfile.mediatorLanguage,
+          count: 1,
+        }),
+      });
+      const json = await res.json();
+
+      if (json.success && json.test?.questions?.length) {
+        setTestQuestions(json.test.questions);
+      } else {
+        // Server offline or AI failed — use static fallback
+        const staticQs = _staticFallback?.[skill];
+        if (Array.isArray(staticQs) && staticQs.length > 0) {
+          setTestQuestions(staticQs);
+        } else {
+          throw new Error(json.error || "AI failed to generate questions");
+        }
+      }
+    } catch (e) {
+      console.error("[SkillTestsView] failed to load questions:", e.message);
+      setTestError(e.message);
+    } finally {
+      setIsLoadingTest(false);
+    }
   };
   const handleSubmitSkillQuestion = async () => {
     if (!activeSkillModal || selectedAnswer === null) return;
-    const questions = skillTests[activeSkillModal] || [];
+    const questions = testQuestions;
     const q = questions[currentTestIndex];
     if (!q) return;
     const isCorrect = selectedAnswer === q.correctIndex;
@@ -491,12 +534,99 @@ export const SkillTestsView = ({
             Quick Assessment: {activeSkillModal}
           </h3>
           <button
-            onClick={() => setActiveSkillModal(null)}
+            onClick={() => { setActiveSkillModal(null); setTestQuestions([]); setTestError(null); }}
             className="text-xs text-slate-400 hover:text-slate-200"
           >
             Cancel
           </button>
         </div>
+
+        {/* Switch to Classic Author Immersion for reading/listening */}
+        {(activeSkillModal === "reading" || activeSkillModal === "listening") && onOpenStories && (
+          <div className="p-3 rounded-2xl bg-gradient-to-r from-indigo-950/40 to-slate-900 border border-indigo-500/30 flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2">
+              <span className="p-1.5 rounded-lg bg-indigo-500/20 text-indigo-400">
+                {activeSkillModal === "reading" ? <BookOpen className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
+              </span>
+              <div>
+                <p className="text-xs font-bold text-indigo-200">Deep Classic Author Immersion Test</p>
+                <p className="text-[10px] text-slate-400">Full short story with Socratic analysis</p>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => { const mode = activeSkillModal; setActiveSkillModal(null); onOpenStories(mode); }}
+              className="shrink-0 px-3 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold transition-all flex items-center gap-1"
+            >
+              <span>Launch Story</span>
+              <ExternalLink className="w-3 h-3" />
+            </button>
+          </div>
+        )}
+
+        {/* Loading state */}
+        {isLoadingTest && (
+          <div className="py-10 text-center space-y-3">
+            <div className="w-10 h-10 border-4 border-sky-500/20 border-t-sky-500 rounded-full animate-spin mx-auto" />
+            <p className="text-xs text-slate-400">
+              AI is preparing your {activeSkillModal} question…
+            </p>
+          </div>
+        )}
+
+        {/* Error state */}
+        {!isLoadingTest && testError && (
+          <div className="p-3 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-300 text-xs space-y-2">
+            <p className="font-bold">Failed to load question</p>
+            <p className="text-[11px]">{testError}</p>
+            <button
+              onClick={() => handleStartSkillTest(activeSkillModal)}
+              className="px-3 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-500 text-white text-[11px] font-bold"
+            >
+              Try again
+            </button>
+          </div>
+        )}
+
+        {/* Question + options */}
+        {!isLoadingTest && !testError && testQuestions[currentTestIndex] && (
+          <div className="space-y-4">
+            <p className="text-sm font-semibold text-slate-100">
+              {testQuestions[currentTestIndex].question}
+            </p>
+
+            <div className="space-y-2">
+              {(testQuestions[currentTestIndex].options || []).map((opt, oIdx) => (
+                <button
+                  key={oIdx}
+                  type="button"
+                  onClick={() => setSelectedAnswer(oIdx)}
+                  className={`w-full p-3 rounded-xl border text-xs text-left transition-all ${selectedAnswer === oIdx
+                    ? "bg-sky-600/20 border-sky-500 text-sky-200 font-bold"
+                    : "bg-slate-950 border-slate-800 text-slate-300 hover:bg-slate-850"
+                    }`}
+                >
+                  {opt}
+                </button>
+              ))}
+            </div>
+
+            <div className="pt-2 flex items-center justify-between">
+              <span className="text-[11px] text-slate-400">
+                {activeSkillModal === "grammar"
+                  ? "⚡ Generates custom roadmap on submit"
+                  : "Telegram Bot profile updates live"}
+              </span>
+              <button
+                onClick={handleSubmitSkillQuestion}
+                disabled={selectedAnswer === null || isSubmitting}
+                className="px-5 py-2.5 rounded-xl bg-sky-600 hover:bg-sky-500 text-white text-xs font-bold shadow-md shadow-sky-600/20 transition-all disabled:opacity-40"
+              >
+                {isSubmitting ? "Syncing with Bot…" : "Submit & Update Bot Profile"}
+              </button>
+            </div>
+          </div>
+        )}
 
         {
           /* Switch to Classic Author Immersion if Reading or Listening */
