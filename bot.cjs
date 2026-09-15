@@ -2091,66 +2091,71 @@ async function handleSpeakingVoiceReply(ctx) {
 }
 // PDF commands
 bot.command('grammar', async (ctx) => {
-    const topic = ctx.message.text.split(' ').slice(1).join(' ') || 'Basic Grammar';
-    const p = await getUserProfile(ctx.from.id);
-
-    const mismatch = detectTopicLanguageMismatch(topic, p.targetLanguage);
-    if (mismatch) {
-        return refuseLanguageMismatch(ctx, topic, mismatch, p.targetLanguage, p.mediatorLanguage, 'grammar');
-    }
-
-    await ctx.reply(`📖 Generating grammar guide for "${topic}"...`); s
     try {
-        const { data } = await axios.post(`${API_BASE}/api/gemini/generate-grammar-guide`, {
-            userId: ctx.from.id,
-            targetLanguage: p.targetLanguage,
-            ruleTitle: topic,
-            level: p.currentLevel,
-            mediatorLanguage: p.mediatorLanguage,
-        }, { timeout: 60000 });
+        const topic = ctx.message.text.split(' ').slice(1).join(' ') || 'Basic Grammar';
+        const p = await getUserProfile(ctx.from.id);
 
-        const guide = data.guide;
-        if (!guide) throw new Error('No guide');
+        const mismatch = detectTopicLanguageMismatch(topic, p.targetLanguage);
+        if (mismatch) {
+            return refuseLanguageMismatch(ctx, topic, mismatch, p.targetLanguage, p.mediatorLanguage, 'grammar');
+        }
 
-        // Форматируем текстом
-        const lines = [
-            `📖 *${guide.title}*`,
-            `Level: ${guide.level || p.currentLevel}`,
-            '',
-            guide.summary || '',
-            '',
-            '*Core Rules:*',
-        ];
-        (guide.coreRules || []).slice(0, 4).forEach((rule, i) => {
-            lines.push(`${i + 1}. *${rule.ruleTitle}*`);
-            lines.push(`   ${rule.explanationInMediator}`);
-            lines.push(`   📐 ${rule.formula}`);
-            lines.push(`   💬 ${rule.example}`);
-            lines.push('');
-        });
+        await ctx.reply(`📖 Generating grammar guide for "${topic}"...`); s
+        try {
+            const { data } = await axios.post(`${API_BASE}/api/gemini/generate-grammar-guide`, {
+                userId: ctx.from.id,
+                targetLanguage: p.targetLanguage,
+                ruleTitle: topic,
+                level: p.currentLevel,
+                mediatorLanguage: p.mediatorLanguage,
+            }, { timeout: 60000 });
 
-        if (guide.commonMistakes?.length) {
-            lines.push('*Common Mistakes:*');
-            guide.commonMistakes.slice(0, 3).forEach(m => {
-                lines.push(`❌ ${m.incorrect}`);
-                lines.push(`✅ ${m.correct}`);
-                lines.push(`   ${m.reason}`);
+            const guide = data.guide;
+            if (!guide) throw new Error('No guide');
+
+            // Форматируем текстом
+            const lines = [
+                `📖 *${guide.title}*`,
+                `Level: ${guide.level || p.currentLevel}`,
+                '',
+                guide.summary || '',
+                '',
+                '*Core Rules:*',
+            ];
+            (guide.coreRules || []).slice(0, 4).forEach((rule, i) => {
+                lines.push(`${i + 1}. *${rule.ruleTitle}*`);
+                lines.push(`   ${rule.explanationInMediator}`);
+                lines.push(`   📐 ${rule.formula}`);
+                lines.push(`   💬 ${rule.example}`);
                 lines.push('');
             });
-        }
 
-        lines.push('_Full PDF: /grammar_pdf ' + topic + '_');
+            if (guide.commonMistakes?.length) {
+                lines.push('*Common Mistakes:*');
+                guide.commonMistakes.slice(0, 3).forEach(m => {
+                    lines.push(`❌ ${m.incorrect}`);
+                    lines.push(`✅ ${m.correct}`);
+                    lines.push(`   ${m.reason}`);
+                    lines.push('');
+                });
+            }
 
-        const text = lines.join('\n');
-        if (text.length > 4000) {
-            await safeMarkdownReply(ctx, text.slice(0, 4000), { parse_mode: 'Markdown' });
-            await safeMarkdownReply(ctx, text.slice(4000), { parse_mode: 'Markdown' });
-        } else {
-            await safeMarkdownReply(ctx, text, { parse_mode: 'Markdown' });
+            lines.push('_Full PDF: /grammar_pdf ' + topic + '_');
+
+            const text = lines.join('\n');
+            if (text.length > 4000) {
+                await safeMarkdownReply(ctx, text.slice(0, 4000), { parse_mode: 'Markdown' });
+                await safeMarkdownReply(ctx, text.slice(4000), { parse_mode: 'Markdown' });
+            } else {
+                await safeMarkdownReply(ctx, text, { parse_mode: 'Markdown' });
+            }
+        } catch (e) {
+            console.error('grammar error:', e.message);
+            ctx.reply('Failed to generate grammar guide.');
         }
-    } catch (e) {
-        console.error('grammar error:', e.message);
-        ctx.reply('Failed to generate grammar guide.');
+    } catch (outerErr) {
+        console.error('grammar UNHANDLED:', outerErr.message, outerErr.stack?.split('\n')[1]);
+        return ctx.reply('⚠️ Произошла внутренняя ошибка. Попробуйте ещё раз.').catch(() => { });
     }
 });
 
@@ -2895,7 +2900,6 @@ bot.on('message', async (ctx) => {
     }
 });
 // ==================== LAUNCH ====================
-// ==================== LAUNCH ====================
 // PATCH 5.2 — graceful shutdown + retry on 409 + drop stale updates
 let _botLaunched = false;
 let _botLaunchRetry = 0;
@@ -2927,6 +2931,22 @@ async function launchBotWithRetry() {
         console.error('[Telegram Bot] Launch failed permanently:', err.message);
     }
 }
+
+// ────────────────────────────────────────────────────────────
+// GLOBAL ERROR CATCH — prevent one handler crash from killing the bot.
+// Without this, any unhandled error in a message handler propagates
+// up through bot.launch(), which triggers our retry-loop "Launch failed
+// permanently" and leaves the bot dead until the next deploy.
+// ────────────────────────────────────────────────────────────
+bot.catch((err, ctx) => {
+    const updateType = ctx?.updateType || 'unknown';
+    const from = ctx?.from?.id || 'unknown';
+    console.error(`[Bot] Unhandled error in handler (updateType=${updateType}, from=${from}):`, err.message);
+    console.error('[Bot] Stack:', err.stack?.split('\n').slice(0, 4).join('\n'));
+
+    // Try to notify the user (best-effort, never throw)
+    ctx?.reply?.('⚠️ Произошла внутренняя ошибка. Попробуйте ещё раз.').catch(() => { });
+});
 
 // Graceful shutdown: release Telegram polling slot before process dies
 async function shutdownBot(signal) {
