@@ -3216,24 +3216,117 @@ Return ONLY valid JSON matching this schema:
   "exercises": [{"id": "task-1", "taskNumber": 1, "category": "Comprehension", "question": "...", "options": ["A","B","C","D"], "correctIndex": 0, "explanation": "...", "points": 25}]
 }`;
 
+    // ═══════════════════════════════════════════════════════
+    // Helper: ensure a story has a non-empty sentences array.
+    // If AI returned paragraphs but no sentences, split them on
+    // sentence boundaries so the UI has something to click.
+    // ═══════════════════════════════════════════════════════
+    const ensureSentences = (story) => {
+        if (!story || typeof story !== 'object') return story;
+
+        // Already valid
+        if (Array.isArray(story.sentences) && story.sentences.length > 0) {
+            return story;
+        }
+
+        // Try to recover from paragraphs
+        if (Array.isArray(story.paragraphs) && story.paragraphs.length > 0) {
+            console.warn('[synthesizeStory] AI returned no sentences — splitting paragraphs');
+
+            const joined = story.paragraphs.join(' ');
+            // Split on . ! ? … keeping the punctuation
+            const rawSentences = joined.match(/[^.!?…]+[.!?…]+(?:\s+|$)/g) || [joined];
+
+            story.sentences = rawSentences
+                .map((s) => s.trim())
+                .filter((s) => s.length > 15 && s.length < 350)
+                .slice(0, 8)
+                .map((s) => ({
+                    text: s,
+                    translation: '',
+                    literaryNote: '',
+                    audioTime: '0:00 - 0:07',
+                }));
+
+            if (story.sentences.length > 0) {
+                console.log(`[synthesizeStory] Recovered ${story.sentences.length} sentences from paragraphs`);
+                return story;
+            }
+        }
+
+        // Try to recover from single "storyText" or "text" field
+        const rawText = story.storyText || story.text || '';
+        if (typeof rawText === 'string' && rawText.length > 50) {
+            const rawSentences = rawText.match(/[^.!?…]+[.!?…]+(?:\s+|$)/g) || [rawText];
+            story.sentences = rawSentences
+                .map((s) => s.trim())
+                .filter((s) => s.length > 15 && s.length < 350)
+                .slice(0, 8)
+                .map((s) => ({
+                    text: s,
+                    translation: '',
+                    literaryNote: '',
+                    audioTime: '0:00 - 0:07',
+                }));
+            if (story.sentences.length > 0) {
+                console.log(`[synthesizeStory] Recovered ${story.sentences.length} sentences from raw text`);
+                return story;
+            }
+        }
+
+        // No sentences, no paragraphs, no text — return as-is
+        // (caller decides whether to fall through to generateLocalFallbackStory)
+        return story;
+    };
+
+    // ═══════════════════════════════════════════════════════
+    // Main attempt: Gemini
+    // ═══════════════════════════════════════════════════════
     const raw = await callGeminiWithResilience(aiPrompt);
+
     if (raw) {
         const parsed = await repairJson(raw);
-        if (parsed && Array.isArray(parsed.sentences) && parsed.sentences.length > 0) {
-            return parsed;
+        if (parsed && typeof parsed === 'object') {
+            const recovered = ensureSentences(parsed);
+            if (Array.isArray(recovered.sentences) && recovered.sentences.length > 0) {
+                return recovered;
+            }
+            console.warn("[Gutenberg AI] Gemini JSON parsed, but no sentences even after recovery");
+        } else {
+            console.warn("[Gutenberg AI] repairJson returned null");
         }
-        console.warn("[Gutenberg AI] После ремонта JSON всё ещё пуст или невалиден");
     }
 
+    // ═══════════════════════════════════════════════════════
+    // Fallback 1: OpenRouter (only if Gemini itself returned null)
+    // ═══════════════════════════════════════════════════════
     if (!raw) {
-        console.warn("[AI Engine] Gemini полностью недоступен, пробуем OpenRouter...");
+        console.warn("[AI Engine] Gemini вернул null, пробуем OpenRouter...");
         const orResult = await callOpenRouter(aiPrompt);
         if (orResult) {
-            return orResult;
+            const orParsed = await repairJson(orResult);
+            if (orParsed && typeof orParsed === 'object') {
+                const recovered = ensureSentences(orParsed);
+                if (Array.isArray(recovered.sentences) && recovered.sentences.length > 0) {
+                    return recovered;
+                }
+                console.warn("[Gutenberg AI] OpenRouter JSON parsed, but no sentences after recovery");
+            } else {
+                // Maybe OpenRouter returned a string — try to wrap it
+                if (typeof orResult === 'string' && orResult.length > 50) {
+                    const wrapped = ensureSentences({ text: orResult });
+                    if (Array.isArray(wrapped.sentences) && wrapped.sentences.length > 0) {
+                        return wrapped;
+                    }
+                }
+            }
         }
     }
 
-    // Graceful fallback — build a usable story from the raw excerpt
+    // ═══════════════════════════════════════════════════════
+    // Fallback 2: Generate a local story from the raw excerpt
+    // ═══════════════════════════════════════════════════════
+    console.warn("[synthesizeStory] All AI attempts failed — using local fallback");
     return generateLocalFallbackStory({
         bookTitle: rawStory.title,
         author: rawStory.author || "Classic Author",

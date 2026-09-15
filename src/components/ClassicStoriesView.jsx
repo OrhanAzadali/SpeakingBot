@@ -982,47 +982,63 @@ export const ClassicStoriesView = ({
                     ))}
 
                     {/* Sentence Breakdown */}
-                    <div className="mt-8 pt-6 border-t border-current/20 space-y-3">
-                      <div className="text-xs font-bold uppercase tracking-wider flex items-center gap-1.5 opacity-80">
-                        <Feather className="w-3.5 h-3.5" />
-                        <span>Click Any Sentence for Socratic & Grammatical Analysis:</span>
-                      </div>
+                    {/* ═══════════════════════════════════════════════════════
+   SENTENCE BREAKDOWN — show only if story has sentences
+   ═══════════════════════════════════════════════════════ */}
+                    {Array.isArray(activeStory.sentences) && activeStory.sentences.length > 0 ? (
+                      <div className="mt-8 pt-6 border-t border-current/20 space-y-3">
+                        <div className="text-xs font-bold uppercase tracking-wider flex items-center gap-1.5 opacity-80">
+                          <Feather className="w-3.5 h-3.5" />
+                          <span>Click Any Sentence for Socratic &amp; Grammatical Analysis:</span>
+                        </div>
 
-                      <div className="space-y-2">
-                        {activeStory.sentences?.map((s, sIdx) => {
-                          const isCurrent = activeSentenceIndex === sIdx;
-                          return (
-                            <div
-                              key={sIdx}
-                              onClick={() => handleSelectSentence(sIdx)}
-                              className={`p-3 rounded-2xl cursor-pointer transition border text-sm sm:text-base font-serif ${isCurrent
-                                ? "bg-emerald-500/20 border-emerald-500/60 shadow-md ring-1 ring-emerald-500/50"
-                                : "hover:bg-current/5 border-transparent"
-                                }`}
-                            >
-                              <div className="flex items-start gap-2.5">
-                                <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-current/10 opacity-70 mt-0.5">
-                                  {sIdx + 1}
-                                </span>
-                                <div className="flex-1">
-                                  <div className="font-semibold">{s.text}</div>
-                                  {s.translation && (
-                                    <div className="text-xs italic opacity-80 mt-1">
-                                      {s.translation}
-                                    </div>
-                                  )}
-                                  {s.literaryNote && (
-                                    <div className="text-[11px] mt-1.5 font-sans px-2.5 py-1 rounded-lg bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
-                                      💡 <span className="font-semibold">Literary Insight:</span> {s.literaryNote}
-                                    </div>
-                                  )}
+                        <div className="space-y-2">
+                          {activeStory.sentences.map((s, sIdx) => {
+                            const isCurrent = activeSentenceIndex === sIdx;
+                            return (
+                              <div
+                                key={sIdx}
+                                onClick={() => handleSelectSentence(sIdx)}
+                                className={`p-3 rounded-2xl cursor-pointer transition border text-sm sm:text-base font-serif ${isCurrent
+                                  ? "bg-emerald-500/20 border-emerald-500/60 shadow-md ring-1 ring-emerald-500/50"
+                                  : "hover:bg-current/5 border-transparent"
+                                  }`}
+                              >
+                                <div className="flex items-start gap-2.5">
+                                  <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-current/10 opacity-70 mt-0.5 shrink-0">
+                                    {sIdx + 1}
+                                  </span>
+                                  <div className="flex-1 min-w-0">
+                                    <div className="font-semibold">{s.text}</div>
+                                    {s.translation && (
+                                      <div className="text-xs italic opacity-80 mt-1">
+                                        {s.translation}
+                                      </div>
+                                    )}
+                                    {s.literaryNote && (
+                                      <div className="text-[11px] mt-1.5 font-sans px-2.5 py-1 rounded-lg bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                                        💡 <span className="font-semibold">Literary Insight:</span> {s.literaryNote}
+                                      </div>
+                                    )}
+                                  </div>
                                 </div>
                               </div>
-                            </div>
-                          );
-                        })}
+                            );
+                          })}
+                        </div>
                       </div>
-                    </div>
+                    ) : (
+                      <div className="mt-8 pt-6 border-t border-current/20">
+                        <div className="p-4 rounded-2xl bg-slate-800/40 border border-slate-700/60 text-xs text-slate-400 flex items-start gap-2">
+                          <span className="shrink-0">ℹ️</span>
+                          <span>
+                            Sentence-level breakdown for this story is still being prepared.
+                            If it doesn't appear in a minute, try reopening the story from the library —
+                            a fresh fetch will regenerate the full analysis.
+                          </span>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
