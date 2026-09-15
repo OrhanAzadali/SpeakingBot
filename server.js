@@ -174,6 +174,8 @@ const currentDirname = typeof __dirname !== "undefined" ? __dirname : path.dirna
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+// Public base for absolute URL construction
+const API_BASE_PUBLIC = (process.env.MINIAPP_URL || "https://speakingbot.onrender.com").replace(/\/+$/, "");
 
 // Голоса для каждого языка (MSEdge Neural)
 const MSEdge_VOICES = {
@@ -6626,6 +6628,44 @@ app.post("/api/games/generate-vocabulary", async (req, res) => {
     }
     const fallback = getStaticVocabulary(targetLanguage, userLevel, count);
     res.json({ success: true, vocabulary: fallback });
+});
+
+// ═══════════════════════════════════════════════════════════════
+// UPLOAD PDF — accepts base64 from client, stores via pdfStorage
+// or Supabase Storage, returns a public URL that Telegram can open.
+// ═══════════════════════════════════════════════════════════════
+app.post("/api/user/upload-pdf", async (req, res) => {
+    try {
+        const { base64, filename = "document.pdf", userId = "default-user" } = req.body || {};
+
+        if (!base64 || typeof base64 !== "string") {
+            return res.status(400).json({ success: false, error: "base64 required" });
+        }
+
+        // 10 MB cap
+        const approxBytes = base64.length * 0.75;
+        if (approxBytes > 10 * 1024 * 1024) {
+            return res.status(413).json({ success: false, error: "PDF too large (max 10 MB)" });
+        }
+
+        const buffer = Buffer.from(base64, "base64");
+
+        // Try Supabase first
+        const result = await savePdfToSupabase(buffer, filename, userId, "user-generated");
+
+        if (result.url) {
+            // savePdfToSupabase may return relative URL from memory fallback
+            const absoluteUrl = result.url.startsWith("http")
+                ? result.url
+                : `${API_BASE_PUBLIC}${result.url}`;
+            return res.json({ success: true, url: absoluteUrl });
+        }
+
+        res.status(500).json({ success: false, error: "Failed to store PDF" });
+    } catch (err) {
+        console.error("[upload-pdf] failed:", err);
+        res.status(500).json({ success: false, error: err.message });
+    }
 });
 
 // =====================================================

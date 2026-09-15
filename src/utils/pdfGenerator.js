@@ -42,23 +42,91 @@ function registerUnicodeFonts(doc) {
 }
 
 // ─── Safe download — bypasses browser quirks with doc.save() ───
+// ─── Detect Telegram Mini App environment ───
+function _isTelegramMiniApp() {
+  try {
+    const tg = window.Telegram?.WebApp;
+    return !!(tg && tg.initData && typeof tg.openLink === 'function');
+  } catch { return false; }
+}
+
+// ─── Convert Blob to base64 (no data URL prefix) ───
+function _blobToBase64(blob) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      const dataUrl = String(reader.result || '');
+      const idx = dataUrl.indexOf(',');
+      resolve(idx >= 0 ? dataUrl.slice(idx + 1) : '');
+    };
+    reader.onerror = () => reject(new Error('FileReader error'));
+    reader.readAsDataURL(blob);
+  });
+}
+
+// ─── Telegram path: upload to server, open public URL ───
+async function _downloadViaTelegram(blob, filename) {
+  try {
+    const base64 = await _blobToBase64(blob);
+    const res = await fetch('/api/user/upload-pdf', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ base64, filename }),
+    });
+    const json = await res.json();
+    if (json.success && json.url) {
+      const tg = window.Telegram.WebApp;
+      // try_instant_view lets Telegram render PDF natively
+      try {
+        tg.openLink(json.url, { try_instant_view: true });
+      } catch {
+        tg.openLink(json.url);
+      }
+      return true;
+    }
+    console.warn('[PDF] Upload failed:', json.error);
+    return false;
+  } catch (e) {
+    console.warn('[PDF] Telegram download path failed:', e);
+    return false;
+  }
+}
+
+// ─── Browser path: blob URL + hidden anchor ───
+function _downloadViaBrowser(blob, filename) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  a.style.display = 'none';
+  document.body.appendChild(a);
+  a.click();
+  setTimeout(() => {
+    try { document.body.removeChild(a); } catch { /* ignore */ }
+    URL.revokeObjectURL(url);
+  }, 1000);
+}
+
 function _safeDownload(doc, filename) {
   try {
     const blob = doc.output('blob');
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = filename;
-    a.style.display = 'none';
-    document.body.appendChild(a);
-    a.click();
-    setTimeout(() => {
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-    }, 1000);
     console.log('[PDF] _safeDownload triggered:', filename);
+
+    if (_isTelegramMiniApp()) {
+      console.log('[PDF] Detected Telegram Mini App — uploading to server');
+      _downloadViaTelegram(blob, filename).then((ok) => {
+        if (!ok) {
+          console.warn('[PDF] Telegram upload failed, falling back to browser download');
+          _downloadViaBrowser(blob, filename);
+        }
+      });
+      return;
+    }
+
+    // Regular browser
+    _downloadViaBrowser(blob, filename);
   } catch (e) {
-    console.error('[PDF] _safeDownload blob approach failed, trying doc.save():', e);
+    console.error('[PDF] _safeDownload failed:', e);
     try {
       doc.save(filename);
     } catch (e2) {
