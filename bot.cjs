@@ -1976,7 +1976,7 @@ bot.command('grammar', async (ctx) => {
             return refuseLanguageMismatch(ctx, topic, mismatch, p.targetLanguage, p.mediatorLanguage, 'grammar');
         }
 
-        await ctx.reply(`📖 Generating grammar guide for "${topic}"...`); s
+        await ctx.reply(`📖 Generating grammar guide for "${topic}"...`);
         try {
             const { data } = await axios.post(`${API_BASE}/api/gemini/generate-grammar-guide`, {
                 userId: ctx.from.id,
