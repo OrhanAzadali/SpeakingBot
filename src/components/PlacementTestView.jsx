@@ -113,10 +113,12 @@ export const PlacementTestView = ({
       }
       setIsSubmitting(true);
       try {
-        await fetch("/api/user/level-test", {
+        const res = await fetch("/api/user/level-test", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
+            userId: userProfile.userId,
+            targetLanguage: userProfile.targetLanguage,
             level: assignedLevel,
             score: scorePercent,
             details: {
@@ -125,7 +127,24 @@ export const PlacementTestView = ({
             }
           })
         });
+        const json = await res.json();
+        if (!json.success) {
+          console.warn("[Placement] server rejected level-test:", json.error);
+        }
         onTestCompleted(assignedLevel, scorePercent);
+
+        try {
+          const profRes = await fetch(`/api/user/profile?userId=${encodeURIComponent(userProfile.userId)}`);
+          const profJson = await profRes.json();
+          if (profJson.success && profJson.data) {
+            console.log("[Placement] server-confirmed:", {
+              level: profJson.data.currentLevel,
+              score: profJson.data.overallScore,
+            });
+          }
+        } catch (e) {
+          console.warn("[Placement] profile re-check failed:", e.message);
+        }
       } catch (err) {
         console.error("Failed to sync level test to backend:", err);
       } finally {
