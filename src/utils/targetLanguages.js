@@ -48,6 +48,42 @@ export const TARGET_LANGUAGES = [
     nativeName: 'Türkçe',
     cefrLevels: ['A1', 'A2', 'B1', 'B2', 'C1', 'C2'],
   },
+  // RTL / CJK
+  {
+    code: "ar",
+    name: "Arabic",
+    flag: "🇸🇦",
+    nativeName: "العربية",
+    cefrLevels: ["A1", "A2", "B1", "B2", "C1", "C2"],
+  },
+  {
+    code: "he",
+    name: "Hebrew",
+    flag: "🇮🇱",
+    nativeName: "עברית",
+    cefrLevels: ["A1", "A2", "B1", "B2", "C1", "C2"],
+  },
+  {
+    code: "zh",
+    name: "Chinese",
+    flag: "🇨🇳",
+    nativeName: "中文",
+    cefrLevels: ["A1", "A2", "B1", "B2", "C1", "C2"],
+  },
+  {
+    code: "ja",
+    name: "Japanese",
+    flag: "🇯🇵",
+    nativeName: "日本語",
+    cefrLevels: ["A1", "A2", "B1", "B2", "C1", "C2"],
+  },
+  {
+    code: "ko",
+    name: "Korean",
+    flag: "🇰🇷",
+    nativeName: "한국어",
+    cefrLevels: ["A1", "A2", "B1", "B2", "C1", "C2"],
+  },
 ];
 
 export const DEFAULT_TARGET_LANGUAGE = 'English';

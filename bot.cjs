@@ -364,6 +364,96 @@ async function tryMsEdgeTTS(text, lang, fileBase) {
     throw lastErr || new Error('msedge failed');
 }
 
+async function handleLanguageSwitch(ctx, newLang, opts = {}) {
+    const userId = ctx.from.id;
+    const requestUrl = `${API_BASE}/api/user/target-language`;
+    const silent = !!opts.silent;
+
+    const reply = silent
+        ? async () => { /* suppressed */ }
+        : (...args) => ctx.reply(...args);
+
+    // ── WHITELIST VALIDATION ──
+    const canonical = canonicalizeTargetLanguage(newLang);
+    if (!canonical) {
+        const list = SUPPORTED_TARGET_LANGUAGES.join(', ');
+        return reply(
+            `⚠️ *Sorry, I don't support "${newLang}" as a target language.*\n\n` +
+            `Currently supported:\n${list}\n\n` +
+            `Try: "switch to ${SUPPORTED_TARGET_LANGUAGES[0]}" or pick from the list.`,
+            { parse_mode: 'Markdown' }
+        );
+    }
+    newLang = canonical;   // normalize "deutsch" → "German", "azeri" → "Azerbaijani"
+
+    try {
+        const { data } = await axios.post(requestUrl, {
+            userId: String(userId),
+            targetLanguage: newLang,
+        }, { timeout: 10000 });
+
+        if (!data || !data.success) {
+            throw new Error((data && data.error) || 'server refused switch');
+        }
+
+        // Force-write to shared memory first (instant), then Redis
+        try {
+            const key = String(userId);
+            const cached = (global.__SPEAKBOT_USERS && global.__SPEAKBOT_USERS[key])
+                || (await getUser(key).catch(() => null))
+                || {};
+            cached.targetLanguage = newLang;
+            if (!cached.userId) cached.userId = key;
+
+            if (global.__SPEAKBOT_USERS) {
+                global.__SPEAKBOT_USERS[key] = cached;
+            }
+            await saveUser(key, cached).catch(() => { });
+        } catch (cacheErr) {
+            console.warn('[LangSwitch] cache update failed:', cacheErr.message);
+        }
+
+        // ⚠️ ВАЖНО: reply(), а НЕ ctx.reply()
+        return reply(
+            `✅ Target language switched to *${newLang}*!\n\n` +
+            `Your profile now:\n` +
+            `• Target: ${newLang}\n` +
+            `• Mediator: ${data.data?.mediatorLanguage || 'unchanged'}\n` +
+            `• Level: ${data.data?.currentLevel || 'B1'}\n\n` +
+            `Start learning — try:\n` +
+            `• /grammar — a grammar guide in ${newLang}\n` +
+            `• /read — reading test in ${newLang}\n` +
+            `• /games — vocabulary games\n` +
+            `• Or just send me a message in ${newLang}!`,
+            { parse_mode: 'Markdown' }
+        );
+    } catch (e) {
+        console.error(`[LangSwitch] POST ${requestUrl} failed:`, e.message, e.code || '');
+
+        // ── FALLBACK: update local cache anyway, so at least this session switches ──
+        try {
+            const cached = await getUser(String(userId));
+            if (cached) {
+                cached.targetLanguage = newLang;
+                await saveUser(String(userId), cached);
+                console.log(`[LangSwitch] local cache updated to ${newLang} (server sync failed)`);
+                return reply(
+                    `✅ Switched to *${newLang}* locally.\n\n` +
+                    `⚠️ Server sync failed (${e.message.slice(0, 80)}), so this may not persist across restarts.\n\n` +
+                    `Try: /grammar — a guide in ${newLang}`,
+                    { parse_mode: 'Markdown' }
+                );
+            }
+        } catch (localErr) {
+            console.error('[LangSwitch] local cache fallback failed:', localErr.message);
+        }
+
+        return reply(
+            `⚠️ Failed to switch to ${newLang}: ${e.message}\n\n` +
+            `Diagnostic: API_BASE = ${API_BASE}`
+        );
+    }
+}
 // ─── Provider 2: StreamElements (free, no key, MP3) ───
 async function tryStreamElementsTTS(text, lang, fileBase) {
     // StreamElements voice names — use the same Neural voice IDs as msedge
@@ -890,6 +980,28 @@ async function classifyAndRouteText(text, userProfile) {
     // ── LAYER 2: guard — только если сообщение похоже на явную команду ──
     // (оставлено как было, но переменные корректно определены)
 
+    // ── 2.5 MEDIATOR-only fast path (before AI) ──
+    // Если сообщение содержит mediator-ключевые слова и НЕ содержит
+    // target-глаголов — это mediator switch, не target.
+    const MEDIATOR_KEYWORDS = /\b(mediator|native|explanations?|explanations?\s+in|clarif\w*\s+in|translate\s+(?:into|to)|speak\s+to\s+me\s+in|in\s+my\s+(?:own|native)|mediator\s+lang(?:uage)?|язык[\s-]посредник|по-русски|по-английски|по-немецки|на\s+русском|на\s+английском)\b/i;
+    const TARGET_VERB = /\b(learn|study|teach\s+me|switch\s+target|target\s+lang(?:uage)?|изучать|учить|целевой\s+язык)\b/i;
+
+    if (MEDIATOR_KEYWORDS.test(clean) && !TARGET_VERB.test(clean)) {
+        // Пытаемся вытащить язык из alias-map (сортируем по длине — длинные первыми)
+        const lower = clean.toLowerCase();
+        const aliasKeys = Object.keys(TOPIC_LANG_ALIASES).sort((a, b) => b.length - a.length);
+        for (const key of aliasKeys) {
+            const safeKey = key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+            const re = new RegExp(`(^|[^\\wа-яё])${safeKey}([^\\wа-яё]|$)`, 'i');
+            if (re.test(lower)) {
+                const canonical = TOPIC_LANG_ALIASES[key];
+                console.log('[Router] Mediator fast-path:', key, '→', canonical);
+                return { action: 'switch_mediator', lang: canonical };
+            }
+        }
+        // Язык не найден в alias-map — пусть AI попробует (fall-through)
+    }
+
     // ── 3. AI classifier ──
     // Trigger AI classifier when:
     //   • the alias-map didn't return a language, AND
@@ -905,6 +1017,8 @@ async function classifyAndRouteText(text, userProfile) {
 
     if (!aliasHit && looksLikeSwitch && clean.length < 120) {
         const aiIntent = await classifyIntentWithAI(clean, p.targetLanguage, p.mediatorLanguage);
+
+        // ── switch_target ──
         if (aiIntent?.intent === 'switch_language' && aiIntent.language) {
             const canonical = canonicalizeTargetLanguage(aiIntent.language);
             if (canonical) {
@@ -916,8 +1030,20 @@ async function classifyAndRouteText(text, userProfile) {
                 message: `⚠️ *Sorry, "${aiIntent.language}" is not supported.*\n\nSupported: ${SUPPORTED_TARGET_LANGUAGES.join(', ')}`,
             };
         }
-    }
 
+        // ── switch_mediator (НОВОЕ) ──
+        if (aiIntent?.intent === 'switch_mediator' && aiIntent.language) {
+            const canonical = canonicalizeTargetLanguage(aiIntent.language);
+            if (canonical) {
+                return { action: 'switch_mediator', lang: canonical };
+            }
+            return {
+                action: 'reject_lang',
+                lang: aiIntent.language,
+                message: `⚠️ *Sorry, mediator language "${aiIntent.language}" is not supported.*\n\nSupported: ${SUPPORTED_TARGET_LANGUAGES.join(', ')}`,
+            };
+        }
+    }
     // ── 4. Intent detection ──
     const intent = detectIntent(clean);
     const hasCommandPrefix = /\/(grammar|roadmap|read|write|listen|skilltest)\b/i.test(clean);
@@ -1218,17 +1344,18 @@ When the user writes a language name in ANY language (English, Russian,
 Turkish, Azerbaijani, native names like Deutsch/Español, or the mediator
 language), translate it to its ENGLISH canonical name.
 
-If the user mentions any other language (Dutch, Greek, Georgian, Chinese,
-Japanese, etc.) — return {"intent": "chat"}. Do NOT switch.
+If the user mentions any language NOT in the supported list (see supported list of languages below: ${supportedList}) —
+return {"intent": "chat"}. Do NOT switch.
 
 Examples:
-- "to немецкий"     → {"intent": "switch_language", "language": "German"}
-- "almancaya geç"   → {"intent": "switch_language", "language": "German"}
-- "almana keç"      → {"intent": "switch_language", "language": "German"}
-- "move/switch/toggle to deutch"      → {"intent": "switch_language", "language": "German"}
-- "move/switch/toggle to german"      → {"intent": "switch_language", "language": "German"}
-- "switch to Dutch" → {"intent": "chat"}     (not supported)
-- "to грузинский"   → {"intent": "chat"}     (not supported)
+- "to немецкий"       → {"intent": "switch_language", "language": "German"}
+- "almancaya geç"     → {"intent": "switch_language", "language": "German"}
+- "almana keç"        → {"intent": "switch_language", "language": "German"}
+- "switch to Dutch"   → {"intent": "chat"}     (Dutch not supported)
+- "to грузинский"     → {"intent": "chat"}     (Georgian not supported)
+- "switch to Chinese" → {"intent": "switch_language", "language": "Chinese"}
+- "to العربية"        → {"intent": "switch_language", "language": "Arabic"}
+- "日本語に切り替え"   → {"intent": "switch_language", "language": "Japanese"}
 
 RULES:
 - Only classify as "switch_language" if the user CLEARLY expresses desire to change target.
@@ -1248,7 +1375,25 @@ or
 
 CRITICAL: Only these target languages are supported: ${supportedList}.
 If the user asks for any other language, return {"intent": "chat"}.
-DO NOT invent unsupported target languages.`;
+DO NOT invent unsupported target languages.
+
+CRITICAL DISTINCTION — read carefully:
+- "target language" = the language the user is LEARNING (e.g. "learn German", "I want to study Spanish")
+- "mediator language" = the language used for EXPLANATIONS and TRANSLATIONS (e.g. "explain in Russian")
+
+Examples (return EXACT JSON, no commentary):
+- "switch to German"                 → {"intent": "switch_language", "language": "German"}
+- "I want to learn German"           → {"intent": "switch_language", "language": "German"}
+- "switch mediator to Russian"        → {"intent": "switch_mediator", "language": "Russian"}
+- "explain in Russian please"        → {"intent": "switch_mediator", "language": "Russian"}
+- "use Turkish for explanations"     → {"intent": "switch_mediator", "language": "Turkish"}
+- "mediator language — German"       → {"intent": "switch_mediator", "language": "German"}
+- "change mediator to English"       → {"intent": "switch_mediator", "language": "English"}
+- "по-русски пожалуйста"              → {"intent": "switch_mediator", "language": "Russian"}
+
+If the message contains the word "mediator", "native", "explanation", "translation",
+or a phrase like "по-русски" / "на английском" — it is "switch_mediator",
+NOT "switch_language".`;
 
     try {
         const model = await pickGroqModel();
@@ -1370,6 +1515,7 @@ const SUPPORTED_TARGET_LANGUAGES = [
     'Russian', 'Turkish', 'Azerbaijani',
     // RTL / CJK — supported via Noto fonts
     'Arabic', 'Hebrew', 'Chinese', 'Japanese', 'Korean',
+
 ];
 
 // Canonicalize a language name to a whitelisted canonical name,
