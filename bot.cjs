@@ -743,7 +743,7 @@ async function getUserProfileInternal(userId) {
 }
 
 // ==================== PDF GENERATION ====================
-async function generateStructuredPDF(data, filename, title) {
+async function generateStructuredPDF(data, filename, title, targetLanguage = null) {
     // Delegate rendering to the server (has DejaVu for Cyrillic/Unicode).
     const type =
         Array.isArray(data?.coreRules) ? 'grammar' :
@@ -753,12 +753,13 @@ async function generateStructuredPDF(data, filename, title) {
 
     try {
         const res = await axios.post(`${API_BASE}/api/pdf/render-structured`, {
-            type, data,
+            type,
+            data,
+            targetLanguage: targetLanguage || data?.targetLanguage || null,
         }, {
             responseType: 'arraybuffer',
             timeout: 30000,
         });
-
         const filePath = path.join(TEMP_DIR, `${filename}.pdf`);
         fs.writeFileSync(filePath, Buffer.from(res.data));
         return filePath;
@@ -845,12 +846,14 @@ async function generatePdf(type, userId, targetLang, level, mediatorLang = 'en',
             }
 
             const inner = json?.guide || json?.roadmap || json?.story || json?.data || json;
+
             if (inner && typeof inner === 'object' && !inner.text) {
                 // Server ignored format:'pdf' — build locally from structured data
                 return await generateStructuredPDF(
                     inner,
                     `speakbot_${type}_${Date.now()}`,
-                    type.toUpperCase() + ' Guide'
+                    type.toUpperCase() + ' Guide',
+                    targetLang
                 );
             }
         } catch (err) {
@@ -877,7 +880,8 @@ async function generatePdf(type, userId, targetLang, level, mediatorLang = 'en',
             return await generateStructuredPDF(
                 inner,
                 `speakbot_${type}_fallback_${Date.now()}`,
-                type.toUpperCase() + ' Guide'
+                type.toUpperCase() + ' Guide',
+                targetLang
             );
         }
     } catch (e2) {

@@ -4486,7 +4486,7 @@ app.get("/api/stories/custom-story/:storyId/pdf", (req, res) => {
     let story = userStories.find(s => s.id === storyId);
     if (!story) story = autoFetchedStories.find(s => s.id === storyId);
     if (!story) return res.status(404).json({ error: "Story not found" });
-    const buffer = generateClassicStoryPdfBuffer(story);
+    const buffer = generateClassicStoryPdfBuffer(story, story.targetLanguage);
     sendPdf(res, buffer, `story-${storyId}.pdf`);
 });
 
@@ -5997,7 +5997,7 @@ Schema:
         roadmap = normalizeRoadmapShape(roadmap);
 
         if (req.query.format === 'pdf' || req.body.format === 'pdf') {
-            const buffer = generateRoadmapPdfBuffer(roadmap);
+            const buffer = generateRoadmapPdfBuffer(roadmap, targetLanguage);
             const filename = `roadmap-${Date.now()}.pdf`;
 
             sendPdf(res, buffer, filename);
@@ -6248,7 +6248,7 @@ CRITICAL: Return ONLY raw JSON. No markdown fences, no text before or after. Sta
         }
 
         if (req.query.format === 'pdf' || req.body.format === 'pdf') {
-            const buffer = generateGrammarGuidePdfBuffer(guide);
+            const buffer = generateGrammarGuidePdfBuffer(guide, targetLanguage);
             const filename = `grammar-guide-${Date.now()}.pdf`;
 
             // Always return binary PDF to the caller (bot or web).
@@ -6389,18 +6389,20 @@ app.post("/api/gemini/tokenize", async (req, res) => {
 // ═══════════════════════════════════════════════════════════════
 app.post("/api/pdf/render-structured", async (req, res) => {
     try {
-        const { type = "grammar", data = {} } = req.body || {};
+        const { type = "grammar", data = {}, targetLanguage = null } = req.body || {};
         if (!data || typeof data !== "object") {
             return res.status(400).json({ success: false, error: "data required" });
         }
 
+        const effectiveLang = targetLanguage || data?.targetLanguage || null;
+
         let buffer;
         if (type === "grammar") {
-            buffer = generateGrammarGuidePdfBuffer(data);
+            buffer = generateGrammarGuidePdfBuffer(data, effectiveLang);
         } else if (type === "roadmap") {
-            buffer = generateRoadmapPdfBuffer(data);
+            buffer = generateRoadmapPdfBuffer(data, effectiveLang);
         } else if (type === "story") {
-            buffer = generateClassicStoryPdfBuffer(data);
+            buffer = generateClassicStoryPdfBuffer(data, effectiveLang);
         } else {
             return res.status(400).json({ success: false, error: `unknown type: ${type}` });
         }

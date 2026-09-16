@@ -94,9 +94,10 @@ function drawSectionHeader(doc, title, y, iconChar = '■', bodyFont = 'DejaVu')
 // ------------------------------------------------------------
 // Grammar Guide PDF (returns Buffer)
 // ------------------------------------------------------------
-export function generateGrammarGuidePdfBuffer(guide) {
+export function generateGrammarGuidePdfBuffer(guide, targetLanguage = null) {
     const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
-    const bodyFont = registerUnicodeFonts(doc, guide.targetLanguage);
+    const effectiveLang = targetLanguage || guide?.targetLanguage || 'English';
+    const bodyFont = registerUnicodeFonts(doc, effectiveLang);
 
     // Top Dark Header
     doc.setFillColor(30, 41, 59);
@@ -205,10 +206,10 @@ export function generateGrammarGuidePdfBuffer(guide) {
 // ------------------------------------------------------------
 // Roadmap PDF (returns Buffer)
 // ------------------------------------------------------------
-export function generateRoadmapPdfBuffer(roadmap) {
+export function generateRoadmapPdfBuffer(roadmap, targetLanguage = null) {
     const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
-    const bodyFont = registerUnicodeFonts(doc, roadmap.targetLanguage);
-    // Header, summary, milestones, checkpoints (similar approach, simplified)
+    const effectiveLang = targetLanguage || roadmap?.targetLanguage || 'English';
+    const bodyFont = registerUnicodeFonts(doc, effectiveLang);    // Header, summary, milestones, checkpoints (similar approach, simplified)
     // For brevity, we implement essential parts.
     doc.setFillColor(15, 23, 42);
     doc.rect(0, 0, 210, 42, 'F');
@@ -273,9 +274,11 @@ export function generateRoadmapPdfBuffer(roadmap) {
 // ------------------------------------------------------------
 // Vocabulary PDF (returns Buffer)
 // ------------------------------------------------------------
-export function generateVocabularyPdfBuffer(vocabularyList, targetLanguage) {
+export function generateVocabularyPdfBuffer(vocabularyList, targetLanguage = null) {
+
     const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
-    const bodyFont = registerUnicodeFonts(doc, targetLanguage);
+    const effectiveLang = targetLanguage || story?.targetLanguage || 'English';
+    const bodyFont = registerUnicodeFonts(doc, effectiveLang);
     // Header
     doc.setFillColor(15, 23, 42);
     doc.rect(0, 0, 210, 40, 'F');
@@ -285,7 +288,7 @@ export function generateVocabularyPdfBuffer(vocabularyList, targetLanguage) {
     doc.text('SpeakBot Personal Lexicon & Vocabulary Notebook', 14, 16);
     doc.setFontSize(9.5);
     doc.setTextColor(148, 163, 184);
-    doc.text(`Target Language: ${targetLanguage}  •  Total Saved Terms: ${vocabularyList.length}`, 14, 25);
+    doc.text(`Target Language: ${effectiveLang}  •  Total Saved Terms: ${vocabularyList.length}`, 14, 25);
 
     let y = 50;
     vocabularyList.forEach((item, i) => {
@@ -330,10 +333,10 @@ export function generateVocabularyPdfBuffer(vocabularyList, targetLanguage) {
 // ------------------------------------------------------------
 // Classic Story PDF (returns Buffer)
 // ------------------------------------------------------------
-export function generateClassicStoryPdfBuffer(story) {
+export function generateClassicStoryPdfBuffer(story, targetLanguage = null) {
     const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
-    const bodyFont = registerUnicodeFonts(doc, story.targetLanguage);
-    // Header
+    const effectiveLang = targetLanguage || story?.targetLanguage || 'English';
+    const bodyFont = registerUnicodeFonts(doc, effectiveLang);    // Header
     doc.setFillColor(15, 23, 42);
     doc.rect(0, 0, 210, 42, 'F');
     doc.setTextColor(255, 255, 255);
