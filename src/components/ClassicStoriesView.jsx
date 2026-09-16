@@ -404,8 +404,15 @@ export const ClassicStoriesView = ({
         French: "fr-FR",
         Italian: "it-IT",
         Russian: "ru-RU",
-        Turkish: "tr-TR"
+        Turkish: "tr-TR",
+        // RTL / CJK
+        Arabic: "ar-SA",
+        Hebrew: "he-IL",
+        Chinese: "zh-CN",
+        Japanese: "ja-JP",
+        Korean: "ko-KR",
       };
+      utterance.lang = langMap[activeStory.targetLanguage || targetLanguage] || "en-US";
       utterance.lang = langMap[activeStory.targetLanguage || targetLanguage] || "en-US";
       utterance.rate = playbackSpeed;
       utterance.pitch = 0.95;

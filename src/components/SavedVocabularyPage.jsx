@@ -131,8 +131,15 @@ export const SavedVocabularyPage = ({
       French: "fr-FR",
       Italian: "it-IT",
       Russian: "ru-RU",
-      Turkish: "tr-TR"
+      Turkish: "tr-TR",
+      // RTL / CJK
+      Arabic: "ar-SA",
+      Hebrew: "he-IL",
+      Chinese: "zh-CN",
+      Japanese: "ja-JP",
+      Korean: "ko-KR",
     };
+    utterance.lang = langCodeMap[lang] || "en-US";
     utterance.lang = langCodeMap[lang] || "en-US";
     utterance.rate = 0.9;
     utterance.onend = () => setSpeakingWord(null);

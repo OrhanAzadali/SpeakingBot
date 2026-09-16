@@ -85,6 +85,22 @@ export const HomePage = ({
       case "turkish":
       case "tr":
         return "tr-TR";
+      // RTL / CJK
+      case "arabic":
+      case "ar":
+        return "ar-SA";
+      case "hebrew":
+      case "he":
+        return "he-IL";
+      case "chinese":
+      case "zh":
+        return "zh-CN";
+      case "japanese":
+      case "ja":
+        return "ja-JP";
+      case "korean":
+      case "ko":
+        return "ko-KR";
       default:
         return "en-US";
     }

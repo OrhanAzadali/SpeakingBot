@@ -117,6 +117,12 @@ const SPEECH_LANG_MAP = {
   french: 'fr-FR',
   italian: 'it-IT',
   turkish: 'tr-TR',
+  // RTL / CJK
+  arabic: 'ar-SA',
+  hebrew: 'he-IL',
+  chinese: 'zh-CN',
+  japanese: 'ja-JP',
+  korean: 'ko-KR',
 };
 
 export function pronounceWordVoice(word, language = 'english') {

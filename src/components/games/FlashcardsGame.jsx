@@ -196,7 +196,14 @@ export const FlashcardsGame = ({
         Italian: 'it-IT',
         Russian: 'ru-RU',
         Turkish: 'tr-TR',
+        // RTL / CJK
+        Arabic: 'ar-SA',
+        Hebrew: 'he-IL',
+        Chinese: 'zh-CN',
+        Japanese: 'ja-JP',
+        Korean: 'ko-KR',
       };
+      utterance.lang = langMap[targetLanguage] || 'en-US';
       utterance.lang = langMap[targetLanguage] || 'en-US';
       utterance.rate = 0.9;
       utterance.onstart = () => setIsPlayingAudio(true);

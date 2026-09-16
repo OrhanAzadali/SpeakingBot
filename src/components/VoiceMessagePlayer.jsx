@@ -147,11 +147,21 @@ export const VoiceMessagePlayer = ({
             }
             const utterance = new SpeechSynthesisUtterance(segment.text);
             const langMap = {
-                English: "en-US", German: "de-DE", Spanish: "es-ES",
-                French: "fr-FR", Italian: "it-IT", Russian: "ru-RU",
-                Turkish: "tr-TR", Azerbaijani: "az-AZ",
+                English: "en-GB",
+                German: "de-DE",
+                Spanish: "es-ES",
+                French: "fr-FR",
+                Italian: "it-IT",
+                Russian: "ru-RU",
+                Turkish: "tr-TR",
+                // RTL / CJK
+                Arabic: "ar-SA",
+                Hebrew: "he-IL",
+                Chinese: "zh-CN",
+                Japanese: "ja-JP",
+                Korean: "ko-KR",
             };
-            utterance.lang = langMap[segment.language] || "en-US";
+            utterance.lang = langMap[activeStory.targetLanguage || targetLanguage] || "en-US";
             utterance.rate = 0.95;
             utterance.pitch = 1.0;
             utterance.onend = () => resolve();
